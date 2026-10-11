@@ -1,0 +1,116 @@
+name: profile-monitor
+
+on:
+  schedule:
+    - cron: "17 */6 * * *"
+  workflow_dispatch:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+permissions:
+  contents: read
+  pages: read
+
+jobs:
+  monitor:
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check Pages source, main contents, and live profile
+        shell: python
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          import base64, hashlib, json, os, sys, time, urllib.request
+
+          repo = os.environ["REPO"]
+          headers = {
+              "Authorization": f"Bearer {os.environ['GH_TOKEN']}",
+              "Accept": "application/vnd.github+json",
+          }
+
+          def api(path):
+              req = urllib.request.Request(f"https://api.github.com/repos/{repo}{path}", headers=headers)
+              with urllib.request.urlopen(req) as r:
+                  return json.load(r)
+
+          failures = []
+          pages = api("/pages")
+          if pages.get("source") != {"branch": "main", "path": "/"}:
+              failures.append(f"Pages source is {pages.get('source')}, expected main at /")
+          if pages.get("cname") != "profile.booking-agent.dev":
+              failures.append(f"Pages custom domain is {pages.get('cname')!r}")
+
+          main_sha = api("/branches/main")["commit"]["sha"]
+          tree = api(f"/git/trees/{main_sha}?recursive=1")["tree"]
+          for entry in tree:
+              top = entry["path"].split("/", 1)[0]
+              if top in ("booking-agent", "linkusp"):
+                  failures.append(f"main contains {entry['path']}")
+                  break
+
+          expected = base64.b64decode(api("/contents/platform-profile.json?ref=main")["content"])
+          url = f"https://{pages.get('cname')}/platform-profile.json"
+          deadline = time.time() + 600
+          while True:
+              build = api("/pages/builds/latest")
+              if build.get("commit") == main_sha and build.get("status") == "errored":
+                  failures.append(f"Pages build for {main_sha} failed: {build.get('error')}")
+                  break
+              try:
+                  req = urllib.request.Request(f"{url}?nocache={int(time.time())}", headers={"Cache-Control": "no-cache"})
+                  with urllib.request.urlopen(req) as r:
+                      live = r.read()
+              except Exception as exc:
+                  live = None
+                  print(f"fetch failed: {exc}")
+              if live == expected:
+                  print(f"live profile matches main ({hashlib.sha256(live).hexdigest()})")
+                  break
+              if time.time() > deadline:
+                  failures.append("live profile differs from platform-profile.json on main after 10 minutes")
+                  break
+              time.sleep(30)
+
+          if failures:
+              print("\n".join(failures))
+              sys.exit(1)
+
+  profile-parity:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Profile changes on master must already be on main
+        shell: python
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          import base64, json, os, sys, urllib.request
+
+          repo = os.environ["REPO"]
+          headers = {
+              "Authorization": f"Bearer {os.environ['GH_TOKEN']}",
+              "Accept": "application/vnd.github+json",
+          }
+
+          def profile(ref):
+              req = urllib.request.Request(
+                  f"https://api.github.com/repos/{repo}/contents/platform-profile.json?ref={ref}", headers=headers
+              )
+              with urllib.request.urlopen(req) as r:
+                  return base64.b64decode(json.load(r)["content"])
+
+          head = profile(os.environ["HEAD_SHA"])
+          if head == profile(os.environ["BASE_SHA"]):
+              print("platform-profile.json unchanged")
+              sys.exit(0)
+          if head != profile("main"):
+              print("platform-profile.json differs from main. Merge the profile pull request into main first, then re-run this check.")
+              sys.exit(1)
+          print("platform-profile.json matches main")
