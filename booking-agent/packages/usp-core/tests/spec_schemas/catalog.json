@@ -1,0 +1,615 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://usp-protocol.dev/schemas/services/catalog.json",
+  "title": "USP Service Catalog",
+  "description": "Service catalog schema for the Universal Scheduling Protocol. Defines the Service object and related types for discoverable, bookable offerings.",
+  "$defs": {
+    "Service": {
+      "type": "object",
+      "title": "Service",
+      "description": "A bookable offering from a business. Each service has a type (vertical), duration, pricing, policies, and optional resource requirements.",
+      "required": ["id", "business_id", "name", "type", "duration", "pricing", "channel", "policies"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique service identifier, scoped to the business. Opaque to the platform. The composite key (business_id, id) is globally unique."
+        },
+        "business_id": {
+          "type": "string",
+          "description": "Identifier of the business that owns this service. Populated by the provider in API responses. Together with id, forms the globally unique composite key for a service. Required for cross-business discovery, cached catalog aggregation, and agent-to-agent hand-off."
+        },
+        "provider": {
+          "$ref": "#/$defs/Provider",
+          "description": "Inline business metadata for display without a separate profile fetch. Aligns with UCP seller object."
+        },
+        "name": {
+          "type": "string",
+          "description": "Human-readable display name for the service (e.g., \"Women's Haircut & Style\")."
+        },
+        "description": {
+          "oneOf": [
+            {
+              "type": "string",
+              "description": "Plain text description (backward compatible)."
+            },
+            {
+              "$ref": "#/$defs/Description"
+            }
+          ],
+          "description": "Service description. Accepts either a plain string or a structured Description object with plain, markdown, and html variants. Aligns with UCP Description type."
+        },
+        "type": {
+          "type": "string",
+          "description": "The service vertical. MUST be one of the core verticals (appointment, group, reservation, rental, field_service) or a vendor-defined vertical using reverse-domain notation (e.g., com.wix.services.courses)."
+        },
+        "categories": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/ServiceCategory" },
+          "description": "Multi-taxonomy category labels for the service. The simple single-category case is a one-element array with taxonomy merchant. Exactly one entry is primary (see ServiceCategory). The primary entry is the source for display, localization, and registry projection."
+        },
+        "duration": {
+          "$ref": "#/$defs/Duration",
+          "description": "Duration configuration."
+        },
+        "pricing": {
+          "$ref": "#/$defs/Pricing",
+          "description": "Pricing model and amounts."
+        },
+        "locations": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/Location" },
+          "description": "Physical or virtual locations where the service is offered."
+        },
+        "resources": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/ResourceRequirement" },
+          "description": "Required staff, rooms, or equipment."
+        },
+        "channel": {
+          "$ref": "#/$defs/Channel",
+          "description": "Delivery channel for the service."
+        },
+        "policies": {
+          "$ref": "#/$defs/ServicePolicies",
+          "description": "Booking, cancellation, rescheduling, and payment policies."
+        },
+        "capacity": {
+          "type": "object",
+          "description": "REQUIRED for group and reservation types. min: minimum party size. max: maximum participants per slot. waitlist: whether waitlist is enabled when slots are full.",
+          "properties": {
+            "min": { "type": "integer" },
+            "max": { "type": "integer" },
+            "waitlist": { "type": "boolean" }
+          }
+        },
+        "media": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Media"
+          },
+          "description": "Service media items (images, videos). Replaces the previous images field. Aligns with UCP media model."
+        },
+        "images": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "url": { "type": "string", "format": "uri" },
+              "alt": { "type": "string" },
+              "type": { "type": "string", "enum": ["hero", "gallery", "thumbnail"] }
+            }
+          },
+          "description": "Deprecated. Alias for media for backward compatibility. If both images and media are present, media takes precedence. New implementations SHOULD use media.",
+          "deprecated": true
+        },
+        "rating": {
+          "$ref": "#/$defs/Rating",
+          "description": "Aggregate service rating. Aligns with UCP rating object."
+        },
+        "status": {
+          "type": "string",
+          "enum": ["active", "suspended", "archived"],
+          "default": "active",
+          "description": "Service lifecycle status. active: bookable (default). suspended: temporarily unavailable. archived: no longer offered."
+        },
+        "handle": {
+          "type": "string",
+          "description": "URL-friendly slug for the service (e.g., womens-haircut-style)."
+        },
+        "url": {
+          "type": "string",
+          "format": "uri",
+          "description": "Canonical service page URL on the business's website."
+        },
+        "tags": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Freeform tags for categorization and search."
+        },
+        "metadata": {
+          "type": "object",
+          "description": "Business-defined custom data extending the standard service model. Platforms SHOULD pass through opaquely."
+        },
+        "availability_hint": {
+          "$ref": "#/$defs/AvailabilityHint",
+          "description": "Approximate availability summary for agent-assisted discovery."
+        },
+        "links": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/Link" },
+          "description": "Typed links to policy and information pages specific to this service (e.g., cancellation policy, waiver, terms of service). Platforms SHOULD surface these during the booking flow so the buyer can review terms before confirming. Well-known types: cancellation_policy, rescheduling_policy, terms_of_service, privacy_policy, waiver, faq. Complements provider.links[], which carries business-level policies."
+        },
+        "localized": {
+          "$ref": "#/$defs/LocalizedFields",
+          "description": "Per-locale overrides for human-readable text fields. The top-level fields (name, description, etc.) serve as the default/fallback locale."
+        }
+      }
+    },
+    "ServiceCategory": {
+      "type": "object",
+      "title": "ServiceCategory",
+      "description": "A category label from a taxonomy system. taxonomy is required. Each entry MUST carry at least one of id, name, or value. External (non-merchant) taxonomies MUST carry value. Exactly one entry in categories is primary: if exactly one has primary true, that is the primary; else if no entry sets primary and exactly one has taxonomy merchant, that entry is the primary; else the first entry in array order is the primary. Never more than one primary true.",
+      "required": ["taxonomy"],
+      "properties": {
+        "taxonomy": {
+          "type": "string",
+          "description": "Labeling system this entry belongs to. Well-known values include merchant (the merchant's own taxonomy) and external systems such as google_business_profile, google_product_category. Open extensible string, not a closed enum."
+        },
+        "id": {
+          "type": "string",
+          "description": "Stable identifier within that taxonomy. Primarily used on the merchant entry. Catalog category_id and categories filters match against id values."
+        },
+        "name": {
+          "type": "string",
+          "description": "Human-readable display label in the default locale. Primarily on the merchant or primary entry. localized.category_name overrides the primary entry's name."
+        },
+        "parent_id": {
+          "type": "string",
+          "description": "Identifier of the parent category within the same taxonomy, enabling hierarchy (e.g., Wellness to Massage)."
+        },
+        "value": {
+          "type": "string",
+          "description": "Taxonomy-native identifier, path, or code (e.g., beauty > hair > haircut, job_type_id:hair_styling). Optional on merchant entries; REQUIRED for external (non-merchant) taxonomies."
+        },
+        "primary": {
+          "type": "boolean",
+          "description": "When true, marks this entry as the single canonical primary category. At most one entry MAY set primary to true."
+        }
+      },
+      "anyOf": [
+        { "required": ["id"] },
+        { "required": ["name"] },
+        { "required": ["value"] }
+      ],
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "taxonomy": { "not": { "const": "merchant" } }
+            },
+            "required": ["taxonomy"]
+          },
+          "then": {
+            "required": ["value"]
+          }
+        }
+      ]
+    },
+    "Duration": {
+      "type": "object",
+      "title": "Duration",
+      "description": "Defines how long a service takes. Exactly one of fixed, range, or undetermined MUST be provided.",
+      "properties": {
+        "fixed": {
+          "type": "string",
+          "description": "ISO 8601 duration. REQUIRED if neither range nor undetermined is present."
+        },
+        "range": {
+          "type": "object",
+          "description": "REQUIRED if neither fixed nor undetermined is present. Buyer selects duration within this range.",
+          "properties": {
+            "min": { "type": "string", "description": "ISO 8601 duration" },
+            "max": { "type": "string", "description": "ISO 8601 duration" },
+            "step": { "type": "string", "description": "ISO 8601 duration" }
+          }
+        },
+        "undetermined": {
+          "type": "boolean",
+          "const": true,
+          "description": "Set to true when the service has no meaningful duration to display (e.g., consultations, custom quotes). MUST NOT be combined with fixed or range."
+        },
+        "buffer_before": { "type": "string", "description": "ISO 8601 duration. Non-bookable prep time." },
+        "buffer_after": { "type": "string", "description": "ISO 8601 duration. Non-bookable cleanup time." }
+      }
+    },
+    "Rating": {
+      "type": "object",
+      "title": "Rating",
+      "description": "Aggregate service rating. Aligns with UCP rating object.",
+      "required": ["value", "scale_max"],
+      "properties": {
+        "value": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Average rating value."
+        },
+        "scale_min": {
+          "type": "number",
+          "minimum": 0,
+          "default": 1,
+          "description": "Minimum value on the rating scale (e.g., 1 for 1-5 stars)."
+        },
+        "scale_max": {
+          "type": "number",
+          "minimum": 1,
+          "description": "Maximum value on the rating scale (e.g., 5 for 5-star)."
+        },
+        "count": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of reviews contributing to the rating."
+        }
+      }
+    },
+    "Provider": {
+      "type": "object",
+      "title": "Provider",
+      "description": "Inline business metadata for display alongside a service. A lightweight subset of the business profile. Aligns with UCP seller object.",
+      "required": ["name"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Business display name."
+        },
+        "url": {
+          "type": "string",
+          "format": "uri",
+          "description": "Business website URL."
+        },
+        "links": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/Link" },
+          "description": "Typed links to policy and information pages."
+        }
+      }
+    },
+    "Link": {
+      "type": "object",
+      "title": "Link",
+      "description": "A typed link to a policy or information page. Aligns with UCP link type.",
+      "required": ["type", "url"],
+      "properties": {
+        "type": {
+          "type": "string",
+          "description": "Link type. Well-known values: privacy_policy, terms_of_service, refund_policy, cancellation_policy, faq."
+        },
+        "url": {
+          "type": "string",
+          "format": "uri",
+          "description": "URL to the linked page."
+        },
+        "title": {
+          "type": "string",
+          "description": "Display text for the link. When provided, use instead of generating from type."
+        }
+      }
+    },
+    "Description": {
+      "type": "object",
+      "title": "Description",
+      "description": "Structured description content in one or more formats. At least plain MUST be provided. Aligns with UCP Description type.",
+      "required": ["plain"],
+      "properties": {
+        "plain": {
+          "type": "string",
+          "description": "Plain text content. Always required as the universal fallback."
+        },
+        "markdown": {
+          "type": "string",
+          "description": "Markdown-formatted content."
+        },
+        "html": {
+          "type": "string",
+          "description": "HTML-formatted content. Platforms MUST sanitize before rendering — strip scripts, event handlers, and untrusted elements."
+        }
+      }
+    },
+    "Media": {
+      "type": "object",
+      "title": "Media",
+      "description": "A typed media item for a service (image, video, etc.). Aligns with UCP media model.",
+      "required": ["type", "url"],
+      "properties": {
+        "type": {
+          "type": "string",
+          "description": "Media format type. Well-known values: image, video."
+        },
+        "url": {
+          "type": "string",
+          "format": "uri",
+          "description": "URL to the media resource (HTTPS)."
+        },
+        "alt_text": {
+          "type": "string",
+          "description": "Accessibility text describing the media."
+        },
+        "role": {
+          "type": "string",
+          "enum": ["hero", "gallery", "thumbnail"],
+          "default": "gallery",
+          "description": "Display role: hero (primary banner), gallery (additional), thumbnail (small preview)."
+        },
+        "width": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Width in pixels."
+        },
+        "height": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Height in pixels."
+        }
+      }
+    },
+    "Pricing": {
+      "type": "object",
+      "title": "Pricing",
+      "description": "Defines how a service is priced.",
+      "required": ["model", "currency"],
+      "properties": {
+        "model": {
+          "type": "string",
+          "enum": ["fixed", "hourly", "per_person", "variable", "free"],
+          "description": "The pricing model."
+        },
+        "amount": {
+          "type": "integer",
+          "description": "Price in minor currency units. REQUIRED when model is fixed, hourly, or per_person. MUST NOT be present when model is free."
+        },
+        "currency": {
+          "type": "string",
+          "description": "ISO 4217 currency code (e.g., USD, EUR, GBP)."
+        },
+        "price_range": {
+          "type": "object",
+          "description": "Displayable price range in minor currency units (same currency as pricing.currency). RECOMMENDED when model is variable, hourly, or per_person. MUST NOT be present when model is free. Aligns with UCP price_range.",
+          "required": ["min", "max"],
+          "properties": {
+            "min": { "type": "integer", "description": "Minimum price in minor currency units." },
+            "max": { "type": "integer", "description": "Maximum price in minor currency units." }
+          }
+        },
+        "deposit": {
+          "type": "object",
+          "description": "REQUIRED when payment_timing is deposit_required.",
+          "properties": {
+            "type": { "type": "string", "enum": ["fixed", "percentage"] },
+            "value": { "type": ["integer", "number"] },
+            "refundable": { "type": "boolean" }
+          }
+        }
+      }
+    },
+    "Location": {
+      "type": "object",
+      "title": "Location",
+      "description": "Physical or virtual location where a service is offered.",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "address": { "type": "string" },
+        "coordinates": {
+          "type": "object",
+          "properties": {
+            "lat": { "type": "number" },
+            "lng": { "type": "number" }
+          }
+        }
+      }
+    },
+    "ResourceRequirement": {
+      "type": "object",
+      "title": "ResourceRequirement",
+      "description": "Defines staff, rooms, or equipment needed for a service.",
+      "required": ["type"],
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": ["staff", "room", "equipment", "other"],
+          "description": "The kind of resource."
+        },
+        "name": { "type": "string", "description": "Human-readable label." },
+        "selectable": { "type": "boolean", "default": false, "description": "Whether the buyer can choose a specific resource." },
+        "options": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": { "type": "string" },
+              "name": { "type": "string" },
+              "description": { "type": "string" },
+              "image_url": { "type": "string", "format": "uri" }
+            }
+          },
+          "description": "Available resource instances. REQUIRED when selectable is true."
+        }
+      }
+    },
+    "Channel": {
+      "type": "object",
+      "title": "Channel",
+      "description": "Delivery channel for the service.",
+      "required": ["type"],
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": ["at_business_location", "at_buyer_location", "virtual", "phone", "hybrid"],
+          "description": "Channel type. at_business_location: buyer travels to the business. at_buyer_location: business travels to the buyer (see Booking.delivery_address)."
+        },
+        "virtual_provider": { "type": "string", "description": "Platform name for virtual/hybrid (e.g., Zoom, Google Meet)." },
+        "instructions": { "type": "string", "description": "Arrival, join, or call-in instructions." },
+        "service_area": { "type": "string", "description": "Optional free-text description of the geographic area served. Applicable when type is at_buyer_location." }
+      }
+    },
+    "ServicePolicies": {
+      "type": "object",
+      "title": "ServicePolicies",
+      "description": "Machine-readable policies for booking, cancellation, rescheduling, and payment.",
+      "required": ["cancellation", "rescheduling", "booking_window", "confirmation_mode", "requires_payment"],
+      "properties": {
+        "cancellation": {
+          "type": "object",
+          "required": ["allowed"],
+          "properties": {
+            "allowed": { "type": "boolean" },
+            "free_cancellation_until": { "type": "string", "description": "ISO 8601 duration" },
+            "late_cancellation_fee": { "type": "integer" },
+            "no_cancellation_after": { "type": "string", "description": "ISO 8601 duration" }
+          }
+        },
+        "rescheduling": {
+          "type": "object",
+          "required": ["allowed"],
+          "properties": {
+            "allowed": { "type": "boolean" },
+            "free_reschedule_until": { "type": "string", "description": "ISO 8601 duration" },
+            "max_reschedules": { "type": "integer" },
+            "fee": { "type": "integer" }
+          }
+        },
+        "no_show": {
+          "type": "object",
+          "properties": {
+            "fee": { "type": "integer" },
+            "fee_percentage": { "type": "integer", "minimum": 0, "maximum": 100 },
+            "grace_period": { "type": "string", "description": "ISO 8601 duration" }
+          }
+        },
+        "booking_window": {
+          "type": "object",
+          "required": ["min_advance", "max_advance", "slot_interval"],
+          "properties": {
+            "min_advance": { "type": "string", "description": "ISO 8601 duration" },
+            "max_advance": { "type": "string", "description": "ISO 8601 duration" },
+            "slot_interval": { "type": "string", "description": "ISO 8601 duration" }
+          }
+        },
+        "confirmation_mode": {
+          "type": "string",
+          "enum": ["auto", "manual"],
+          "description": "auto: confirmed immediately. manual: requires business approval."
+        },
+        "requires_payment": { "type": "boolean" },
+        "payment_timing": {
+          "type": "string",
+          "enum": ["at_booking", "at_service", "deposit_required"],
+          "description": "REQUIRED when requires_payment is true."
+        }
+      }
+    },
+    "LocalizedFields": {
+      "type": "object",
+      "title": "LocalizedFields",
+      "description": "Per-locale overrides for human-readable text fields on a service. Keys are IETF BCP 47 language tags (e.g., 'es', 'fr', 'zh-Hant'). The top-level service fields (name, description, etc.) serve as the default/fallback locale.",
+      "properties": {
+        "name": {
+          "type": "object",
+          "description": "Per-locale overrides for the service name.",
+          "additionalProperties": { "type": "string" }
+        },
+        "description": {
+          "type": "object",
+          "description": "Per-locale overrides for the service description.",
+          "additionalProperties": { "type": "string" }
+        },
+        "category_name": {
+          "type": "object",
+          "description": "Per-locale overrides for the primary categories[] entry's name.",
+          "additionalProperties": { "type": "string" }
+        },
+        "channel_instructions": {
+          "type": "object",
+          "description": "Per-locale overrides for channel instructions.",
+          "additionalProperties": { "type": "string" }
+        }
+      }
+    },
+    "AvailabilitySlotBitmap": {
+      "type": "object",
+      "title": "AvailabilitySlotBitmap",
+      "description": "One duration-specific start-time ruler for an availability hint. Bit i represents a candidate start at starts_at + i * start_interval lasting duration.",
+      "required": [
+        "duration",
+        "starts_at",
+        "start_interval",
+        "slot_count",
+        "encoding",
+        "bitmap"
+      ],
+      "properties": {
+        "duration": {
+          "type": "string",
+          "description": "ISO 8601 duration of the booking this bitmap describes (for example PT60M)."
+        },
+        "starts_at": {
+          "type": "string",
+          "format": "date-time",
+          "description": "RFC 3339 instant of bit 0. First candidate start on this ruler, not hint generation time."
+        },
+        "start_interval": {
+          "type": "string",
+          "description": "ISO 8601 duration between consecutive candidate starts. Independent of duration."
+        },
+        "slot_count": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4294967296,
+          "description": "Number of candidate starts on this ruler. Every decoded bitmap index MUST be strictly less than slot_count."
+        },
+        "encoding": {
+          "type": "string",
+          "const": "roaring32-portable-base64",
+          "description": "Wire encoding for bitmap. MUST be roaring32-portable-base64."
+        },
+        "bitmap": {
+          "type": "string",
+          "description": "Standard Base64 of a 32-bit Roaring portable serialization. Set bits are bookable candidate starts."
+        }
+      }
+    },
+    "AvailabilityHint": {
+      "type": "object",
+      "title": "AvailabilityHint",
+      "description": "Approximate, non-authoritative availability summary for agent-assisted discovery. Structured slot_bitmaps are optional: a summary-only hint is valid, and a producer that did not sample a grid omits slot_bitmaps rather than publishing an empty array or a dummy all-zero ruler.",
+      "required": ["summary", "generated_at"],
+      "properties": {
+        "summary": {
+          "type": "string",
+          "description": "Natural-language description of near-term availability."
+        },
+        "generated_at": {
+          "type": "string",
+          "format": "date-time",
+          "description": "RFC 3339 timestamp of when this hint was generated. Freshness timestamp only; not bit 0 of any ruler."
+        },
+        "valid_until": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Optional RFC 3339 instant after generated_at when this snapshot stops being usable for availability ranking."
+        },
+        "next_available_date": {
+          "type": "string",
+          "format": "date",
+          "description": "YYYY-MM-DD service-local date of the earliest available start across all duration entries. Required when any bitmap contains a set bit; omitted when every bitmap is all-zero or when slot_bitmaps is absent. MUST NOT be sent as an empty string to mean unknown."
+        },
+        "slot_bitmaps": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/AvailabilitySlotBitmap" },
+          "description": "Optional array of duration-specific availability rulers. When present it MUST be non-empty and each duration MUST appear at most once. Consumers read each duration ruler independently and MUST NOT derive one duration's bitmap from another's."
+        }
+      }
+    }
+  },
+  "$ref": "#/$defs/Service"
+}

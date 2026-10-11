@@ -1,0 +1,4 @@
+repository: wix/universal-scheduling-protocol
+commit: da03ef9b336f9383246b137a4b824b7980c3d27f
+usp_version: 2026-08-14
+path: tests/vectors/pop

@@ -1,0 +1,22 @@
+{
+  "id": "002-jcs-meta-only",
+  "section": "9.2.2",
+  "requirement": "canonicalization",
+  "binding": [
+    "mcp"
+  ],
+  "expect": "accept",
+  "notes": "Only _meta survives stripping alongside the addressed resource id.",
+  "canonicalization": {
+    "params": {
+      "booking_id": "bkg_001",
+      "_meta": {
+        "usp": {
+          "profile": "https://agent.example/p.json"
+        }
+      }
+    },
+    "jcs": "{\"_meta\":{\"usp\":{\"profile\":\"https://agent.example/p.json\"}},\"booking_id\":\"bkg_001\"}",
+    "usp_p": "dlsFYzDKOW3bZJZY--AD1nbxYb8j6aGx3hYQ_QCbCfw"
+  }
+}

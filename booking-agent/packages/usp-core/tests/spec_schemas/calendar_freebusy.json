@@ -1,0 +1,76 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://usp-protocol.dev/schemas/platform/calendar_freebusy.json",
+  "title": "USP Calendar Free/Busy Extension",
+  "description": "Calendar free/busy extension schema for the Universal Scheduling Protocol. Enables platforms to access buyer calendar free/busy data for availability cross-referencing. Platform-scoped capability (dev.usp-protocol.platform.calendar_freebusy).",
+  "$defs": {
+    "BusyBlock": {
+      "type": "object",
+      "title": "BusyBlock",
+      "description": "An opaque busy time block from the buyer's calendar. Contains only start and end times. Implementations MUST NOT include event details (titles, descriptions, attendees, locations).",
+      "required": ["start", "end"],
+      "properties": {
+        "start": {
+          "type": "string",
+          "format": "date-time",
+          "description": "RFC 3339 start of the busy period."
+        },
+        "end": {
+          "type": "string",
+          "format": "date-time",
+          "description": "RFC 3339 end of the busy period."
+        }
+      },
+      "additionalProperties": false
+    },
+    "BuyerFreeBusy": {
+      "type": "object",
+      "title": "BuyerFreeBusy",
+      "description": "Aggregated free/busy data for a buyer across one or more calendar providers. The platform queries the buyer's calendar provider(s) and merges the results into a single set of busy blocks.",
+      "required": ["buyer_ref", "timezone", "queried_at", "busy_blocks"],
+      "properties": {
+        "buyer_ref": {
+          "type": "string",
+          "description": "Opaque platform-generated buyer correlation ID. MUST NOT contain personally identifiable information."
+        },
+        "timezone": {
+          "type": "string",
+          "description": "IANA timezone identifier for the buyer (e.g., America/New_York)."
+        },
+        "queried_at": {
+          "type": "string",
+          "format": "date-time",
+          "description": "RFC 3339 timestamp of when the free/busy data was fetched from the calendar provider. Used as a freshness indicator for caching."
+        },
+        "busy_blocks": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/BusyBlock"
+          },
+          "description": "Array of busy time blocks merged across all connected calendar providers. An empty array means the buyer has no calendar conflicts in the queried range."
+        }
+      }
+    },
+    "CalendarProviderConfig": {
+      "type": "object",
+      "title": "CalendarProviderConfig",
+      "description": "Informative: configuration reference for a supported calendar provider. Not used in protocol exchanges; included for implementer guidance.",
+      "required": ["provider_id"],
+      "properties": {
+        "provider_id": {
+          "type": "string",
+          "description": "Well-known provider identifier (google, microsoft, apple) or vendor-prefixed custom provider (e.g., com.fastmail.calendar)."
+        },
+        "oauth_scope": {
+          "type": "string",
+          "description": "Recommended OAuth scope for free/busy-only access (e.g., https://www.googleapis.com/auth/calendar.freebusy)."
+        },
+        "api_endpoint": {
+          "type": "string",
+          "format": "uri",
+          "description": "Free/busy query endpoint URL."
+        }
+      }
+    }
+  }
+}
