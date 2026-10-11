@@ -1,6 +1,6 @@
-# booking-agent-profile
+# booking-agent
 
-Shared, keyless USP/UCP platform profile for the USP Agent.
+Shared, keyless USP/UCP platform profile for the Booking Agent. This `main` branch is the GitHub Pages branch and holds only the profile. The Booking Agent source mirror lives on the default branch, `master`, under `booking-agent/`.
 
 Businesses fetch the profile at:
 
