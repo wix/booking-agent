@@ -1,0 +1,27 @@
+{
+  "id": "004-proof-issuance-no-ath",
+  "section": "10.1.6",
+  "requirement": "issuance",
+  "binding": [
+    "mcp"
+  ],
+  "expect": "accept",
+  "notes": "Issuance: no credential exists yet, so the proof carries NO ath and the business RECORDS the thumbprint rather than comparing it.",
+  "key": {
+    "jwk": {
+      "crv": "Ed25519",
+      "kty": "OKP",
+      "x": "iojj3XQJ8ZX9UtstPLpdcspnCb8dlBIb83SIAbQPb1w"
+    },
+    "jkt": "UDDReOZl1ipXAfp9wYsm13sDBMK5og--QWdBjzuf6o4",
+    "private_key_d": "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE"
+  },
+  "proof": "eyJhbGciOiJFZERTQSIsImp3ayI6eyJjcnYiOiJFZDI1NTE5Iiwia3R5IjoiT0tQIiwieCI6ImlvamozWFFKOFpYOVV0c3RQTHBkY3NwbkNiOGRsQkliODNTSUFiUVBiMXcifSwidHlwIjoidXNwLXBvcCtqd3QifQ.eyJhdWQiOiJodHRwczovL2J1c2luZXNzLmV4YW1wbGUuY29tLy53ZWxsLWtub3duL3VzcCIsImlhdCI6MTc4OTIwMDAwMCwianRpIjoiMDFIWlhLOVQ0UjhRVzJWTjZZME0zUEI1Q0QiLCJ1c3BfbSI6InVzcF9ib29raW5nc19jcmVhdGUiLCJ1c3BfcCI6IldEeFNmUDQ4UjhlbTRrOE90dFVJbEhvZXNoSkFmX3ZMWmhmNGgzVFJPQ28ifQ.EVlnc0TWSrL29lANkuPXl-QTVOJ8WA1yhPaVb6mXOniLs0D8xRmfwuVUFuidKXp4yhpcYYjw_enHUs4BFznJBw",
+  "expected_claims": {
+    "usp_m": "usp_bookings_create",
+    "aud": "https://business.example.com/.well-known/usp",
+    "usp_p": "WDxSfP48R8em4k8OttUIlHoeshJAf_vLZhf4h3TROCo",
+    "iat": 1789200000,
+    "jti": "01HZXK9T4R8QW2VN6Y0M3PB5CD"
+  }
+}

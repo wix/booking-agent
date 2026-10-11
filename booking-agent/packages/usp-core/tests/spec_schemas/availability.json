@@ -1,0 +1,120 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://usp-protocol.dev/schemas/services/availability.json",
+  "title": "USP Availability",
+  "description": "Availability schema for the Universal Scheduling Protocol. Defines TimeSlot and Hold objects for querying and reserving bookable time windows.",
+  "$defs": {
+    "TimeSlot": {
+      "type": "object",
+      "title": "TimeSlot",
+      "description": "A specific, bookable time window for a service. Slots are computed dynamically by the business from schedules, resource calendars, and existing bookings.",
+      "required": ["id", "service_id", "start", "end", "duration", "state"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique slot identifier, opaque to the platform. Used to reference the slot in hold and booking operations."
+        },
+        "service_id": {
+          "type": "string",
+          "description": "The service this slot belongs to."
+        },
+        "start": {
+          "type": "string",
+          "format": "date-time",
+          "description": "RFC 3339 start time of the slot."
+        },
+        "end": {
+          "type": "string",
+          "format": "date-time",
+          "description": "RFC 3339 end time of the slot."
+        },
+        "duration": {
+          "type": "string",
+          "description": "ISO 8601 duration of the slot (e.g., PT60M)."
+        },
+        "state": {
+          "type": "string",
+          "enum": ["available", "limited", "waitlist"],
+          "description": "The availability state of the slot. available: has capacity. limited: low remaining capacity. waitlist: fully booked but waitlist enabled."
+        },
+        "capacity": {
+          "type": "object",
+          "description": "Present for group and reservation types.",
+          "properties": {
+            "total": { "type": "integer", "description": "Maximum number of spots." },
+            "remaining": { "type": "integer", "description": "Spots still available." },
+            "held": { "type": "integer", "description": "Spots currently in active holds." }
+          }
+        },
+        "resources": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": { "type": "string" },
+              "type": { "type": "string" },
+              "name": { "type": "string" }
+            }
+          },
+          "description": "Resources available for this slot (e.g., which staff members or rooms are free)."
+        },
+        "location": {
+          "type": "object",
+          "properties": {
+            "id": { "type": "string" },
+            "name": { "type": "string" }
+          },
+          "description": "The specific location for this slot when a service is offered at multiple locations."
+        },
+        "pricing": {
+          "type": "object",
+          "description": "Slot-specific pricing that overrides service-level pricing. Used for peak/off-peak or demand-based pricing.",
+          "properties": {
+            "amount": { "type": "integer" },
+            "currency": { "type": "string" },
+            "label": { "type": "string", "description": "Optional human-readable note (e.g., Peak hour rate)." }
+          }
+        }
+      }
+    },
+    "Hold": {
+      "type": "object",
+      "title": "Hold",
+      "description": "A temporary reservation of a time slot that prevents double-booking during the booking flow. Holds have a short TTL and are automatically released on expiry.",
+      "required": ["id", "slot_id", "service_id", "expires_at", "status"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique hold identifier."
+        },
+        "slot_id": {
+          "type": "string",
+          "description": "The held slot."
+        },
+        "service_id": {
+          "type": "string",
+          "description": "The service."
+        },
+        "spots": {
+          "type": "integer",
+          "default": 1,
+          "description": "Number of spots held. For group and reservation types, this is the number of capacity units reserved."
+        },
+        "expires_at": {
+          "type": "string",
+          "format": "date-time",
+          "description": "RFC 3339 expiration time. After this time, the hold is automatically released. Businesses SHOULD set hold TTL between 5 and 10 minutes."
+        },
+        "status": {
+          "type": "string",
+          "enum": ["active", "expired", "released", "converted"],
+          "description": "active: hold is in effect. expired: TTL elapsed. released: explicitly released. converted: successfully converted to a booking."
+        }
+      }
+    }
+  },
+  "oneOf": [
+    { "$ref": "#/$defs/TimeSlot" },
+    { "$ref": "#/$defs/Hold" }
+  ]
+}

@@ -1,0 +1,407 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://usp-protocol.dev/schemas/usp.json",
+  "title": "USP Metadata Object",
+  "description": "Defines the usp metadata object used in USP business profiles, platform profiles, and API responses. Each context uses a different variant defined in $defs.",
+  "$defs": {
+    "ServiceBinding": {
+      "type": "object",
+      "title": "ServiceBinding",
+      "description": "A transport-specific binding for a USP service endpoint. Each entry in a services registry value array is a ServiceBinding. Field requirements match the UCP service definition so that the same binding object is conformant when published inside /.well-known/ucp in UCP-Native Mode: version, transport, and spec are always required; schema is required for rest, mcp, and embedded; endpoint is required for rest, mcp, and a2a. The spec and schema origins MUST match the namespace authority of the service key (https://usp-protocol.dev/... for dev.usp-protocol.* keys).",
+      "required": ["version", "transport", "spec"],
+      "properties": {
+        "version": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+          "description": "USP protocol version implemented at this endpoint (YYYY-MM-DD format)."
+        },
+        "transport": {
+          "type": "string",
+          "enum": ["rest", "mcp", "a2a", "embedded"],
+          "description": "Transport protocol for this binding."
+        },
+        "endpoint": {
+          "type": "string",
+          "format": "uri",
+          "description": "Base URL or connection URI for the endpoint. REQUIRED for rest, mcp, and a2a transports (for a2a it is the Agent Card URL). Omitted for embedded."
+        },
+        "spec": {
+          "type": "string",
+          "format": "uri",
+          "description": "URL to the human-readable specification document for this service. REQUIRED. The origin MUST match the namespace authority of the service key."
+        },
+        "schema": {
+          "type": "string",
+          "format": "uri",
+          "description": "URL to the machine-readable schema (OpenAPI for rest, OpenRPC for mcp and embedded). REQUIRED for rest, mcp, and embedded transports; not applicable to a2a, whose endpoint is an Agent Card. The origin MUST match the namespace authority of the service key."
+        },
+        "id": {
+          "type": "string",
+          "description": "OPTIONAL. Unique identifier for this binding instance, used to disambiguate when multiple instances of the same service exist. Mirrors the UCP service definition field of the same name."
+        },
+        "config": {
+          "type": "object",
+          "title": "ServiceBindingConfig",
+          "description": "OPTIONAL. Binding-specific configuration, following the UCP service/capability convention of carrying entity-specific settings under config rather than as sibling members. Structure is defined by this service's schema.",
+          "properties": {
+            "authorization": {
+              "$ref": "profile.json#/$defs/AuthorizationPolicy",
+              "description": "CONDITIONAL. Authentication policy governing privileged operations at this endpoint, per specification.md Section 10.1.6. This is where UCP-Native deployments publish the policy: under config on the dev.usp-protocol.services binding inside /.well-known/ucp. USP declares only under its own dev.usp-protocol.* namespace authority and MUST NOT add top-level members to a UCP profile document; config is the slot UCP defines for entity-specific settings. REQUIRED in UCP-Native Mode when the endpoint exposes privileged operations. Standalone Mode profiles MAY use it to override the profile-level policy per endpoint; the top-level BusinessProfile.authorization remains canonical there."
+            }
+          },
+          "additionalProperties": true
+        },
+        "authorization": {
+          "not": {},
+          "description": "PROHIBITED at this level. The authorization policy MUST be published as config.authorization, not as a direct member of the binding: config is the member UCP defines for entity-specific settings, and a sibling member here is a USP-invented field on a UCP-governed object. This property is declared with a never-satisfiable schema so that a binding carrying it is rejected rather than silently accepted under additionalProperties, which would let a business believe it had published a policy that no conforming consumer reads."
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "transport": { "enum": ["rest", "mcp", "embedded"] } },
+            "required": ["transport"]
+          },
+          "then": { "required": ["schema"] }
+        },
+        {
+          "if": {
+            "properties": { "transport": { "enum": ["rest", "mcp", "a2a"] } },
+            "required": ["transport"]
+          },
+          "then": { "required": ["endpoint"] }
+        }
+      ],
+      "additionalProperties": true
+    },
+    "ConfirmationKey": {
+      "type": "object",
+      "title": "ConfirmationKey",
+      "description": "RFC 7800 confirmation ('cnf') claim, restricted to the JWK-thumbprint form. Binds a credential to a specific public key so that the credential is sender-constrained: a holder who does not control the corresponding private key cannot use it, which is what makes a leaked credential value useless on its own. Defined once here because it is shared by the platform_key_pop mechanism and by profile.json BookingScopedCredential; see specification.md Section 10.1.6. Deliberately restricted to jkt: the embedded-key (jwk) and key-reference (kid) forms of RFC 7800 are not used by USP. Closed object: the Section 10.1.6 forward-compatibility rule, which requires consumers to ignore what they do not recognize, does NOT extend to this object, because ignoring an unrecognized confirmation method would silently downgrade a sender-constrained credential to a bearer token.",
+      "required": ["jkt"],
+      "properties": {
+        "jkt": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{43}$",
+          "description": "JWK SHA-256 Thumbprint (RFC 7638) of the public key whose possession the caller must prove, base64url-encoded without padding - exactly 43 characters for SHA-256. Computed over the RFC 7638 canonical required-member subset for the key type. A business MUST compare this against the thumbprint recomputed from the jwk in the presented proof header, and MUST ignore any kid: there is no published key set to resolve a kid against, so honouring one would reintroduce a key-resolution step this mechanism exists to avoid."
+        }
+      },
+      "additionalProperties": false,
+      "examples": [
+        { "jkt": "0ZcOCORZNYy-DWpqq30jZyJGHTN0d2HglBV3uiguA4I" }
+      ]
+    },
+    "PopProofJwt": {
+      "type": "string",
+      "title": "PopProofJwt",
+      "pattern": "^[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+$",
+      "description": "A compact-serialization JWS proof-of-possession token for the platform_key_pop mechanism (specification.md Section 10.1.6). Structurally derived from DPoP (RFC 9449). The REST binding carries a standard RFC 9449 dpop+jwt proof on the DPoP header, so off-the-shelf DPoP libraries apply; the MCP binding carries a USP-defined proof with typ usp-pop+jwt inside _meta.usp.authorization.proof, whose claim set binds the JSON-RPC method and the canonicalized params instead of an HTTP method and URL. The two typ values differ deliberately so that neither proof can be replayed as the other before claim checking. The public key travels in the proof header as a bare jwk; a proof carrying a private key member, or alg none, MUST be rejected. This is not a credential: it proves key possession only, and MUST be evaluated together with the credential or issuance request it accompanies. Claim semantics are normative prose in specification.md Section 9.2.2 and Section 10.1.6 rather than JSON Schema, because this value is a signed string on the wire, not a wire object.",
+      "examples": [
+        "eyJ0eXAiOiJkcG9wK2p3dCIsImFsZyI6IkVkRFNBIiwiandrIjp7Imt0eSI6Ik9LUCJ9.eyJqdGkiOiIwMUhaWCJ9.c2lnbmF0dXJl"
+      ]
+    },
+    "CapabilityEntry": {
+      "type": "object",
+      "title": "CapabilityEntry",
+      "description": "Declares support for a specific version of a USP capability. Business and platform profile registries use ProfileCapabilityEntry (requires spec and schema). This base definition also applies where only version is declared (e.g., response metadata).",
+      "required": ["version"],
+      "properties": {
+        "version": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+          "description": "Capability version in YYYY-MM-DD format."
+        },
+        "spec": {
+          "type": "string",
+          "format": "uri",
+          "description": "URL to the capability specification. REQUIRED in business and platform profiles (see ProfileCapabilityEntry); optional in response metadata entries that only declare version."
+        },
+        "schema": {
+          "type": "string",
+          "format": "uri",
+          "description": "URL to the capability JSON Schema. REQUIRED in business and platform profiles (see ProfileCapabilityEntry); optional in response metadata entries that only declare version."
+        },
+        "extends": {
+          "oneOf": [
+            { "type": "string" },
+            { "type": "array", "items": { "type": "string" } }
+          ],
+          "description": "Base capability name(s) this capability extends, in reverse-domain format (e.g., dev.usp-protocol.services.bookings)."
+        }
+      },
+      "additionalProperties": true
+    },
+    "ProfileCapabilityEntry": {
+      "title": "ProfileCapabilityEntry",
+      "description": "Capability entry for use in business and platform profiles. Extends CapabilityEntry by requiring spec and schema URLs, which are needed for capability negotiation and schema resolution (aligned with UCP platform capability declarations).",
+      "allOf": [
+        { "$ref": "#/$defs/CapabilityEntry" },
+        {
+          "type": "object",
+          "required": ["spec", "schema"]
+        }
+      ]
+    },
+    "BusinessInfo": {
+      "type": "object",
+      "title": "BusinessInfo",
+      "description": "Identity and locale information for the business.",
+      "required": ["name", "timezone", "currency"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Human-readable business display name (e.g., \"Sunrise Wellness Studio\")."
+        },
+        "timezone": {
+          "type": "string",
+          "description": "IANA Time Zone Database identifier (e.g., America/New_York). All times in catalog and availability responses are expressed relative to this timezone when no explicit offset is given."
+        },
+        "currency": {
+          "type": "string",
+          "description": "ISO 4217 default currency code (e.g., USD, EUR, GBP). Used as the fallback when pricing amounts do not carry an explicit currency field."
+        },
+        "locations": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "name"],
+            "properties": {
+              "id": {
+                "type": "string",
+                "description": "Unique location identifier, stable across profile updates. Service objects reference this id via their locations[] array."
+              },
+              "name": {
+                "type": "string",
+                "description": "Human-readable location name (e.g., \"Downtown Studio\")."
+              },
+              "address": {
+                "type": "string",
+                "description": "Full postal address, formatted for display."
+              },
+              "coordinates": {
+                "type": "object",
+                "description": "Geographic coordinates for map-based discovery.",
+                "properties": {
+                  "lat": { "type": "number", "description": "Latitude in decimal degrees." },
+                  "lng": { "type": "number", "description": "Longitude in decimal degrees." }
+                }
+              }
+            }
+          },
+          "description": "OPTIONAL. Multi-location extension. Presence of this array signals that the business operates across multiple locations. Service objects SHOULD reference a location id from this list via their locations[] array."
+        }
+      }
+    },
+    "base": {
+      "type": "object",
+      "title": "USP Base",
+      "description": "Shared base for all usp metadata objects. All variants extend this.",
+      "required": ["version"],
+      "properties": {
+        "version": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+          "description": "USP protocol version in YYYY-MM-DD format."
+        },
+        "status": {
+          "type": "string",
+          "enum": ["success", "error"],
+          "default": "success",
+          "description": "Application-level outcome of the USP operation. Used in API responses; not applicable to profile documents."
+        }
+      }
+    },
+    "business_schema": {
+      "allOf": [
+        { "$ref": "#/$defs/base" }
+      ],
+      "type": "object",
+      "title": "USP Business Profile Metadata",
+      "description": "The usp object published in a business's /.well-known/usp profile. Declares the services and capabilities the business exposes, its checkout integrations, and its identity.",
+      "required": ["version", "services", "capabilities", "business"],
+      "properties": {
+        "version": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+          "description": "The USP protocol version implemented by this business (YYYY-MM-DD)."
+        },
+        "services": {
+          "type": "object",
+          "description": "Service endpoint registry. Keys are reverse-domain service names (e.g., dev.usp-protocol.services). Values are arrays of ServiceBinding objects, one per supported transport. The dev.usp-protocol.* namespace is reserved for the USP governing body.",
+          "additionalProperties": {
+            "type": "array",
+            "items": { "$ref": "#/$defs/ServiceBinding" }
+          },
+          "propertyNames": {
+            "pattern": "^[a-z][a-z0-9]*(\\.[a-z][a-z0-9]*)+$",
+            "description": "Reverse-domain service name."
+          }
+        },
+        "capabilities": {
+          "type": "object",
+          "description": "Capability registry. Keys are reverse-domain capability names (e.g., dev.usp-protocol.services.catalog). Values are arrays of ProfileCapabilityEntry objects, one per supported capability version. Multiple entries for the same key indicate multi-version support.",
+          "additionalProperties": {
+            "type": "array",
+            "items": { "$ref": "#/$defs/ProfileCapabilityEntry" }
+          },
+          "propertyNames": {
+            "pattern": "^[a-z][a-z0-9]*(\\.[a-z][a-z0-9]*)+$",
+            "description": "Reverse-domain capability name."
+          }
+        },
+        "checkout_systems": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": ["acp", "redirect", "embedded"]
+          },
+          "description": "OPTIONAL. Declares which checkout systems the business has integrated for paid bookings. Platforms use this field during profile discovery or platform onboarding to determine payment compatibility - it is not consulted per-transaction. Omit for businesses with only free or pay-at-service services."
+        },
+        "business": {
+          "$ref": "#/$defs/BusinessInfo",
+          "description": "Business identity and locale information. Required so that platforms can present the business correctly to buyers."
+        },
+        "supported_versions": {
+          "type": "object",
+          "description": "OPTIONAL. Backward-compatibility map. Keys are older USP protocol version strings (YYYY-MM-DD); values are URIs pointing to version-specific profile documents. Businesses that upgrade to a new USP version SHOULD advertise prior supported versions here for at least 90 days to allow older platforms to continue integrating.",
+          "additionalProperties": {
+            "type": "string",
+            "format": "uri",
+            "description": "URI of the profile document conforming to the keyed protocol version."
+          },
+          "propertyNames": {
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+            "description": "USP protocol version in YYYY-MM-DD format."
+          }
+        }
+      }
+    },
+    "platform_schema": {
+      "allOf": [
+        { "$ref": "#/$defs/base" }
+      ],
+      "type": "object",
+      "title": "USP Platform Profile Metadata",
+      "description": "The usp object published in a platform's profile document. The platform advertises this document's URI via the USP-Agent HTTP header (REST) or _meta.usp.profile field (MCP). Declares the capabilities the platform can consume, enabling businesses to perform server-side capability negotiation.",
+      "required": ["version", "capabilities"],
+      "properties": {
+        "version": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+          "description": "The highest USP protocol version this platform supports (YYYY-MM-DD)."
+        },
+        "capabilities": {
+          "type": "object",
+          "description": "Capability declarations. Keys are reverse-domain capability names. Values are arrays of ProfileCapabilityEntry objects listing each capability version the platform can consume.",
+          "additionalProperties": {
+            "type": "array",
+            "items": { "$ref": "#/$defs/ProfileCapabilityEntry" }
+          },
+          "propertyNames": {
+            "pattern": "^[a-z][a-z0-9]*(\\.[a-z][a-z0-9]*)+$",
+            "description": "Reverse-domain capability name."
+          }
+        },
+        "services": {
+          "type": "object",
+          "description": "OPTIONAL. Service consumption preferences. Keys are reverse-domain service names. Values are arrays declaring which transports the platform prefers, in preference order.",
+          "additionalProperties": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["transport"],
+              "properties": {
+                "transport": {
+                  "type": "string",
+                  "enum": ["rest", "mcp", "a2a", "embedded"],
+                  "description": "Preferred transport."
+                }
+              }
+            }
+          },
+          "propertyNames": {
+            "pattern": "^[a-z][a-z0-9]*(\\.[a-z][a-z0-9]*)+$"
+          }
+        }
+      }
+    },
+    "response_schema": {
+      "allOf": [
+        { "$ref": "#/$defs/base" }
+      ],
+      "type": "object",
+      "title": "USP Response Metadata",
+      "description": "The usp object included in all USP API responses. Declares the protocol version and active capabilities for this specific response, scoped to the negotiated intersection of business and platform capabilities.",
+      "required": ["version"],
+      "properties": {
+        "version": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+          "description": "The USP protocol version used for this response."
+        },
+        "capabilities": {
+          "type": "object",
+          "description": "Active capabilities for this response. Businesses SHOULD include only capabilities relevant to the specific operation type. Keys are reverse-domain capability names; values are arrays with a single entry declaring the negotiated version.",
+          "additionalProperties": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["version"],
+              "properties": {
+                "version": {
+                  "type": "string",
+                  "description": "The negotiated capability version in YYYY-MM-DD format."
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "USPEnvelope": {
+      "type": "object",
+      "title": "USP response envelope",
+      "description": "Wrapper for REST responses that include a usp metadata object alongside payload data.",
+      "required": ["usp"],
+      "properties": {
+        "usp": {
+          "$ref": "#/$defs/response_schema",
+          "description": "USP metadata for this response (version and negotiated capabilities)."
+        }
+      }
+    },
+    "PaginationRequest": {
+      "type": "object",
+      "title": "PaginationRequest",
+      "description": "Cursor-based pagination request fields. See Section 9.1.2 of the USP specification.",
+      "properties": {
+        "cursor": {
+          "type": ["string", "null"],
+          "description": "Opaque pagination cursor from the previous response. Omit on the first request."
+        },
+        "limit": {
+          "type": "integer",
+          "default": 20,
+          "description": "Requested page size. Businesses MAY apply a lower or upper cap."
+        }
+      }
+    },
+    "Pagination": {
+      "type": "object",
+      "title": "Pagination",
+      "description": "Cursor-based pagination state in list responses. See Section 9.1.2 of the USP specification.",
+      "required": ["cursor", "has_more"],
+      "properties": {
+        "cursor": {
+          "type": ["string", "null"],
+          "description": "Opaque cursor for the next page. null when there are no more pages."
+        },
+        "has_more": {
+          "type": "boolean",
+          "description": "True if additional pages exist beyond this one."
+        }
+      }
+    }
+  },
+  "$ref": "#/$defs/base"
+}

@@ -1,0 +1,73 @@
+"""booking-agent CLI entry point."""
+from __future__ import annotations
+
+import sys
+
+import typer
+
+from .commands.flow import app as flow_app
+from .commands.lowlevel import (
+    availability_app,
+    booking_app,
+    profile_app,
+    search_app,
+)
+
+app = typer.Typer(
+    help="booking-agent — stateful USP service discovery, availability, and booking. "
+         "Skills must call `booking-agent flow ...` instead of raw curl.",
+    no_args_is_help=True,
+)
+app.add_typer(flow_app, name="flow")
+app.add_typer(search_app, name="search")
+app.add_typer(profile_app, name="profile")
+app.add_typer(availability_app, name="availability")
+app.add_typer(booking_app, name="booking")
+
+INTERNAL_ERROR_MESSAGE = (
+    "The booking assistant hit an unexpected internal error. Tell the user in plain "
+    "words that something went wrong on our side, then follow next_command."
+)
+_FALLBACK_LINE = (
+    '{"phase": "INIT", "awaiting_user": null, "user_message": null, '
+    '"prompt": "[internal_error] The booking assistant hit an unexpected internal error.", '
+    '"next_command": null, "forbidden": [], '
+    '"data": {"error": {"code": "internal_error", "message": "unexpected internal error"}}, '
+    '"correlation_id": null}\n'
+)
+
+
+def _emit_internal_error() -> None:
+    """Agent-facing JSON for an uncaught exception; never prints the traceback."""
+    try:
+        from .output import emit_error
+        from .session import load_session
+
+        try:
+            session = load_session()
+        except Exception:
+            session = None
+        emit_error(
+            session.flow_phase if session is not None else "INIT",
+            code="internal_error",
+            message=INTERNAL_ERROR_MESSAGE,
+            next_command="booking-agent flow status" if session is not None else None,
+        )
+    except Exception:
+        sys.stdout.write(_FALLBACK_LINE)
+        sys.stdout.flush()
+
+
+def run() -> None:
+    """Console entry point: the Typer app plus the uncaught-exception boundary."""
+    try:
+        app()
+    except (SystemExit, KeyboardInterrupt):
+        raise
+    except Exception:
+        _emit_internal_error()
+        raise SystemExit(1)
+
+
+if __name__ == "__main__":
+    run()

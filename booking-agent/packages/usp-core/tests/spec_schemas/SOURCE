@@ -1,0 +1,4 @@
+repository: wix/universal-scheduling-protocol
+commit: 9c1d4df06332cbf9988b5e5154498f9a77939443
+usp_version: 2026-08-20
+path: schemas/

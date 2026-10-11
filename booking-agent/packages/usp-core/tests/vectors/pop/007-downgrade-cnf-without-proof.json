@@ -1,0 +1,22 @@
+{
+  "id": "007-downgrade-cnf-without-proof",
+  "section": "10.1.6",
+  "requirement": "downgrade-resistance",
+  "binding": [
+    "rest",
+    "mcp"
+  ],
+  "expect": "reject",
+  "reject_code": "pop_proof_missing",
+  "http_status": 401,
+  "notes": "A cnf-bearing credential presented with NO proof and mechanism declared as booking_scoped_credential. mechanism is caller-asserted and outside the digest, so without the anti-downgrade MUST this single field bypasses the whole mechanism.",
+  "credential": {
+    "value": "bsc_7f3c1a9e4b2d8065f1ae93c7",
+    "expires_at": "2026-06-14T18:00:00Z",
+    "cnf": {
+      "jkt": "UDDReOZl1ipXAfp9wYsm13sDBMK5og--QWdBjzuf6o4"
+    }
+  },
+  "declared_mechanism": "booking_scoped_credential",
+  "proof": null
+}

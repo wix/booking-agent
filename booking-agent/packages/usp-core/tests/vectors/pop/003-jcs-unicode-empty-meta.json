@@ -1,0 +1,25 @@
+{
+  "id": "003-jcs-unicode-empty-meta",
+  "section": "9.2.2",
+  "requirement": "canonicalization",
+  "binding": [
+    "mcp"
+  ],
+  "expect": "accept",
+  "notes": "Unicode strings, and an _meta.usp left EMPTY after stripping - retained as {} rather than removed. Also fixes key ordering, which JCS sorts by UTF-16 code unit.",
+  "canonicalization": {
+    "params": {
+      "note": "café ☕ naïve",
+      "tags": [
+        "b",
+        "a",
+        "é"
+      ],
+      "_meta": {
+        "usp": {}
+      }
+    },
+    "jcs": "{\"_meta\":{\"usp\":{}},\"note\":\"café ☕ naïve\",\"tags\":[\"b\",\"a\",\"é\"]}",
+    "usp_p": "dFwiLlo67X28ndQDsoHovYQCF0WiVstzOoC2cEe8g08"
+  }
+}

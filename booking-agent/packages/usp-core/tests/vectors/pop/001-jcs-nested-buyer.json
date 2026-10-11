@@ -1,0 +1,30 @@
+{
+  "id": "001-jcs-nested-buyer",
+  "section": "9.2.2",
+  "requirement": "canonicalization",
+  "binding": [
+    "mcp"
+  ],
+  "expect": "accept",
+  "notes": "Nested object plus a stripped authorization member. Confirms _meta.usp.profile and idempotency_key stay INSIDE the digest while authorization is removed - the property identity binding and create-replay coverage both depend on.",
+  "canonicalization": {
+    "params": {
+      "service_id": "svc_haircut_001",
+      "slot_id": "slot_20260315_0900",
+      "buyer": {
+        "first_name": "Alice",
+        "last_name": "Williams",
+        "email": "alice@example.com"
+      },
+      "party_size": 1,
+      "_meta": {
+        "usp": {
+          "profile": "https://agent.example/p.json",
+          "idempotency_key": "550e8400-e29b-41d4-a716-446655440000"
+        }
+      }
+    },
+    "jcs": "{\"_meta\":{\"usp\":{\"idempotency_key\":\"550e8400-e29b-41d4-a716-446655440000\",\"profile\":\"https://agent.example/p.json\"}},\"buyer\":{\"email\":\"alice@example.com\",\"first_name\":\"Alice\",\"last_name\":\"Williams\"},\"party_size\":1,\"service_id\":\"svc_haircut_001\",\"slot_id\":\"slot_20260315_0900\"}",
+    "usp_p": "WDxSfP48R8em4k8OttUIlHoeshJAf_vLZhf4h3TROCo"
+  }
+}
