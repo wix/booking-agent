@@ -1,6 +1,6 @@
 # booking-agent
 
-Public home of the Booking Agent and its shared, keyless USP/UCP platform profile.
+Public home of the Booking Agent and its shared, keyless [USP](https://usp-protocol.dev/)/[UCP](https://ucp.dev/) platform profile.
 
 The Booking Agent source (CLI, core library, and agent skill) is in [`booking-agent/`](booking-agent/). That directory is generated from the private canonical monorepo and arrives only through reviewed sync pull requests; see [CONTRIBUTING.md](CONTRIBUTING.md). The `main` branch is the GitHub Pages branch for the profile and does not contain `booking-agent/`.
 
