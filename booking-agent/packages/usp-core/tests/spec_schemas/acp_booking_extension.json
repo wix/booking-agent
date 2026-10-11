@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://usp-protocol.dev/schemas/acp_booking_extension.json",
+  "title": "USP ACP Booking Extension",
+  "description": "Schema for the dev.usp-protocol.services.booking ACP extension. Adds a `booking` field to CheckoutSession carrying scheduling context from USP. See specification Section 8.5.6.",
+  "$defs": {
+    "BookingExtension": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["booking_id", "service_id", "service_type"],
+      "properties": {
+        "booking_id": {
+          "type": "string",
+          "description": "USP booking identifier."
+        },
+        "service_id": {
+          "type": "string",
+          "description": "USP service identifier."
+        },
+        "service_type": {
+          "type": "string",
+          "description": "USP service vertical. MUST match Service.type (core verticals: appointment, group, reservation, rental) or a vendor-defined vertical per USP catalog."
+        },
+        "slot": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["start", "end"],
+          "properties": {
+            "start": {
+              "type": "string",
+              "format": "date-time",
+              "description": "Slot start (RFC 3339)."
+            },
+            "end": {
+              "type": "string",
+              "format": "date-time",
+              "description": "Slot end (RFC 3339)."
+            }
+          },
+          "description": "Booked time range. Simplified from USP SlotReference (start/end only; omits id and duration)."
+        }
+      }
+    }
+  },
+  "$ref": "#/$defs/BookingExtension"
+}

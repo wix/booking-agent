@@ -1,0 +1,31 @@
+{
+  "id": "010-alg-none",
+  "section": "10.1.6",
+  "requirement": "algorithms",
+  "binding": [
+    "rest",
+    "mcp"
+  ],
+  "expect": "reject",
+  "reject_code": "pop_proof_invalid",
+  "http_status": 401,
+  "notes": "alg: none with an otherwise well-formed proof. MUST be rejected before any signature check, not treated as an unsigned-but-acceptable proof.",
+  "key": {
+    "jwk": {
+      "crv": "Ed25519",
+      "kty": "OKP",
+      "x": "iojj3XQJ8ZX9UtstPLpdcspnCb8dlBIb83SIAbQPb1w"
+    },
+    "jkt": "UDDReOZl1ipXAfp9wYsm13sDBMK5og--QWdBjzuf6o4"
+  },
+  "proof": "eyJhbGciOiJub25lIiwiandrIjp7ImNydiI6IkVkMjU1MTkiLCJrdHkiOiJPS1AiLCJ4IjoiaW9qajNYUUo4Wlg5VXRzdFBMcGRjc3BuQ2I4ZGxCSWI4M1NJQWJRUGIxdyJ9LCJ0eXAiOiJ1c3AtcG9wK2p3dCJ9.eyJhdGgiOiItVHJBOFZZakhkNDFuMDNVd1RMU3c0R3dudWJQak9RY3lTUmpqZ1FFZmVjIiwiYXVkIjoiaHR0cHM6Ly9idXNpbmVzcy5leGFtcGxlLmNvbS8ud2VsbC1rbm93bi91c3AiLCJpYXQiOjE3ODkyMDM2MDAsImp0aSI6IjAxSFpYSzlUNFI4UVcyVk42WTBNM1BCNUNFIiwibm9uY2UiOiJuLTBTNl9XekEyTWoiLCJ1c3BfbSI6InVzcF9ib29raW5nc19jYW5jZWwiLCJ1c3BfcCI6ImRsc0ZZekRLT1czYlpKWlktLUFEMW5ieFliOGo2YUd4M2hZUV9RQ2JDZncifQ.",
+  "expected_claims": {
+    "usp_m": "usp_bookings_cancel",
+    "aud": "https://business.example.com/.well-known/usp",
+    "usp_p": "dlsFYzDKOW3bZJZY--AD1nbxYb8j6aGx3hYQ_QCbCfw",
+    "iat": 1789203600,
+    "jti": "01HZXK9T4R8QW2VN6Y0M3PB5CE",
+    "ath": "-TrA8VYjHd41n03UwTLSw4GwnubPjOQcySRjjgQEfec",
+    "nonce": "n-0S6_WzA2Mj"
+  }
+}

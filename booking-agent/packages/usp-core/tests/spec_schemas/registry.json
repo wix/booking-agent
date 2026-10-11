@@ -1,0 +1,448 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://usp-protocol.dev/schemas/services/registry.json",
+  "title": "USP Discovery Registry",
+  "description": "Discovery registry types for the optional dev.usp-protocol.discovery.registry capability. See specification Section 6.",
+  "$defs": {
+    "RegistryLocation": {
+      "type": "object",
+      "title": "RegistryLocation",
+      "description": "Physical location for registry registration and search. Omitted for virtual-only businesses when no at_business_location or hybrid services are offered.",
+      "properties": {
+        "address": {
+          "type": "string",
+          "description": "Human-readable street address."
+        },
+        "coordinates": {
+          "type": "object",
+          "required": ["lat", "lng"],
+          "properties": {
+            "lat": { "type": "number" },
+            "lng": { "type": "number" }
+          }
+        }
+      }
+    },
+    "RegistrySearchLocation": {
+      "type": "object",
+      "title": "RegistrySearchLocation",
+      "description": "Geographic filter for registry search: center point and radius in kilometers. Businesses or services with no coordinates (virtual/phone only) MUST be excluded when this filter is present; they SHOULD appear only when no geographic filter is applied.",
+      "properties": {
+        "coordinates": {
+          "type": "object",
+          "required": ["lat", "lng"],
+          "properties": {
+            "lat": { "type": "number" },
+            "lng": { "type": "number" }
+          }
+        },
+        "radius_km": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Search radius in kilometers (km). Distance is measured from coordinates."
+        }
+      }
+    },
+    "RegistryContext": {
+      "type": "object",
+      "title": "RegistryContext",
+      "description": "Optional localization and relevance hints for registry search. Aligns with UCP context (language, currency).",
+      "properties": {
+        "locale": {
+          "type": "string",
+          "description": "IETF BCP 47 language tag (e.g., en-US). Influences result ranking and display language."
+        },
+        "currency": {
+          "type": "string",
+          "description": "ISO 4217 currency code (e.g., USD). Display/ranking hint. When price_range is present without price_range.currency, this value is the resolved match currency. Registries MUST NOT convert prices via FX."
+        }
+      }
+    },
+    "RegistryCategoryIds": {
+      "type": "array",
+      "title": "RegistryCategoryIds",
+      "description": "Opaque category ID strings used by registry registration, search filters, and results. Values are IDs, not display labels. Matching is exact and case-sensitive. Every ID emitted in a RegistryEntry categories array or ServiceSearchResult category_ids array MUST be accepted by the corresponding categories filter and match that result when all other filters are unchanged.",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "uniqueItems": true
+    },
+    "RangeMatchMode": {
+      "type": "string",
+      "title": "RangeMatchMode",
+      "description": "How a service interval S is compared to a filter interval F. Default when omitted: overlap. Modes: overlap = S intersects F (S ∩ F ≠ ∅); contained = S is wholly inside F (S ⊆ F); contains = S wholly covers F (S ⊇ F); equals = S and F are identical (S = F). Example duration: service offered 30–90 min, filter {min_minutes:60, max_minutes:60}: overlap=yes (60 is in 30–90), contained=no (30–90 is not ⊆ {60}), contains=yes (30–90 ⊇ {60}), equals=no. Example price: service $50–$150, filter {min:8000, max:10000} minor units: overlap=yes, contained=no, contains=yes, equals=no.",
+      "enum": ["overlap", "contained", "contains", "equals"],
+      "default": "overlap"
+    },
+    "PriceRangeFilter": {
+      "type": "object",
+      "title": "PriceRangeFilter",
+      "description": "Filter services by price interval (minor currency units). Matching is within-currency only (no FX). Resolved match currency: price_range.currency if present, else context.currency; if neither is set, registries MUST reject with validation_error. pricing.model free is treated as amount 0. Build service interval S from fixed amount [a,a], published price_range, or [0,0] for free; exclude services with no indexable price interval when this filter is present. Compare S to filter F using match (default overlap). Example: service $50–$150 vs filter min=8000 max=10000: overlap and contains match; contained and equals do not.",
+      "properties": {
+        "min": { "type": "integer", "description": "Inclusive lower bound of F in minor currency units. Omitted = unbounded below." },
+        "max": { "type": "integer", "description": "Inclusive upper bound of F in minor currency units. Omitted = unbounded above." },
+        "currency": {
+          "type": "string",
+          "description": "ISO 4217 code for min/max. REQUIRED when context.currency is absent (omitting both is ambiguous). When both are present and differ, price_range.currency is authoritative for matching."
+        },
+        "match": {
+          "$ref": "#/$defs/RangeMatchMode",
+          "description": "Interval comparison mode. Default overlap. See RangeMatchMode for overlap/contained/contains/equals semantics and worked examples."
+        }
+      }
+    },
+    "DurationRangeFilter": {
+      "type": "object",
+      "title": "DurationRangeFilter",
+      "description": "Filter services by duration interval in minutes. Build service interval S from fixed duration [d,d] or range [min,max] (ISO 8601 converted to minutes). Services with duration.undetermined true (or no indexable duration) MUST be excluded when this filter is present; they MAY appear when no duration filter is set. Compare S to filter F using match (default overlap). Example: service 30–90 min vs filter min_minutes=60 max_minutes=60: overlap=yes, contained=no, contains=yes, equals=no.",
+      "properties": {
+        "min_minutes": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Inclusive lower bound of F in minutes. Omitted = unbounded below."
+        },
+        "max_minutes": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Inclusive upper bound of F in minutes. Omitted = unbounded above."
+        },
+        "match": {
+          "$ref": "#/$defs/RangeMatchMode",
+          "description": "Interval comparison mode. Default overlap. See RangeMatchMode for overlap/contained/contains/equals semantics and worked examples."
+        }
+      }
+    },
+    "RegistrationRequest": {
+      "type": "object",
+      "title": "RegistrationRequest",
+      "description": "Request body for POST /registry/businesses and PUT /registry/businesses/{id}.",
+      "required": ["profile_url", "deployment_mode", "name", "verticals", "categories", "timezone"],
+      "properties": {
+        "profile_url": {
+          "type": "string",
+          "format": "uri",
+          "description": "URL of the business USP profile (/.well-known/usp) or UCP profile (/.well-known/ucp) depending on deployment_mode."
+        },
+        "deployment_mode": {
+          "type": "string",
+          "enum": ["standalone", "ucp_native"],
+          "description": "Deployment mode of the business."
+        },
+        "name": {
+          "type": "string",
+          "description": "Human-readable business name."
+        },
+        "description": {
+          "type": "string",
+          "description": "Optional brief description of the business for discovery display."
+        },
+        "verticals": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Service verticals offered by the business."
+        },
+        "categories": {
+          "$ref": "#/$defs/RegistryCategoryIds",
+          "description": "Business category IDs published for exact-match search and returned unchanged in RegistryEntry for round-trip filtering."
+        },
+        "location": {
+          "$ref": "#/$defs/RegistryLocation",
+          "description": "Physical location. REQUIRED when the business offers at_business_location or hybrid channel services; MAY be omitted for virtual-only or phone-only businesses."
+        },
+        "timezone": {
+          "type": "string",
+          "description": "IANA timezone identifier (e.g., America/New_York)."
+        }
+      }
+    },
+    "RegistryEntry": {
+      "type": "object",
+      "title": "RegistryEntry",
+      "description": "Stored business registration returned by the registry.",
+      "required": [
+        "id",
+        "profile_url",
+        "deployment_mode",
+        "name",
+        "verticals",
+        "categories",
+        "timezone",
+        "status",
+        "created_at"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Opaque registration identifier assigned by the registry."
+        },
+        "profile_url": {
+          "type": "string",
+          "format": "uri"
+        },
+        "deployment_mode": {
+          "type": "string",
+          "enum": ["standalone", "ucp_native"]
+        },
+        "name": { "type": "string" },
+        "description": {
+          "type": "string",
+          "description": "Optional brief description of the business."
+        },
+        "verticals": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "categories": {
+          "$ref": "#/$defs/RegistryCategoryIds",
+          "description": "Business category IDs copied from registration. Every emitted ID MUST round-trip through BusinessSearchRequest categories and match this entry when other filters are unchanged."
+        },
+        "location": {
+          "$ref": "#/$defs/RegistryLocation"
+        },
+        "timezone": { "type": "string" },
+        "status": {
+          "type": "string",
+          "enum": ["active", "inactive"],
+          "description": "Registration lifecycle status."
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time",
+          "description": "RFC 3339 timestamp when the registration was created."
+        }
+      }
+    },
+    "BusinessSearchRequest": {
+      "type": "object",
+      "title": "BusinessSearchRequest",
+      "description": "Request body for POST /registry/search_business. At least one search filter MUST be present (not only pagination and/or context). Distinct filter fields combine with AND. See specification Section 6 filter matching semantics.",
+      "properties": {
+        "location": { "$ref": "#/$defs/RegistrySearchLocation" },
+        "verticals": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "OR within field: match if the business offers any listed vertical."
+        },
+        "categories": {
+          "$ref": "#/$defs/RegistryCategoryIds",
+          "description": "Category IDs, not display labels. OR within field: exact, case-sensitive match if RegistryEntry.categories contains any listed ID."
+        },
+        "query": {
+          "type": "string",
+          "description": "Free-text search across business names and categories."
+        },
+        "deployment_mode": {
+          "type": "string",
+          "enum": ["standalone", "ucp_native"],
+          "description": "When omitted, search returns businesses in both deployment modes."
+        },
+        "context": { "$ref": "#/$defs/RegistryContext" },
+        "pagination": {
+          "type": "object",
+          "description": "Cursor-based pagination. See USP specification Section 9.1.2.",
+          "properties": {
+            "cursor": { "type": ["string", "null"] },
+            "limit": { "type": "integer", "minimum": 1 }
+          }
+        }
+      }
+    },
+    "DesiredServiceTimeMoment": {
+      "type": "object",
+      "title": "DesiredServiceTimeMoment",
+      "description": "Ranking preference for a specific instant. The first candidate start at or after at is represented.",
+      "required": ["at"],
+      "properties": {
+        "at": {
+          "type": "string",
+          "format": "date-time",
+          "description": "RFC 3339 instant. Registry projects to the first grid tick at or after this instant."
+        }
+      },
+      "additionalProperties": false
+    },
+    "DesiredServiceTimeRange": {
+      "type": "object",
+      "title": "DesiredServiceTimeRange",
+      "description": "Bounded inclusive ranking preference from start through end (latest acceptable start, not occupancy end).",
+      "required": ["start", "end"],
+      "properties": {
+        "start": {
+          "type": "string",
+          "format": "date-time",
+          "description": "RFC 3339 lower bound inclusive."
+        },
+        "end": {
+          "type": "string",
+          "format": "date-time",
+          "description": "RFC 3339 upper bound inclusive for candidate starts."
+        }
+      },
+      "additionalProperties": false
+    },
+    "DesiredServiceTimeFrom": {
+      "type": "object",
+      "title": "DesiredServiceTimeFrom",
+      "description": "Open-ended ranking preference from start through the bitmap horizon.",
+      "required": ["start"],
+      "properties": {
+        "start": {
+          "type": "string",
+          "format": "date-time",
+          "description": "RFC 3339 instant. Every candidate start at or after this instant is represented, clipped to slot_count."
+        }
+      },
+      "additionalProperties": false
+    },
+    "DesiredServiceTimePreference": {
+      "oneOf": [
+        { "$ref": "#/$defs/DesiredServiceTimeMoment" },
+        { "$ref": "#/$defs/DesiredServiceTimeRange" },
+        { "$ref": "#/$defs/DesiredServiceTimeFrom" }
+      ],
+      "description": "One buyer time preference for availability ranking. Ranking context only; not a hard search filter."
+    },
+    "RankSignals": {
+      "type": "object",
+      "title": "RankSignals",
+      "description": "Per-hit availability and relevance ingredients for service search ranking. Present on every hit of a response that applies availability ranking or that answers a request carrying time preferences, including hits with no hint or a summary-only hint. Values are registry-specific and comparable only within one response from one registry. null means unknown; 0 means known empty or known non-overlap.",
+      "required": ["relevance", "coverage", "density", "soonness", "hint_usable"],
+      "properties": {
+        "relevance": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "description": "Topical and geographic match apart from availability. Registry-specific scale within this response."
+        },
+        "coverage": {
+          "type": ["number", "null"],
+          "minimum": 0,
+          "maximum": 1,
+          "description": "How much of the requested time has a hinted opening when desired_service_time_ranges is present. 0 means the requested time was represented in the structured snapshot and no opening overlapped it. null means not computed: no time preference, no usable structured hint, or requested time outside what the service published."
+        },
+        "density": {
+          "type": ["number", "null"],
+          "minimum": 0,
+          "maximum": 1,
+          "description": "Fraction of represented candidate starts that are open, ignoring when openings fall. 0 means sampled and known empty. null means unknown because there is no usable structured hint."
+        },
+        "soonness": {
+          "type": ["number", "null"],
+          "minimum": 0,
+          "maximum": 1,
+          "description": "How soon the earliest acceptable opening is relative to the request anchor and the registry's documented horizon. 0 means no acceptable opening inside the horizon. null means unknown because there is no usable structured hint. Populated even when prefer_sooner_availability_slots is false."
+        },
+        "hint_usable": {
+          "type": "boolean",
+          "description": "Whether availability_hint contributed usable structured ranking data for this hit. false means availability was unknown for ranking (omitted hint, summary-only hint, expired snapshot, malformed bitmap, or invariant failure) and is not a statement that the service is worse or unavailable."
+        }
+      },
+      "additionalProperties": false
+    },
+    "ServiceSearchRequest": {
+      "type": "object",
+      "title": "ServiceSearchRequest",
+      "description": "Request body for POST /registry/search_services. At least one search filter MUST be present (not only pagination and/or context). Distinct filter fields combine with AND. See specification Section 6 filter matching semantics.",
+      "properties": {
+        "location": { "$ref": "#/$defs/RegistrySearchLocation" },
+        "verticals": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "OR within field: match if the service vertical is any listed value."
+        },
+        "categories": {
+          "$ref": "#/$defs/RegistryCategoryIds",
+          "description": "Category IDs, not display labels. OR within field: exact, case-sensitive match if any listed ID is present in ServiceSearchResult.category_ids."
+        },
+        "query": {
+          "type": "string",
+          "description": "Free-text search across service names, descriptions, and categories."
+        },
+        "price_range": { "$ref": "#/$defs/PriceRangeFilter" },
+        "duration_range": { "$ref": "#/$defs/DurationRangeFilter" },
+        "desired_service_time_ranges": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/DesiredServiceTimePreference" },
+          "description": "Optional buyer time preferences for availability ranking. Not a hard filter and does not satisfy the at-least-one-filter rule alone."
+        },
+        "prefer_sooner_availability_slots": {
+          "type": "boolean",
+          "default": true,
+          "description": "When true, earlier acceptable openings rank above later ones within the availability signal. When false, soonness is not applied by the registry default ordering."
+        },
+        "context": { "$ref": "#/$defs/RegistryContext" },
+        "pagination": {
+          "type": "object",
+          "description": "Cursor-based pagination. See USP specification Section 9.1.2.",
+          "properties": {
+            "cursor": { "type": ["string", "null"] },
+            "limit": { "type": "integer", "minimum": 1 }
+          }
+        }
+      }
+    },
+    "RegistryBusinessRef": {
+      "type": "object",
+      "title": "RegistryBusinessRef",
+      "description": "Minimal business identity embedded in a service search result.",
+      "required": ["id", "profile_url", "deployment_mode", "name"],
+      "properties": {
+        "id": { "type": "string" },
+        "profile_url": { "type": "string", "format": "uri" },
+        "deployment_mode": {
+          "type": "string",
+          "enum": ["standalone", "ucp_native"]
+        },
+        "name": { "type": "string" }
+      }
+    },
+    "ServiceSearchResult": {
+      "type": "object",
+      "title": "ServiceSearchResult",
+      "description": "A single service hit from POST /registry/search_services. pricing aligns with the catalog Pricing model (Section 3.8). availability_hint aligns with the catalog AvailabilityHint type (Section 3.6) when indexed from the business catalog.",
+      "required": [
+        "service_id",
+        "service_name",
+        "business",
+        "category",
+        "category_ids",
+        "pricing",
+        "timezone"
+      ],
+      "properties": {
+        "service_id": { "type": "string" },
+        "service_name": { "type": "string" },
+        "business": { "$ref": "#/$defs/RegistryBusinessRef" },
+        "category": {
+          "type": "string",
+          "description": "Flat category string projected from the catalog service's primary categories[] entry. Pick order: primary name, else primary value, else primary id, else the first entry's value, else the service type."
+        },
+        "category_ids": {
+          "$ref": "#/$defs/RegistryCategoryIds",
+          "description": "Category IDs projected from indexed catalog categories[].id values. The array MAY be empty when the service has no category IDs. Every emitted ID MUST round-trip through ServiceSearchRequest categories and match this service when other filters are unchanged."
+        },
+        "duration_minutes": { "type": "integer", "minimum": 0 },
+        "pricing": {
+          "$ref": "catalog.json#/$defs/Pricing",
+          "description": "Pricing summary aligned with the service catalog Pricing type."
+        },
+        "location": { "$ref": "#/$defs/RegistryLocation" },
+        "timezone": { "type": "string" },
+        "last_indexed_at": {
+          "type": "string",
+          "format": "date-time",
+          "description": "When the registry last indexed this service metadata from the business catalog. Optional but RECOMMENDED."
+        },
+        "availability_hint": {
+          "$ref": "catalog.json#/$defs/AvailabilityHint",
+          "description": "Approximate availability summary from the business catalog, when present at index time. Non-authoritative; platforms MUST NOT treat as a substitute for live availability queries (Section 3.6)."
+        },
+        "rank_signals": {
+          "$ref": "#/$defs/RankSignals",
+          "description": "Availability and relevance ranking ingredients. Required on every hit of a response that applies availability ranking or that answers a request carrying desired_service_time_ranges or prefer_sooner_availability_slots; omitted only when the registry applied no availability ranking at all."
+        }
+      }
+    }
+  }
+}

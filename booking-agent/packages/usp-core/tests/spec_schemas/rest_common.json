@@ -1,0 +1,91 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://usp-protocol.dev/schemas/rest_common.json",
+  "title": "USP REST binding shared types",
+  "description": "Types used by the REST binding and referenced from OpenAPI; single source of truth for problem details and catalog feed subscriptions.",
+  "$defs": {
+    "ProblemDetails": {
+      "type": "object",
+      "description": "RFC 9457 Problem Details for HTTP API error responses.",
+      "required": ["type", "title", "status"],
+      "properties": {
+        "type": {
+          "type": "string",
+          "format": "uri-reference",
+          "description": "URI reference identifying the problem type."
+        },
+        "title": {
+          "type": "string",
+          "description": "Short, human-readable summary of the problem."
+        },
+        "status": {
+          "type": "integer",
+          "description": "HTTP status code."
+        },
+        "detail": {
+          "type": "string",
+          "description": "Human-readable explanation specific to this occurrence."
+        },
+        "instance": {
+          "type": "string",
+          "format": "uri-reference",
+          "description": "URI reference identifying the specific occurrence."
+        },
+        "errors": {
+          "type": "array",
+          "description": "Detailed validation errors.",
+          "items": {
+            "type": "object",
+            "properties": {
+              "field": { "type": "string" },
+              "message": { "type": "string" }
+            }
+          }
+        }
+      }
+    },
+    "FeedSubscription": {
+      "type": "object",
+      "title": "FeedSubscription",
+      "description": "Webhook subscription for catalog change events (REST catalog feed).",
+      "required": ["id", "callback_url", "status", "created_at"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique subscription identifier."
+        },
+        "callback_url": {
+          "type": "string",
+          "format": "uri",
+          "description": "Webhook URL where catalog change events are delivered. Must be HTTPS."
+        },
+        "categories": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Category IDs to receive events for. If omitted, receives events for all categories."
+        },
+        "events": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "service.created",
+              "service.updated",
+              "service.deleted",
+              "service.suspended"
+            ]
+          },
+          "description": "Event types to subscribe to. If omitted, defaults to all service.* events."
+        },
+        "status": {
+          "type": "string",
+          "enum": ["active", "paused", "canceled"]
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,189 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://usp-protocol.dev/schemas/profile.json",
+  "title": "USP Profile",
+  "description": "Defines the structure of USP profile documents. A profile is a machine-readable JSON document that declares a participant's USP capabilities and configuration. Businesses publish a BusinessProfile at /.well-known/usp; platforms publish a PlatformProfile at a stable URI they advertise via the USP-Agent header (REST) or _meta.usp.profile field (MCP). See $defs/BusinessProfile and $defs/PlatformProfile.",
+  "$defs": {
+    "SigningKey": {
+      "type": "object",
+      "title": "SigningKey",
+      "description": "A public key in JWK format (RFC 7517) used to verify HTTP Message Signatures (RFC 9421) on webhook payloads or privileged requests sent by the profile publisher (specification.md Section 9.1.4). The keyid parameter in the Signature-Input header MUST match the kid of one of these keys in the publisher's keys array (or the transition signing_keys alias; verifiers resolve keys first). The JWK vocabulary is deliberately open: kty, crv, and alg are typed as strings with the known values documented as examples, so that a key type or algorithm added by UCP can be published without a USP schema revision. A verifier that does not implement a published key's algorithm MUST skip that key rather than reject the profile (specification.md Section 10.1.6, forward compatibility).",
+      "required": ["kid", "kty"],
+      "properties": {
+        "kid": {
+          "type": "string",
+          "description": "Key ID. Referenced in the Signature-Input header's keyid parameter to identify which key was used to sign a webhook payload."
+        },
+        "kty": {
+          "type": "string",
+          "examples": ["EC", "RSA", "OKP"],
+          "description": "Key type. EC and RSA are the values USP documents; OKP appears where a counterparty profile defines EdDSA keys. Open vocabulary: consumers ignore key types they do not implement."
+        },
+        "crv": {
+          "type": "string",
+          "examples": ["P-256", "P-384", "Ed25519"],
+          "description": "Elliptic curve name. REQUIRED when kty is EC. Open vocabulary."
+        },
+        "x": {
+          "type": "string",
+          "description": "X coordinate in base64url encoding (RFC 4648). REQUIRED for EC keys."
+        },
+        "y": {
+          "type": "string",
+          "description": "Y coordinate in base64url encoding (RFC 4648). REQUIRED for EC keys."
+        },
+        "n": {
+          "type": "string",
+          "description": "RSA modulus in base64url encoding. REQUIRED for RSA keys."
+        },
+        "e": {
+          "type": "string",
+          "description": "RSA public exponent in base64url encoding. REQUIRED for RSA keys."
+        },
+        "use": {
+          "type": "string",
+          "enum": ["sig", "enc"],
+          "description": "Intended key usage. SHOULD be set to sig for webhook verification keys."
+        },
+        "alg": {
+          "type": "string",
+          "examples": ["ES256", "ES384", "RS256"],
+          "description": "Algorithm intended for use with this key. ES256 (ECDSA P-256 + SHA-256) is the baseline shared with UCP: verifiers MUST support verifying ES256 and signers SHOULD default to it. Other algorithms are OPTIONAL and the vocabulary is open; a verifier that does not implement a published algorithm skips that key."
+        }
+      }
+    },
+    "BusinessProfile": {
+      "type": "object",
+      "title": "BusinessProfile",
+      "description": "A USP business profile document. MUST be published at /.well-known/usp over HTTPS with no redirects and with Cache-Control: public, max-age>=60. Describes the scheduling endpoints, capabilities, payment support, business identity, authorization policy, and (when sending signed webhooks) UCP-canonical keys plus optional transition signing_keys of a USP-enabled business. This object is deliberately open (additionalProperties: true): it is the boundary object USP shares with UCP profiles, and consumers MUST ignore members they do not recognize rather than reject the document (specification.md Section 10.1.6, forward compatibility).",
+      "required": ["usp"],
+      "properties": {
+        "usp": {
+          "$ref": "usp.json#/$defs/business_schema",
+          "description": "The USP metadata object. Contains version, services endpoint registry, capabilities registry, optional checkout_systems, business identity, and optional backward-compatibility declarations."
+        },
+        "keys": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/SigningKey" },
+          "description": "CONDITIONAL. UCP-canonical public keys for verifying webhook signatures (top-level RFC 7517 JWK Set). MUST be present when the business sends signed webhook payloads. Dual-publishing an identical signing_keys array is RECOMMENDED during transition. When both keys and signing_keys are present they MUST list the same keys; verifiers resolve a keyid against keys first, falling back to signing_keys. Multiple keys MUST be supported to enable zero-downtime key rotation. The business SHOULD publish a new key before switching to it, and SHOULD retain the old key for at least 24 hours after rotation. See specification.md Section 10.1.1."
+        },
+        "signing_keys": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/SigningKey" },
+          "description": "OPTIONAL. Transition alias for keys. MAY be published while consumers still read signing_keys. When both keys and signing_keys are present they MUST list the same keys; verifiers resolve a keyid against keys first, falling back to signing_keys. See specification.md Section 10.1.1."
+        },
+        "authorization": {
+          "$ref": "#/$defs/AuthorizationPolicy",
+          "description": "CONDITIONAL. Declares how this business authenticates platforms for privileged operations. MUST be present when any capability under usp.capabilities includes a create/update/cancel/reschedule booking operation, an inventory hold operation, a waitlist operation, or any operation whose response can carry buyer personal data. This top-level placement is for Standalone Mode (/.well-known/usp). UCP-Native deployments publish the same policy as config.authorization on the dev.usp-protocol.services binding in /.well-known/ucp instead, because USP does not add top-level members to a UCP profile document and config is the slot UCP defines for entity-specific settings. See specification.md Section 10.1.6."
+        }
+      },
+      "additionalProperties": true
+    },
+    "AuthorizationMechanism": {
+      "type": "string",
+      "title": "AuthorizationMechanism",
+      "description": "A platform-authentication mechanism accepted for privileged USP operations per specification.md Section 10.1.6. Shared by both the REST and MCP bindings: REST expresses these as OpenAPI securitySchemes; MCP expresses the same set via transport-level HTTP credentials when MCP runs over HTTP, and/or via `_meta.usp.authorization` when the credential must ride inside the tool call (stdio, or a booking-scoped capability credential). Known values: http_message_signature (RFC 9421, permissionless, RECOMMENDED default), platform_key_pop (USP-defined, permissionless proof-of-possession over an ephemeral key, and the mechanism that makes a booking_scoped_credential sender-constrained via cnf.jkt), booking_scoped_credential (USP-defined, per-resource authority for continuation operations), oauth2_bearer, api_key, mtls. The four UCP-listed mechanisms keep UCP's meaning. This is a string with documented examples rather than a closed enum so that a mechanism added by UCP can be advertised and negotiated as a data change; consumers MUST ignore mechanism identifiers they do not recognize and MUST NOT treat an unrecognized identifier as accepted (fail closed).",
+      "examples": [
+        "http_message_signature",
+        "platform_key_pop",
+        "booking_scoped_credential",
+        "oauth2_bearer",
+        "api_key",
+        "mtls"
+      ]
+    },
+    "AuthorizationPolicy": {
+      "type": "object",
+      "title": "AuthorizationPolicy",
+      "description": "Declares how a business authenticates platforms for privileged USP operations, per specification.md Section 10.1.6 (Platform Authentication for Privileged Operations). Public operations (catalog, availability, profile discovery) are never gated by this policy. This is deliberately a business-declared, versioned policy rather than a single protocol-mandated mechanism: it lets a business accept HTTP Message Signatures (permissionless, suited to personal single-user agents) and/or booking-scoped capability credentials alongside pre-established mechanisms (OAuth, API key, mTLS) suited to known host platforms, and lets that mix evolve without a specification change. Placement: top-level member of the business profile in Standalone Mode (/.well-known/usp); config.authorization on the dev.usp-protocol.services service binding in UCP-Native Mode (/.well-known/ucp), since USP declares only under its own reverse-domain namespace authority and config is the member UCP defines for entity-specific settings. Defined once here and referenced by schemas/usp.json ServiceBinding, openapi/usp-rest.json, and openrpc/usp-mcp.json.",
+      "required": ["privileged_operations_require_authentication", "accepted_mechanisms"],
+      "properties": {
+        "privileged_operations_require_authentication": {
+          "type": "boolean",
+          "description": "Whether the business rejects unauthenticated requests to privileged operations (booking mutations, inventory holds, waitlist operations, payment-adjacent completion, registry writes, and any response carrying buyer personal data). This flag declares a deployment's ENFORCEMENT POSTURE; it does not grant permission to ignore the specification.md Section 10.1.6 requirement that privileged operations MUST be authenticated. A conformant deployment serving real bookings or buyer data MUST set this to true. false is permitted only for explicitly non-production sandbox deployments, and a deployment publishing false declares itself out of conformance for privileged operations: platforms MUST treat false as a signal to refuse to transact real bookings or transmit buyer personal data to that deployment."
+        },
+        "accepted_mechanisms": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/AuthorizationMechanism" },
+          "description": "Mechanisms this business accepts for authenticating privileged-operation requests, in no particular preference order. http_message_signature (RFC 9421, keyed off the calling platform's profile keys, or the transition signing_keys alias; verifiers resolve keys first) requires no pre-established credential and is RECOMMENDED as a default so that a single-consumer personal agent can authenticate solely by publishing a profile. platform_key_pop likewise requires no pre-established credential: the caller generates an ephemeral key, proves possession of it on each privileged request, and the business records the RFC 7638 thumbprint as the platform identifier. booking_scoped_credential authorizes get/update/cancel/reschedule/PII-bearing operations on one specific booking or waitlist entry, independent of platform identity; when issued under platform_key_pop it carries a cnf binding and is sender-constrained, so a leaked credential value is not usable on its own (see specification.md Section 10.1.6 and profile.json BookingScopedCredential). oauth2_bearer, api_key, and mtls require pre-established credentials and suit known, pre-vetted host platforms. A platform MUST select a mechanism it recognizes from this list; unrecognized identifiers are ignored and never assumed acceptable."
+        },
+        "token_endpoint": {
+          "type": "string",
+          "format": "uri",
+          "description": "OPTIONAL. OAuth 2.0 token endpoint for platforms using the oauth2_bearer mechanism's client_credentials grant. Only meaningful when accepted_mechanisms includes oauth2_bearer. For the buyer-scoped authorization_code flow (identity linking), platforms MUST instead discover endpoints via RFC 8414 as described in specification.md Section 10.2.4, regardless of this field."
+        }
+      },
+      "additionalProperties": true
+    },
+    "BookingScopedCredential": {
+      "type": "object",
+      "title": "BookingScopedCredential",
+      "description": "A sender-constrained capability credential issued at resource creation, authorizing continuation operations (get/update/confirm/cancel/reschedule and other responses carrying buyer personal data) on exactly ONE booking or waitlist entry, independent of the calling platform's identity. See specification.md Section 10.1.6. Returned alongside the created resource on the creation response only, and never on reads: it is a bearer secret with its own lifetime and MUST NOT be persisted into, or echoed back inside, the Booking or WaitlistEntry object. Defined here rather than in booking.json for two reasons: it is an authorization object rather than booking domain data, so it belongs beside AuthorizationMechanism and AuthorizationPolicy; and this file shares an $id level with usp.json, so the cnf reference resolves identically under $id base-URI rules and on the filesystem, which a reference from booking.json (whose $id carries a services/ segment) would not. Closed object: unlike the profile documents in this file, a credential is security-critical and the Section 10.1.6 forward-compatibility rule does not apply, so an unrecognized member MUST cause rejection rather than be ignored.",
+      "required": ["value", "expires_at"],
+      "properties": {
+        "value": {
+          "type": "string",
+          "pattern": "^bsc_",
+          "minLength": 26,
+          "description": "The opaque credential value. MUST begin with bsc_ so that it is distinguishable on the wire from an oauth2_bearer token or an api_key sharing the Authorization header, and so that it is greppable in logs and traces when a leak has to be scoped. Businesses MUST generate the portion after the prefix from a cryptographically secure random source with at least 128 bits of entropy, and MUST NOT derive it from the resource identifier: a credential derived from the booking ID is the resource-identifier-as-credential mistake that Section 10.1.6 opens by forbidding. Platforms MUST treat the whole value as opaque."
+        },
+        "expires_at": {
+          "type": "string",
+          "format": "date-time",
+          "description": "RFC 3339 timestamp after which the business MUST reject this credential. A finite expiry is REQUIRED. The lifetime tracks the RESOURCE rather than a short session clock: a booking made three months out still needs a cancel path on day 89, so businesses SHOULD set this to the end of the resource's actionable window (for a booking, its cancellation or reschedule window; for a waitlist entry, its offer window) rather than to a fixed short interval. A business MAY re-issue a credential to the same bound key on an authenticated read."
+        },
+        "cnf": {
+          "$ref": "usp.json#/$defs/ConfirmationKey",
+          "description": "Confirmation key binding this credential to the public key whose possession the caller proved on the issuing request. REQUIRED when the business issues under the platform_key_pop mechanism, and RECOMMENDED in all cases; a credential without cnf is a plain bearer token, so anyone who observes the value in a log, an HTTP trace, or a compromised database can use it. When cnf is present the business MUST reject any presentation of this credential that is not accompanied by a valid proof whose header jwk has an RFC 7638 thumbprint equal to cnf.jkt, whatever mechanism the caller declares. Echoing cnf back to the platform is what lets the platform detect a business that silently ignored the binding and issued a bearer token instead."
+        },
+        "scope": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string" },
+          "description": "OPTIONAL. USP method names this credential authorizes on its resource, for example usp_bookings_get and usp_bookings_cancel. Absence means the full continuation set for the resource type. A business MUST NOT interpret absence as authorizing more than that set, and MUST NOT accept this credential for any resource other than the one it was issued against."
+        }
+      },
+      "additionalProperties": false,
+      "examples": [
+        {
+          "value": "bsc_7f3c1a9e4b2d8065f1ae93c7",
+          "expires_at": "2026-06-14T18:00:00Z",
+          "cnf": { "jkt": "0ZcOCORZNYy-DWpqq30jZyJGHTN0d2HglBV3uiguA4I" }
+        }
+      ]
+    },
+    "PlatformProfile": {
+      "type": "object",
+      "title": "PlatformProfile",
+      "description": "A USP platform profile document. Published at a stable URI that the platform advertises on every USP API request via the USP-Agent HTTP header (REST binding) or the _meta.usp.profile field (MCP binding). Describes the capabilities and service preferences of the platform, enables businesses to perform server-side capability negotiation without round-trip negotiation messages, and optionally provides webhook callback URLs and request signing keys. Open object (additionalProperties: true) for the same forward-compatibility reason as BusinessProfile: it is a boundary object shared with UCP platform profiles.",
+      "required": ["usp"],
+      "properties": {
+        "usp": {
+          "$ref": "usp.json#/$defs/platform_schema",
+          "description": "The USP metadata object. Contains version and capabilities registry. Optionally includes service consumption preferences."
+        },
+        "webhook_url": {
+          "type": "string",
+          "format": "uri",
+          "description": "HTTPS callback URL where the business should deliver webhook notifications (booking lifecycle events). Businesses MUST deliver webhooks to this URL when registered. See §9.2.3 and §10.1.1."
+        },
+        "keys": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/SigningKey" },
+          "description": "CONDITIONAL. UCP-canonical public keys for verifying HTTP Message Signatures (RFC 9421) on platform requests (top-level RFC 7517 JWK Set). MUST be present when the platform signs privileged REST requests or privileged MCP-over-HTTP requests. Dual-publishing an identical signing_keys array is RECOMMENDED during transition. When both keys and signing_keys are present they MUST list the same keys; verifiers resolve a keyid against keys first, falling back to signing_keys. Multiple keys MUST be supported for zero-downtime key rotation. See §9.1.4, §10.1.1, and §10.1.6."
+        },
+        "signing_keys": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/SigningKey" },
+          "description": "OPTIONAL. Transition alias for keys. MAY be published while consumers still read signing_keys. When both keys and signing_keys are present they MUST list the same keys; verifiers resolve a keyid against keys first, falling back to signing_keys. See §9.1.4 and §10.1.1."
+        }
+      },
+      "additionalProperties": true
+    }
+  }
+}

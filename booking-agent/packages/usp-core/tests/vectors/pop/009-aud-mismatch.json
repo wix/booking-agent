@@ -1,0 +1,38 @@
+{
+  "id": "009-aud-mismatch",
+  "section": "9.2.2",
+  "requirement": "audience-binding",
+  "binding": [
+    "mcp"
+  ],
+  "expect": "reject",
+  "reject_code": "pop_proof_invalid",
+  "http_status": 401,
+  "notes": "A valid proof captured at one business, presented at another. With no htu on the MCP binding, aud is the only thing preventing cross-business replay - which is why it is MUST rather than optional.",
+  "key": {
+    "jwk": {
+      "crv": "Ed25519",
+      "kty": "OKP",
+      "x": "iojj3XQJ8ZX9UtstPLpdcspnCb8dlBIb83SIAbQPb1w"
+    },
+    "jkt": "UDDReOZl1ipXAfp9wYsm13sDBMK5og--QWdBjzuf6o4",
+    "private_key_d": "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE"
+  },
+  "credential": {
+    "value": "bsc_7f3c1a9e4b2d8065f1ae93c7",
+    "expires_at": "2026-06-14T18:00:00Z",
+    "cnf": {
+      "jkt": "UDDReOZl1ipXAfp9wYsm13sDBMK5og--QWdBjzuf6o4"
+    }
+  },
+  "proof": "eyJhbGciOiJFZERTQSIsImp3ayI6eyJjcnYiOiJFZDI1NTE5Iiwia3R5IjoiT0tQIiwieCI6ImlvamozWFFKOFpYOVV0c3RQTHBkY3NwbkNiOGRsQkliODNTSUFiUVBiMXcifSwidHlwIjoidXNwLXBvcCtqd3QifQ.eyJhdGgiOiItVHJBOFZZakhkNDFuMDNVd1RMU3c0R3dudWJQak9RY3lTUmpqZ1FFZmVjIiwiYXVkIjoiaHR0cHM6Ly9vdGhlci1idXNpbmVzcy5leGFtcGxlLm5ldC8ud2VsbC1rbm93bi91c3AiLCJpYXQiOjE3ODkyMDM2MDAsImp0aSI6IjAxSFpYSzlUNFI4UVcyVk42WTBNM1BCNUNHIiwibm9uY2UiOiJuLTBTNl9XekEyTWoiLCJ1c3BfbSI6InVzcF9ib29raW5nc19jYW5jZWwiLCJ1c3BfcCI6ImRsc0ZZekRLT1czYlpKWlktLUFEMW5ieFliOGo2YUd4M2hZUV9RQ2JDZncifQ.yvqMc8BUTj9zmu1tFE1JYxrfqU3j0C6skevemjKCGDAz0zXlcRIvzodHc9mq-BGMNJutridl5jz3hOuGSNQgAw",
+  "expected_claims": {
+    "usp_m": "usp_bookings_cancel",
+    "aud": "https://other-business.example.net/.well-known/usp",
+    "usp_p": "dlsFYzDKOW3bZJZY--AD1nbxYb8j6aGx3hYQ_QCbCfw",
+    "iat": 1789203600,
+    "jti": "01HZXK9T4R8QW2VN6Y0M3PB5CG",
+    "ath": "-TrA8VYjHd41n03UwTLSw4GwnubPjOQcySRjjgQEfec",
+    "nonce": "n-0S6_WzA2Mj"
+  }
+}

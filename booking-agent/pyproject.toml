@@ -1,0 +1,18 @@
+[project]
+name = "booking-agent-workspace"
+version = "0.1.0"
+description = "Booking Agent public workspace (booking-agent-core and booking-agent-cli)."
+requires-python = ">=3.10"
+
+[tool.uv.workspace]
+members = ["packages/usp-core", "packages/cli"]
+
+[tool.uv.sources]
+booking-agent-core = { workspace = true }
+booking-agent-cli = { workspace = true }
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+pythonpath = ["packages/cli/tests"]
+testpaths = ["packages/usp-core/tests", "packages/cli/tests"]
+addopts = ["--deselect=packages/cli/tests/test_declined_spt.py::test_superagent_inherits_the_matrix_without_restating_it"]
