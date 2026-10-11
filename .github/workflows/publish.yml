@@ -16,6 +16,34 @@ jobs:
       - name: Checkout
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
+      - name: Guard Pages branch contents
+        shell: python
+        run: |
+          import fnmatch, pathlib, subprocess, sys
+          allowed = [
+              ".github/workflows/publish.yml",
+              ".gitignore",
+              "CNAME",
+              "README.md",
+              "docs/OWNERSHIP.md",
+              "platform-profile.json",
+              "schemas/*",
+              "tests/test_profile.py",
+              "tools/build.py",
+          ]
+          files = subprocess.run(
+              ["git", "ls-files"], check=True, capture_output=True, text=True
+          ).stdout.splitlines()
+          bad = [f for f in files if not any(fnmatch.fnmatchcase(f, p) for p in allowed)]
+          if bad:
+              print("Paths not allowed on the Pages branch:")
+              print("\n".join(bad))
+              sys.exit(1)
+          cname = pathlib.Path("CNAME").read_text().strip()
+          if cname != "profile.booking-agent.dev":
+              print(f"CNAME must be profile.booking-agent.dev, found {cname!r}")
+              sys.exit(1)
+
       - name: Set up Python
         uses: actions/setup-python@0b93645e9fea7318ecaed2b359559ac225c90a2b # v5.3.0
         with:
