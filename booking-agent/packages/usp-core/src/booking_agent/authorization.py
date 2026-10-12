@@ -296,16 +296,13 @@ class ScopedCredentialPosture(str, Enum):
     consumer fails closed rather than falling back to anonymous, so shipping a
     laxer default would be shipping a known deviation.
 
-    v2 is the first production release, so there is no installed base whose
-    flows would start refusing -- the usual argument for easing in a security
-    default does not apply.  No business implements ``platform_key_pop`` yet
-    (spec issues #157 / #162), which means privileged calls against a business
-    that publishes no ``authorization`` policy now refuse until the server side
-    ships.  That is the intended behaviour: an unauthenticated booking is
-    exactly what the mechanism exists to prevent.
+    Under ``REQUIRED``, privileged calls to a business that publishes no
+    ``authorization`` policy, or declares privileged operations unauthenticated,
+    are refused: an unauthenticated booking is exactly what the mechanism exists
+    to prevent.
 
-    ``PREFERRED`` remains available for deployments that need to transact against
-    a not-yet-conformant business: it warns and proceeds instead of refusing.
+    ``PREFERRED`` is for a deployment that chooses to transact with such a
+    business anyway: the same cases log a warning and proceed instead of refusing.
     """
 
     REQUIRED = "required"

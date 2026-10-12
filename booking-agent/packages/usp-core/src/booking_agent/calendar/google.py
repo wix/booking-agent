@@ -152,7 +152,7 @@ def _refresh_access_token_sync(
 
 
 # ---------------------------------------------------------------------------
-# PKCE helpers (adapted from wix_mcp.generate_pkce_pair)
+# PKCE helpers
 # ---------------------------------------------------------------------------
 
 def _generate_pkce_pair() -> tuple:
@@ -316,7 +316,7 @@ def _start_callback_server() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Token exchange (adapted from wix_mcp.exchange_code_for_token)
+# Token exchange
 # ---------------------------------------------------------------------------
 
 async def _exchange_code_for_token(
@@ -344,7 +344,7 @@ async def _exchange_code_for_token(
 
 
 # ---------------------------------------------------------------------------
-# HTML responses (adapted from wix_mcp.OAuthCallbackHandler)
+# HTML responses
 # ---------------------------------------------------------------------------
 
 def _close_script() -> str:

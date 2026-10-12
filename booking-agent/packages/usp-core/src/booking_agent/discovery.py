@@ -50,10 +50,8 @@ class USPCapabilityEntry(BaseModel):
 class USPBusinessInfo(BaseModel):
     """schemas/usp.json#/$defs/BusinessInfo.
 
-    Spec REQUIRES (name, timezone, currency). ``timezone`` and ``currency`` are
-    kept Optional here because real Wix-served `/.well-known/usp` documents
-    frequently omit them — deliberate permissive divergence to preserve
-    compatibility with non-conformant business publishers.
+    Spec REQUIRES (name, timezone, currency). The client accepts documents
+    without ``timezone`` or ``currency``, a deliberate permissive divergence.
     """
     model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
 

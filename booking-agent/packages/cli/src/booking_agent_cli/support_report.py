@@ -7,8 +7,9 @@ can send them, to one baked-in ingest URL, and only with ``--user-confirmed``.
 
 Every value in the note is projected from an explicit allowlist. Free text that a
 buyer, agent, or business controls (exception messages, error details, request
-text, notes, addresses) is never copied. Building the note is a side channel: no
-failure here may change the error output it describes.
+text, notes, addresses) is never copied. A note that does not pass the ingest's
+schema (``support_bundle_schema``) is never stored or sent. Building the note is a
+side channel: no failure here may change the error output it describes.
 """
 from __future__ import annotations
 
@@ -41,6 +42,7 @@ from .session import (
     load_session,
     save_session,
 )
+from .support_bundle_schema import validate_bundle
 
 # Apps Script web app owned by support@booking-agent.dev (ingest/apps-script).
 DEFAULT_SUPPORT_INGEST_URL = (
@@ -826,7 +828,10 @@ def build_bundle(
         bundle["build_errors"] = build_errors
         if bundle["env"] is None or bundle["error"] is None:
             return _minimal_bundle(code, build_errors)
-        return _cap(_redact_json_value(bundle))
+        text = _cap(_redact_json_value(bundle))
+        if validate_bundle(json.loads(text)):
+            return _minimal_bundle(code, build_errors + [{"section": "schema", "type": "SchemaMismatch"}])
+        return text
     except Exception as e:  # noqa: BLE001
         return _minimal_bundle(code, build_errors + [{"section": "serialize", "type": type(e).__name__[:64]}])
 
@@ -942,7 +947,9 @@ def _snapshot(session: Session) -> Any:
         parsed = json.loads(raw)
     except (TypeError, ValueError):
         return _CORRUPT
-    return parsed if isinstance(parsed, dict) else _CORRUPT
+    if not isinstance(parsed, dict) or validate_bundle(parsed):
+        return _CORRUPT
+    return parsed
 
 
 def _restore(session: Session, *, declined: bool = False) -> Optional[str]:

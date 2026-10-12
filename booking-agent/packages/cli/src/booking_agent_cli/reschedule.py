@@ -1,8 +1,8 @@
 """Reschedule rules for a CONFIRMED booking (USP §5.3.6).
 
-This slice moves an appointment only when the move is money-neutral. The Wix
-adapter does not add a payment action when the new slot costs more, so a price
-difference would leave the buyer under- or over-charged with nothing to settle it.
+This slice moves an appointment only when the move is money-neutral. The CLI
+has no way to settle a price difference on reschedule, so it would leave the
+buyer under- or over-charged.
 """
 from __future__ import annotations
 

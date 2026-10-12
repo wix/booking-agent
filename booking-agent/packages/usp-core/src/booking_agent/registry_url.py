@@ -1,7 +1,7 @@
 """Resolve configured USP registry URL to the HTTP POST target for service search.
 
 ``USP_REGISTRY_URL`` may be:
-- A vendor-specific full POST URL (e.g. interim Wix semantic-search ``.../v1/search``).
+- A full POST URL ending in ``/search`` or containing ``semantic-search``, used as is.
 - A registry API base URL where the spec path ``POST /registry/search_services`` applies.
 """
 from __future__ import annotations
@@ -27,7 +27,7 @@ def registry_search_post_url(configured_url: str) -> str:
     # Spec-shaped path already
     if "search_services" in lower:
         return raw
-    # Interim Wix semantic-search and similar ``.../search`` POST endpoints
+    # Full ``.../search`` POST URLs are used as given.
     if "semantic-search" in lower or lower.rstrip("/").endswith("/search"):
         return raw
     # Treat as registry HTTP origin + spec path

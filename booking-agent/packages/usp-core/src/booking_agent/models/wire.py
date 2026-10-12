@@ -3,8 +3,6 @@
 These Pydantic models mirror the USP JSON schemas in universal-scheduling-protocol
 (`schemas/catalog.json`, `schemas/availability.json`, `schemas/booking.json`) and
 represent the wire format for the Universal Scheduling Protocol.
-Both the platform side (shopping_agent) and the business side (wix_commerce_agent,
-when USP support is added) import from here.
 """
 from enum import Enum
 
@@ -200,11 +198,9 @@ class NoShowPolicy(BaseModel):
 class BookingWindow(BaseModel):
     """schemas/catalog.json#/$defs/ServicePolicies.booking_window.
 
-    Spec REQUIRES all three of (min_advance, max_advance, slot_interval), but the
-    Wix Bookings adapter currently omits ``slot_interval`` on many services
-    (and sometimes omits the whole ``booking_window``). To keep parsing real
-    business responses, ``slot_interval`` is kept Optional here — a deliberate
-    permissive divergence from the spec.
+    Spec REQUIRES all three of (min_advance, max_advance, slot_interval). The
+    client accepts a missing ``slot_interval``, a deliberate permissive
+    divergence from the spec.
     """
 
     model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
@@ -218,9 +214,8 @@ class ServicePolicies(BaseModel):
     """schemas/catalog.json#/$defs/ServicePolicies.
 
     Spec REQUIRES (cancellation, rescheduling, booking_window, confirmation_mode,
-    requires_payment). ``booking_window`` is kept Optional here because the Wix
-    Bookings adapter does not populate it for many services — deliberate
-    permissive divergence (see BookingWindow docstring).
+    requires_payment). The client accepts a missing ``booking_window``, a
+    deliberate permissive divergence (see BookingWindow docstring).
     """
 
     model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
@@ -360,11 +355,9 @@ class RegistryBusinessInfo(BaseModel):
     """Business info embedded in registry search results.
 
     Aligns with schemas/registry.json#/$defs/RegistryBusinessRef which requires
-    (id, profile_url, deployment_mode, name). The Wix semantic-search endpoint
-    still emits the legacy field name ``usp_profile_url`` (and frequently omits
-    ``deployment_mode``), so this model accepts BOTH names via the AliasChoices
-    construct and keeps ``deployment_mode`` Optional with the spec-recommended
-    default of ``"standalone"``.
+    (id, profile_url, deployment_mode, name). The client also accepts the legacy
+    field name ``usp_profile_url`` (via AliasChoices) and a missing
+    ``deployment_mode``, defaulting it to the spec-recommended ``"standalone"``.
     """
     model_config = ConfigDict(
         alias_generator=to_camel, populate_by_name=True, extra="ignore"
