@@ -98,7 +98,7 @@ def attach_registry_hit(
     *,
     rank: Optional[int] = None,
 ) -> USPService:
-    """Persist the raw registry row on a discoverable service for agents and the demo dashboard."""
+    """Persist the raw registry row on a discoverable service for agents and support reports."""
     meta = dict(service.metadata or {})
     meta[METADATA_REGISTRY_SEARCH_RESULT] = hit.model_dump(by_alias=True, exclude_none=True)
     if rank is not None:

@@ -118,7 +118,7 @@ def intersect_ucp_capabilities(
 
     When the platform profile carries no ``capabilities`` block at all the
     platform is treated as unconstrained and the full business capability set
-    is returned (backward-compatible with minimal demo fixtures).
+    is returned.
 
     Returns the pruned ``{capability_id: [version, ...]}`` mapping.
     """

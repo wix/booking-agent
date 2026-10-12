@@ -15,10 +15,8 @@ from booking_agent.http_trace import traced_async_client
 
 from .authorization import (
     BookingScopedCredential,
-    ScopedCredentialPosture,
     issued_credential_payload,
     parse_issued_credential,
-    resolve_posture,
 )
 from .models.wire import USPService
 from .signals import with_checkout_signals
@@ -1350,7 +1348,6 @@ def build_ucp_checkout_client(
     platform_profile_url: Optional[str] = None,
     ucp_version_header: Optional[str] = None,
     bearer_token: Optional[str] = None,
-    auth_posture: Optional[str] = None,
 ) -> UcpCheckoutClient:
     """Build a checkout client that proves possession of this agent's key.
 
@@ -1359,15 +1356,13 @@ def build_ucp_checkout_client(
     10.1.6).  Unlike the USP binding, the ``dev.ucp.shopping`` binding publishes
     no ``config.authorization``, so there is no policy to negotiate the mechanism
     from: the client presents the proof and a business that does not implement
-    it ignores the header.  ``BOOKING_AGENT_USP_AUTH_SCOPED_CREDENTIAL=disabled`` opts
-    out for offline and mock-free local runs.
+    it ignores the header.
 
     The key is per checkout origin and generated on first contact, which is the
     whole of platform onboarding -- there is no registration round trip.
     """
     pop_key: Optional[PopKey] = None
-    authenticates = resolve_posture(auth_posture) is not ScopedCredentialPosture.DISABLED
-    if rest_base.strip() and authenticates:
+    if rest_base.strip():
         # Keyed by origin, so an unresolved base would store a key under no
         # business at all -- and the request it belongs to cannot be sent anyway.
         pop_key = PopKeyStore().get_or_create(rest_base)

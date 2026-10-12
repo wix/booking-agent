@@ -1,4 +1,4 @@
-"""Unified Google Calendar connection detection (env, cache, mock)."""
+"""Unified Google Calendar connection detection (host token or saved token)."""
 from __future__ import annotations
 
 import asyncio
@@ -15,7 +15,7 @@ from booking_agent.calendar.scope import (
 )
 
 from .calendar_event import _user_cache_path, load_cached_token, write_token_cache
-from .secrets.demo import resolve_calendar_service
+from .runtime import resolve_calendar_service
 
 TOKEN_ENV = "GOOGLECALENDAR_ACCESS_TOKEN"
 _CALENDAR_SESSION_ID = "cli"

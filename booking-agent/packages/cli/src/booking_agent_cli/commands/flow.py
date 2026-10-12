@@ -9,8 +9,6 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-import json
-import os
 import shlex
 import shutil
 import subprocess
@@ -18,6 +16,7 @@ import sys
 import time
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
+from booking_agent import settings
 from booking_agent.calendar.scope import (
     CALENDAR_MODE_EVENTS,
     CALENDAR_MODE_FREEBUSY,
@@ -39,17 +38,14 @@ from zoneinfo import ZoneInfo
 import httpx
 import typer
 
-from ..browser import BrowserLaunchSpec
-from ..checkout import CardCredential, CheckoutInput, run_redirect_checkout
 from ..checkout_prereq import (
     PrereqFailure,
-    run_prereq_check_redirect,
     run_prereq_check_ucp,
     select_checkout_mode,
     supported_checkout_modes_from_profile,
 )
 from ..link_cli import (
-    LINK_CLI_BIN,
+    default_link_cli_bin,
     SPEND_REQUIRES_ACTION,
     SharedPaymentTokenUnavailable,
     SpendActionRequired,
@@ -59,21 +55,16 @@ from ..link_cli import (
     initiate_auth_login,
     poll_auth_until_authenticated,
     retrieve_spend_request,
-    retrieve_spend_request_card,
     wait_for_spend_approval,
 )
 from ..payment_helpers import (
     apply_booking_to_session,
     approval_poll_deadline,
     cancel_ucp_checkout_async,
-    check_continue_url_valid,
-    compute_assist_timeout_ms,
     create_booking_sync,
-    get_browser_launch_spec,
     payment_path_summary,
     resolve_spend_request_fields_sync,
     resolve_spend_approval_url,
-    seconds_until_checkout_expires,
 )
 from ..calendar_connection import bridge_token_cache_for_mode, calendar_connection_status
 from ..calendar_event import (
@@ -98,10 +89,6 @@ from ..booking_poll import (
     fetch_booking,
     wait_for_booking_terminal,
 )
-from ..return_listener import (
-    get_active_listener,
-    start_local_return_listener,
-)
 from ..engine import (
     GateError,
     recommend_next,
@@ -124,18 +111,16 @@ from ..output import (
     spend_approval_surface,
     write_spend_approval_notice,
 )
-from ..secrets.demo import (
-    apply_demo_defaults,
-    load_env_file,
+from ..runtime import (
+    ProfileUrlError,
+    require_fetchable_profile_url,
     resolve_backend,
     resolve_calendar_service,
 )
-from ..secrets.booking_agent import ProductionSecretsError, load_production_secrets
 from .. import reschedule as reschedule_rules
 from .. import timezone_context as tz_context
 from ..activity_log import record_command
 from ..identity import logout_identity
-from ..test_bypasses import test_spt_from_env
 from ..session import (
     BUYER_SOURCE_LINKCLI,
     SCHEMA_VERSION,
@@ -172,13 +157,11 @@ app = typer.Typer(help="Stateful USP booking flow with hard human gates.")
 def _flow_setup(ctx: typer.Context) -> None:
     """Reconstruct config for every command process.
 
-    Each ``booking-agent flow ...`` invocation is a separate process, so config must
-    be re-derived from the persisted session on every call. In demo mode we load
-    the baked-in demo defaults (and ``.env`` if present), making the
-    flow work from any directory with no ``--env-file``. Production
-    (``secrets_mode == "booking-agent"``) sessions read config from the operator
-    environment only. ``init`` handles its own secrets loading (with correct
-    precedence for an explicit ``--env-file``), so it is skipped here.
+    Each ``booking-agent flow ...`` invocation is a separate process, so config is
+    re-derived from the persisted session on every call: its env file, then (outside
+    production) the user and folder ``.env`` files, then the shipped defaults. ``init``
+    loads its own (it may receive ``--env-file``), and ``sessions`` commands load per
+    session, so both are skipped here.
     """
     from booking_agent.http_trace import clear_last_http_failure
 
@@ -192,10 +175,7 @@ def _flow_setup(ctx: typer.Context) -> None:
     if sub in ("init", "sessions"):
         return
     session = load_session()
-    if session is not None and session.secrets_mode == "booking-agent":
-        return  # production secrets; never inject demo defaults
-    _load_demo_env()
-    apply_demo_defaults()
+    _load_config(session)
 
 
 # ---------------------------------------------------------------------------
@@ -210,23 +190,26 @@ FORBIDDEN = [
 ]
 
 
-def _load_demo_env(env_file: Optional[str] = None) -> None:
-    """Load .env with correct precedence for demo mode.
+def _env_file_missing(phase: str, err: Exception) -> None:
+    emit_error(
+        phase,
+        code="env_file_not_found",
+        message=(
+            f"{err}. Restore that file, or start a new booking without it "
+            "(`booking-agent flow init --force`)."
+        ),
+        next_command="booking-agent flow init --user-request '<request>' --force",
+    )
+    raise typer.Exit(code=1)
 
-    Search order (first found wins, all use set-if-absent):
-    1. Explicit ``--env-file`` argument (if provided)
-    2. ``~/.booking-agent/.env`` — next to the session store; works from any CWD
-    3. ``.env`` in the current working directory — legacy / repo-local override
-    """
-    from ..session import session_path
-    if env_file:
-        load_env_file(env_file)
-    global_env = session_path().parent / ".env"
-    if global_env.exists():
-        load_env_file(str(global_env))
-    local_env = Path(".env")
-    if local_env.exists():
-        load_env_file(str(local_env))
+
+def _load_config(session: Optional[Session]) -> None:
+    from .. import config_loader
+
+    try:
+        config_loader.load_for_session(session)
+    except config_loader.EnvFileNotFound as err:
+        _env_file_missing(session.flow_phase if session is not None else "INIT", err)
 
 
 def _agent_out(
@@ -296,16 +279,10 @@ def _emit_flow_http_error(
 @app.command("init")
 def init(
     user_request: str = typer.Option(..., "--user-request", help="Natural-language request that started this flow"),
-    secrets_mode: str = typer.Option(
-        "demo",
-        "--secrets-mode",
-        help=(
-            "demo (default: baked-in demo config against the live interim "
-            "registry) | booking-agent (production: hosted platform profile, no demo "
-            "defaults, operator-supplied config)"
-        ),
+    env_file: Optional[str] = typer.Option(
+        None, "--env-file",
+        help="Env file for this booking (saved with it, so later commands reload it).",
     ),
-    env_file: Optional[str] = typer.Option(None, "--env-file", help="Path to demo .env file"),
     force: bool = typer.Option(False, help="Overwrite an active incomplete session"),
     allow_duplicate: bool = typer.Option(
         False, "--allow-duplicate",
@@ -313,15 +290,6 @@ def init(
     ),
 ) -> None:
     """Initialize a new booking session."""
-    secrets_mode = (secrets_mode or "demo").lower()
-    if secrets_mode not in ("demo", "booking-agent"):
-        emit_error(
-            "INIT",
-            code="invalid_secrets_mode",
-            message=f"--secrets-mode must be demo or booking-agent (got: {secrets_mode})",
-        )
-        raise typer.Exit(code=1)
-
     store = load_store()
     active = get_active_session(store)
     if active is not None and active.flow_phase not in TERMINAL_PHASES and not force:
@@ -341,7 +309,7 @@ def init(
     if duplicates:
         rerun = (
             f"booking-agent flow init --user-request {shlex.quote(user_request)} "
-            f"--secrets-mode {secrets_mode} --allow-duplicate"
+            "--allow-duplicate"
         )
         emit(AgentOutput(
             phase="INIT",
@@ -359,17 +327,18 @@ def init(
         ))
         return
 
-    init_data: dict = {"secrets_mode": secrets_mode}
-    if secrets_mode == "demo":
-        _load_demo_env(env_file)
-        apply_demo_defaults()
-    else:
-        try:
-            production = load_production_secrets()
-        except ProductionSecretsError as e:
-            emit_error("INIT", code="production_secrets_invalid", message=str(e))
-            raise typer.Exit(code=1)
-        init_data["agent_profile_url"] = production.agent_profile_url
+    from .. import config_loader
+
+    try:
+        chosen_env_file = config_loader.chosen_env_file(env_file)
+        config_loader.load(env_file=str(chosen_env_file) if chosen_env_file else None)
+    except config_loader.EnvFileNotFound as err:
+        _env_file_missing("INIT", err)
+    try:
+        init_data: dict = {"agent_profile_url": require_fetchable_profile_url()}
+    except ProfileUrlError as e:
+        emit_error("INIT", code="platform_profile_url_invalid", message=str(e))
+        raise typer.Exit(code=1)
 
     # Skip prereq check for all sessions after the very first (sessions_created tracks
     # lifetime count so it never resets to 0 even after `flow reset`).
@@ -380,10 +349,8 @@ def init(
         user_request=user_request,
         schema_version=SCHEMA_VERSION,
         flow_phase=initial_phase,
-        secrets_mode=secrets_mode,
+        env_file=str(chosen_env_file) if chosen_env_file else None,
     )
-    if store.browser_config:
-        session.browser_channel = store.browser_config.channel
     try:
         if get_auth_status().authenticated:
             session.link_auth_gate_completed = True
@@ -717,22 +684,18 @@ def _cancel_open_row(session: Session, active_id: Optional[str]) -> Dict[str, An
 
 @contextlib.contextmanager
 def _session_environment(session: Session):
-    """Apply one session's demo or production config, then put the env back.
+    """Apply one session's config, then put the environment back.
 
     ``sessions`` commands skip the flow callback, and one bulk run can span
-    both modes, so demo defaults must never outlive the session they were for.
+    sessions with different env files, so one session's config must never
+    outlive it.
     """
-    saved = dict(os.environ)
-    try:
-        if session.secrets_mode == "booking-agent":
-            load_production_secrets()
-        else:
-            _load_demo_env()
-            apply_demo_defaults()
+    from .. import config_loader
+
+    with config_loader.preserved():
+        config_loader.load_for_session(session)
+        require_fetchable_profile_url()
         yield
-    finally:
-        os.environ.clear()
-        os.environ.update(saved)
 
 
 def _bulk_cancel_one(session: Session, reason: Optional[str]) -> Dict[str, Any]:
@@ -752,8 +715,8 @@ def _bulk_cancel_one(session: Session, reason: Optional[str]) -> Dict[str, Any]:
         }
     except _CancelFailed as e:
         return {"outcome": "failed", "error": {"code": "cancel_failed", "message": e.message}, **e.data}
-    except ProductionSecretsError as e:
-        return {"outcome": "failed", "error": {"code": "production_secrets_invalid", "message": str(e)}}
+    except ProfileUrlError as e:
+        return {"outcome": "failed", "error": {"code": "platform_profile_url_invalid", "message": str(e)}}
     except Exception as e:
         return {
             "outcome": "failed",
@@ -963,7 +926,7 @@ def _require_approval_gate_before_charge(session: Session) -> None:
             session.flow_phase,
             code="no_spend_request",
             message="No spend request on session. Run `booking-agent flow pay request` first.",
-            next_command="booking-agent flow pay request --payment-method-id <id> --context '<...>'",
+            next_command="booking-agent flow pay request --payment-method-id <id>",
         )
         raise typer.Exit(code=1)
     if not session.payment.spend_approval_surfaced:
@@ -972,9 +935,9 @@ def _require_approval_gate_before_charge(session: Session) -> None:
             code="approval_not_created",
             message=(
                 "Spend approval URL was not surfaced via `pay request`. "
-                "Do not use `pay record` to skip the trusted UI gate."
+                "Run `pay request` so the approval link is shown to the user."
             ),
-            next_command="booking-agent flow pay request --payment-method-id <id> --context '<...>'",
+            next_command="booking-agent flow pay request --payment-method-id <id>",
             data={"spend_request_id": sr_id},
         )
         raise typer.Exit(code=1)
@@ -1080,8 +1043,7 @@ def _require_new_spend_request(
         message=message,
         user_message=_spend_action_user_message(action),
         next_command=(
-            f"booking-agent flow pay request --payment-method-id {payment_method} "
-            "--context '<describe booking>'"
+            f"booking-agent flow pay request --payment-method-id {payment_method}"
         ),
         data=_spend_action_data(spend_request_id, action),
     )
@@ -1143,7 +1105,6 @@ def _poll_spend_approval_or_exit(
 def _session_data(s: Session) -> dict:
     return {
         "flow_phase": s.flow_phase,
-        "secrets_mode": s.secrets_mode,
         "checkout_mode": s.checkout_mode,
         "supported_checkout_modes": list(s.supported_checkout_modes),
         "ucp_checkout_session_id": s.ucp_checkout_session_id,
@@ -1185,7 +1146,6 @@ def _session_data(s: Session) -> dict:
         "booking": {
             "id": s.booking.id,
             "checkout_path": s.booking.checkout_path,
-            "continue_url": s.booking.continue_url,
             "payment_context": s.booking.payment_context,
             "action_expires_at": s.booking.action_expires_at,
         },
@@ -1226,7 +1186,7 @@ def prereq_check() -> None:
     from booking_agent.registry_url import DEFAULT_REGISTRY_URL
 
     session = must_load()
-    registry_url = os.environ.get("USP_REGISTRY_URL", DEFAULT_REGISTRY_URL).strip()
+    registry_url = (settings.get("USP_REGISTRY_URL") or DEFAULT_REGISTRY_URL).strip()
 
     if not _probe_registry(registry_url):
         emit_error(
@@ -1244,31 +1204,6 @@ def prereq_check() -> None:
         prompt="USP registry reachable. Select a business next.",
         next_command="booking-agent flow discover",
         data={"registry_url": registry_url},
-    ))
-
-
-@prereq_app.command("check-redirect")
-def prereq_check_redirect() -> None:
-    """Validate redirect-checkout prerequisites (browser readiness)."""
-    session = must_load()
-    try:
-        spec = run_prereq_check_redirect(session)
-    except PrereqFailure as err:
-        emit_error(
-            session.flow_phase,
-            code=err.code,
-            message=err.message,
-            next_command="booking-agent flow prereq check-redirect",
-        )
-        raise typer.Exit(code=1)
-    emit(_agent_out(
-        session,
-        prompt="Redirect checkout prerequisites satisfied.",
-        data={
-            "browser_channel": spec.channel,
-            "browser_source": spec.source,
-            "executable_path": spec.executable_path,
-        },
     ))
 
 
@@ -1311,6 +1246,335 @@ def _format_price_display(amount_minor: Optional[int], currency: Optional[str]) 
     return f"{value:.2f} {currency.upper()}"
 
 
+search_area_app = typer.Typer(
+    help="Confirm the search area or service address with the user before it is used.",
+)
+app.add_typer(search_area_app, name="search-area")
+
+_AREA_PURPOSES = {"search": "search", "service-address": "service_address"}
+
+
+def _area_purpose_option(raw: Optional[str], session: Session) -> str:
+    from ..search_area import PURPOSE_SEARCH
+
+    if raw is None:
+        pending = session.pending_area or {}
+        return pending.get("purpose") or PURPOSE_SEARCH
+    purpose = _AREA_PURPOSES.get(raw.strip().lower())
+    if purpose is None:
+        emit_error(
+            session.flow_phase,
+            code="search_area_purpose_invalid",
+            message="--purpose must be search or service-address.",
+            next_command="booking-agent flow search-area propose",
+        )
+        raise typer.Exit(code=1)
+    return purpose
+
+
+def _area_flag(purpose: str) -> str:
+    from ..search_area import PURPOSE_SERVICE_ADDRESS
+
+    return " --purpose service-address" if purpose == PURPOSE_SERVICE_ADDRESS else ""
+
+
+def _refuse_area_change_after_booking(session: Session) -> None:
+    if session.booking.id:
+        emit_error(
+            session.flow_phase,
+            code="booking_already_created",
+            message=(
+                "This booking already exists, so its address can no longer change. "
+                "Start a new booking to use a different address."
+            ),
+            next_command="booking-agent flow status",
+        )
+        raise typer.Exit(code=1)
+
+
+def _emit_area_input_needed(
+    session: Session, purpose: str, *, reason: str, data: Optional[dict] = None,
+) -> None:
+    from ..search_area import PURPOSE_SERVICE_ADDRESS
+
+    if purpose == PURPOSE_SERVICE_ADDRESS:
+        ask = (
+            "This service comes to the customer, so the business needs the exact street "
+            "address. Ask the user for the full street address where the service should "
+            "happen (street, number, city)."
+        )
+        awaiting = "service_address_input"
+    else:
+        ask = (
+            "Ask the user which address or area to search near (a street address, "
+            "neighborhood, or city)."
+        )
+        awaiting = "search_area_input"
+    emit(_agent_out(
+        session,
+        awaiting_user=awaiting,
+        prompt=(
+            f"{reason} {ask} STOP for their answer. Then run next_command with exactly "
+            "what they typed. Never guess, complete, or invent an address."
+        ),
+        next_command=(
+            f"booking-agent flow search-area set --address '<what the user typed>'"
+            f"{_area_flag(purpose)}"
+        ),
+        data=data or {},
+    ))
+
+
+def _emit_area_proposal(
+    session: Session, proposal: Dict[str, Any], *, others: Optional[List[Dict[str, Any]]] = None,
+) -> None:
+    from ..search_area import PURPOSE_SERVICE_ADDRESS, SOURCE_TYPED, public_view
+
+    purpose = proposal.get("purpose")
+    view = public_view(proposal)
+    if purpose == PURPOSE_SERVICE_ADDRESS:
+        awaiting = "service_address_confirmation"
+        question = (
+            "This service comes to the customer. Ask in one question whether the business "
+            "should come to data.proposed_area.label."
+        )
+    else:
+        awaiting = "search_area_confirmation"
+        question = (
+            "Ask in one question whether to search near data.proposed_area.label, or "
+            "somewhere else. Search nothing until they confirm."
+        )
+    if proposal.get("source") == SOURCE_TYPED:
+        question = (
+            "The address the user typed was matched by the map lookup as "
+            "data.proposed_area.matched. Show that match and ask whether it is right. "
+            + question
+        )
+    alternatives = (
+        " If they pick another saved address from data.other_addresses, run "
+        "`booking-agent flow search-area set --link-address-id <id>"
+        f"{_area_flag(purpose)}`."
+        if others else ""
+    )
+    data: Dict[str, Any] = {"proposed_area": view, "purpose": purpose}
+    if others:
+        data["other_addresses"] = others
+    emit(_agent_out(
+        session,
+        awaiting_user=awaiting,
+        prompt=(
+            f"{question} STOP for their answer. If they agree, run next_command.{alternatives} "
+            "If they give a different address or area, run `booking-agent flow search-area "
+            f"set --address '<exactly what they typed>'{_area_flag(purpose)}`. Never guess, "
+            "complete, or invent an address."
+        ),
+        next_command="booking-agent flow search-area confirm --user-confirmed",
+        data=data,
+    ))
+
+
+def _propose_area(session: Session, purpose: str, *, link_cli_bin: Optional[str] = None) -> None:
+    """Geocode the default Link address and ask the user to confirm it (or ask for one)."""
+    from ..geocode import GeocodeError
+    from ..link_cli import LinkCliShippingAddressError, retrieve_shipping_addresses
+    from ..search_area import link_address_options, link_entry_label, proposal_from_link_entry
+
+    try:
+        entries = retrieve_shipping_addresses(link_cli_bin=link_cli_bin)
+    except LinkCliShippingAddressError:
+        entries = []
+    options = link_address_options(entries)
+    chosen = next((e for e in entries if e.get("is_default") is True), None)
+    if chosen is None and entries:
+        chosen = entries[0]
+    if chosen is None or not link_entry_label(chosen):
+        session.pending_area = {"purpose": purpose}
+        save_session(session)
+        _emit_area_input_needed(
+            session, purpose, reason="There is no saved address in the user's Link wallet.",
+        )
+        return
+    try:
+        proposal = proposal_from_link_entry(chosen, purpose=purpose)
+    except GeocodeError as err:
+        session.pending_area = {"purpose": purpose}
+        save_session(session)
+        _emit_area_input_needed(
+            session, purpose,
+            reason=(
+                "The saved Link address could not be located on the map "
+                f"({err.code}). Tell the user."
+            ),
+            data={"saved_address": link_entry_label(chosen), "geocode_error": err.code},
+        )
+        return
+    session.pending_area = proposal
+    save_session(session)
+    others = [o for o in options if o["id"] != chosen.get("id")]
+    _emit_area_proposal(session, proposal, others=others)
+
+
+@search_area_app.command("propose")
+def search_area_propose(
+    purpose_raw: Optional[str] = typer.Option(
+        None, "--purpose", help="search (default) or service-address",
+    ),
+    link_cli_bin: Optional[str] = typer.Option(None, "--link-cli-bin", hidden=True),
+) -> None:
+    """Propose the default Link address as the search area or service address."""
+    session = must_load()
+    _refuse_area_change_after_booking(session)
+    purpose = _area_purpose_option(purpose_raw or "search", session)
+    _propose_area(session, purpose, link_cli_bin=link_cli_bin)
+
+
+@search_area_app.command("set")
+def search_area_set(
+    link_address_id: Optional[str] = typer.Option(
+        None, "--link-address-id", help="Id of a saved Link address the user picked",
+    ),
+    address: Optional[str] = typer.Option(
+        None, "--address", help="Address or area exactly as the user typed it",
+    ),
+    purpose_raw: Optional[str] = typer.Option(
+        None, "--purpose", help="search or service-address (default: keep the current one)",
+    ),
+    link_cli_bin: Optional[str] = typer.Option(None, "--link-cli-bin", hidden=True),
+) -> None:
+    """Geocode another address and show the match for the user to confirm."""
+    from ..geocode import GeocodeError
+    from ..link_cli import LinkCliShippingAddressError, retrieve_shipping_addresses
+    from ..search_area import proposal_from_link_entry, proposal_from_text
+
+    session = must_load()
+    _refuse_area_change_after_booking(session)
+    purpose = _area_purpose_option(purpose_raw, session)
+    if bool(link_address_id) == bool(address and address.strip()):
+        emit_error(
+            session.flow_phase,
+            code="search_area_input_invalid",
+            message="Pass exactly one of --link-address-id or --address.",
+            next_command="booking-agent flow search-area set --address '<what the user typed>'",
+        )
+        raise typer.Exit(code=1)
+    try:
+        if link_address_id:
+            try:
+                entries = retrieve_shipping_addresses(link_cli_bin=link_cli_bin)
+            except LinkCliShippingAddressError as err:
+                emit_error(
+                    session.flow_phase, code=err.code, message="Could not read Link addresses.",
+                    next_command="booking-agent flow search-area set --address '<what the user typed>'",
+                )
+                raise typer.Exit(code=1)
+            entry = next((e for e in entries if e.get("id") == link_address_id), None)
+            if entry is None:
+                emit_error(
+                    session.flow_phase,
+                    code="link_address_not_found",
+                    message="No saved Link address has that id.",
+                    next_command=f"booking-agent flow search-area propose{_area_flag(purpose)}",
+                )
+                raise typer.Exit(code=1)
+            proposal = proposal_from_link_entry(entry, purpose=purpose)
+        else:
+            proposal = proposal_from_text(address or "", purpose=purpose)
+    except GeocodeError as err:
+        session.pending_area = {"purpose": purpose}
+        save_session(session)
+        _emit_area_input_needed(
+            session, purpose,
+            reason=(
+                "The map lookup could not find that address "
+                f"({err.code}). Tell the user and ask them to check it."
+            ),
+            data={"geocode_error": err.code},
+        )
+        return
+    session.pending_area = proposal
+    save_session(session)
+    _emit_area_proposal(session, proposal)
+
+
+@search_area_app.command("confirm")
+def search_area_confirm(
+    user_confirmed: bool = typer.Option(
+        False, "--user-confirmed",
+        help="The user explicitly confirmed the proposed address or area.",
+    ),
+) -> None:
+    """Save the proposed area after the user confirmed it."""
+    from ..search_area import PURPOSE_SERVICE_ADDRESS, public_view
+
+    session = must_load()
+    _refuse_area_change_after_booking(session)
+    proposal = session.pending_area
+    if not proposal or "label" not in proposal:
+        emit_error(
+            session.flow_phase,
+            code="search_area_not_proposed",
+            message="There is no proposed address to confirm.",
+            next_command="booking-agent flow search-area propose",
+        )
+        raise typer.Exit(code=1)
+    purpose = proposal.get("purpose")
+    if not user_confirmed:
+        emit_error(
+            session.flow_phase,
+            code="search_area_not_user_confirmed",
+            message=(
+                "Ask the user to confirm data.proposed_area.label first, then re-run with "
+                "--user-confirmed."
+            ),
+            next_command="booking-agent flow search-area confirm --user-confirmed",
+            data={"proposed_area": public_view(proposal)},
+        )
+        raise typer.Exit(code=1)
+    if purpose == PURPOSE_SERVICE_ADDRESS and not proposal.get("street_level"):
+        session.pending_area = {"purpose": purpose}
+        save_session(session)
+        _emit_area_input_needed(
+            session, purpose,
+            reason=(
+                f"{proposal.get('label')!s} is an area, not a street address, so the "
+                "business would not know where to go."
+            ),
+        )
+        return
+    confirmed = {k: v for k, v in proposal.items() if k not in ("purpose", "address")}
+    confirmed["confirmed"] = True
+    if proposal.get("street_level") and proposal.get("address"):
+        session.service_address = dict(proposal["address"])
+        session.service_address_label = proposal.get("label")
+    elif purpose != PURPOSE_SERVICE_ADDRESS:
+        session.service_address = None
+        session.service_address_label = None
+    if purpose != PURPOSE_SERVICE_ADDRESS:
+        session.search_area = confirmed
+    session.pending_area = None
+    resume = session.area_resume_command
+    session.area_resume_command = None
+    save_session(session)
+    if resume:
+        next_cmd = resume
+        prompt = "Address confirmed. Run next_command to continue."
+    else:
+        next_cmd = "booking-agent flow discover --radius-km <km>"
+        prompt = (
+            "Search area confirmed. Run next_command with the radius for this kind of "
+            "service. Do not pass --location; the CLI uses the confirmed area."
+        )
+    emit(_agent_out(
+        session,
+        prompt=prompt,
+        next_command=next_cmd,
+        data={
+            "confirmed_area": public_view(proposal),
+            "service_address": session.service_address_label,
+        },
+    ))
+
+
 @app.command("discover")
 def discover(
     query: Optional[str] = typer.Option(
@@ -1322,20 +1586,19 @@ def discover(
     location: Optional[str] = typer.Option(
         None,
         "--location",
-        help="Optional geo filter as latitude,longitude (e.g. 32.6927,-114.6277)",
+        hidden=True,
+        help="Scripts only: latitude,longitude. Agents confirm an area with `flow search-area`.",
     ),
     radius_km: Optional[float] = typer.Option(
         None,
         "--radius-km",
-        help="Search radius in km (sent as registry location.radiusKm when --location is set)",
+        help="Search radius in km around the confirmed search area",
     ),
     vertical: Optional[List[str]] = typer.Option(
         None,
         "--vertical",
-        help=(
-            "Repeatable registry vertical filter (appointment, group, reservation, rental, "
-            "field_service, or a reverse-domain custom vertical). Omit to search all verticals."
-        ),
+        hidden=True,
+        help="Scripts only: repeatable registry vertical filter.",
     ),
     desired_at: Optional[List[str]] = typer.Option(
         None, "--desired-at", help="Repeatable RFC3339 preferred moment"
@@ -1375,6 +1638,34 @@ def discover(
         raise typer.Exit(code=1)
 
     loc = None
+    area = session.search_area if (session.search_area or {}).get("confirmed") else None
+    if not (location and location.strip()) and area is not None:
+        if radius_km is None:
+            emit_error(
+                session.flow_phase,
+                code="discover_radius_required",
+                message="Searching near the confirmed area needs --radius-km.",
+                next_command="booking-agent flow discover --radius-km <km>",
+            )
+            raise typer.Exit(code=1)
+        from booking_agent.models.platform import ServiceSearchLocation
+        from booking_agent.models.wire import Coordinates
+
+        loc = ServiceSearchLocation(
+            coordinates=Coordinates(lat=float(area["lat"]), lng=float(area["lng"])),
+            radius_km=radius_km,
+        )
+    elif not (location and location.strip()) and radius_km is not None:
+        emit_error(
+            session.flow_phase,
+            code="search_area_unconfirmed",
+            message=(
+                "A place-based search needs an area the user confirmed. Propose their "
+                "address first and ask them."
+            ),
+            next_command="booking-agent flow search-area propose",
+        )
+        raise typer.Exit(code=1)
     if location and location.strip():
         try:
             from booking_agent.headless import parse_service_search_location
@@ -1456,7 +1747,7 @@ def discover(
     from booking_agent.registry_url import DEFAULT_REGISTRY_URL, registry_search_post_url
     from booking_agent.rest_client import build_registry_search_body
 
-    registry_url = os.environ.get("USP_REGISTRY_URL", DEFAULT_REGISTRY_URL).strip()
+    registry_url = (settings.get("USP_REGISTRY_URL") or DEFAULT_REGISTRY_URL).strip()
     session.discover_registry_url = registry_search_post_url(registry_url)
     session.discover_registry_request_body = build_registry_search_body(
         intent.query,
@@ -1470,7 +1761,11 @@ def discover(
         limit=DEFAULT_REGISTRY_SEARCH_LIMIT,
     )
 
-    from ..catalog import discover_summary_from_service, sort_discover_summaries_by_rank
+    from ..catalog import (
+        discover_display_line,
+        discover_summary_from_service,
+        sort_discover_summaries_by_rank,
+    )
     from ..geo_eligibility import distance_facts_for_session, geo_refusal_for_session
 
     session.discover_location_lat = loc.coordinates.lat if loc else None
@@ -1488,6 +1783,7 @@ def discover(
         facts = distance_facts_for_session(session, summary)
         if facts:
             summary["location_facts"] = facts
+        summary["display_line"] = discover_display_line(summary)
         results_summary.append(summary)
     results_summary = sort_discover_summaries_by_rank(results_summary)
     session.discover_query = effective_query
@@ -1514,13 +1810,17 @@ def discover(
         if loc.radius_km is not None:
             discover_location["radius_km"] = loc.radius_km
         discover_data["discover_location"] = discover_location
+        if area is not None and not location:
+            discover_data["search_area"] = area.get("label")
     emit(_agent_out(
         session,
         awaiting_user="business_choice",
         prompt=(
             "Present every service in data.services in the exact order returned (option 1 "
-            "first) and wait for the user to pick one. Never omit, filter, or reorder "
-            "results. Present direct matches plainly. When a result's returned data "
+            "first), one numbered line each showing that row's display_line verbatim "
+            "(service, business, price, duration, where), and wait for the user to pick "
+            "one. Never omit, filter, or reorder results, and never drop the business "
+            "name. Present direct matches plainly. When a result's returned data "
             "objectively mismatches the request (for example channel.type "
             "at_business_location when the user needs a home visit, or a clearly "
             "different service name such as heating or duct cleaning for an AC repair "
@@ -1782,6 +2082,21 @@ def business_use(
         if facts:
             live_service_summary_data["location_facts"] = facts
             session.live_service = live_service_summary_data
+        from ..catalog import channel_type
+        from ..search_area import PURPOSE_SERVICE_ADDRESS
+
+        if channel_type(live_service_summary_data) == "at_buyer_location" and not session.service_address:
+            session.area_resume_command = _business_use_command(
+                profile_url, service_id, name,
+                less_direct=session.selection_mismatch,
+                flags=[
+                    *(["--mismatch-confirmed"] if session.selection_mismatch else []),
+                    *(["--details-confirmed"] if details_confirmed else []),
+                ],
+            )
+            save_session(session)
+            _propose_area(session, PURPOSE_SERVICE_ADDRESS)
+            return
 
     discovered = _discover_row(session, service_id) or {}
     session.business = Business(
@@ -1882,21 +2197,6 @@ def business_use(
     ))
 
 
-@app.command("use-redirect-checkout-mode")
-def use_redirect_checkout_mode() -> None:
-    """Reject redirect checkout, which is not supported on the v2 booking path."""
-    session = must_load()
-    emit_error(
-        session.flow_phase,
-        code="redirect_checkout_not_supported",
-        message=(
-            "This booking flow supports businesses with native checkout only. "
-            "Redirect checkout cannot be used."
-        ),
-    )
-    raise typer.Exit(code=1)
-
-
 @app.command("use-ucp-checkout-mode")
 def use_ucp_checkout_mode() -> None:
     """UCP-native path orchestrator for the v2 booking flow."""
@@ -1946,16 +2246,14 @@ def _link_auth_next_command(session: Session) -> str:
         return "booking-agent flow book"
     if session.flow_phase == "BOOKED":
         return (
-            "booking-agent flow pay request --payment-method-id <id> "
-            "--context '<describe booking>'"
+            "booking-agent flow pay request --payment-method-id <id>"
         )
     if session.flow_phase == "PAYMENT_PENDING":
         sr = session.payment.spend_request_id
         if sr:
             return "booking-agent flow pay poll"
         return (
-            "booking-agent flow pay request --payment-method-id <id> "
-            "--context '<describe booking>'"
+            "booking-agent flow pay request --payment-method-id <id>"
         )
     nxt = recommend_next(session)
     return nxt or "booking-agent flow status"
@@ -1986,12 +2284,12 @@ def link_auth_connect(
         )
         raise typer.Exit(code=1)
 
-    if shutil.which(LINK_CLI_BIN) is None:
+    if shutil.which(default_link_cli_bin()) is None:
         emit_error(
             session.flow_phase,
             code="link_cli_not_found",
             message=(
-                f"`{LINK_CLI_BIN}` not found on PATH. Install link-cli "
+                f"`{default_link_cli_bin()}` not found on PATH. Install link-cli "
                 "(https://github.com/stripe/link-cli) first."
             ),
             next_command="booking-agent flow link-auth connect",
@@ -2748,13 +3046,36 @@ def _resolve_window(
     return start or auto_start, end or auto_end
 
 
+CONFIRMED_ADDRESS_TIMEZONE_SOURCE = "confirmed_address"
+
+
+def _confirmed_address_coordinates(session: Session) -> Optional[tuple]:
+    """Coordinates of the address the user confirmed: service address first, then search area."""
+    coords = (session.service_address or {}).get("coordinates") or {}
+    if coords.get("lat") is not None and coords.get("lng") is not None:
+        return float(coords["lat"]), float(coords["lng"])
+    area = session.search_area or {}
+    if area.get("confirmed") and area.get("lat") is not None and area.get("lng") is not None:
+        return float(area["lat"]), float(area["lng"])
+    return None
+
+
 def _ensure_buyer_timezone(session: Session, *, link_cli_bin: Optional[str] = None) -> None:
-    """Resolve the buyer zone from the default Link shipping address, once it succeeds.
+    """Resolve the buyer zone from the confirmed address, else the default Link shipping address.
 
     Never falls back to the device, process, VPN, or host timezone.
     """
     if _valid_iana_timezone(session.buyer_timezone):
         return
+    coords = _confirmed_address_coordinates(session)
+    if coords is not None:
+        try:
+            session.buyer_timezone = tz_context.timezone_for_coordinates(*coords)
+            session.buyer_timezone_source = CONFIRMED_ADDRESS_TIMEZONE_SOURCE
+            session.buyer_timezone_error = None
+            return
+        except tz_context.BuyerTimezoneError:
+            pass
     from ..link_cli import retrieve_default_shipping_address
 
     result = tz_context.lookup_buyer_timezone(
@@ -2763,6 +3084,30 @@ def _ensure_buyer_timezone(session: Session, *, link_cli_bin: Optional[str] = No
     session.buyer_timezone = result.timezone
     session.buyer_timezone_source = result.source
     session.buyer_timezone_error = result.error
+
+
+def _compact_slot_displays(session: Session, slot: SlotRef, *, dual: bool) -> Dict[str, Any]:
+    """Short start-to-end displays: business zone, buyer zone, and Google Calendar zone."""
+    from ..booking_summary import calendar_differs
+
+    biz = session.business.timezone
+    out: Dict[str, Any] = {}
+    short = tz_context.compact_range_display(slot.start, slot.end, biz)
+    if short:
+        out["business_range_display"] = short
+    if dual:
+        buyer = tz_context.compact_clock_range(
+            slot.start, slot.end, session.buyer_timezone, reference_tz=biz,
+        )
+        if buyer:
+            out["buyer_range_display"] = buyer
+    if short and calendar_differs(session, [slot.start]):
+        cal = tz_context.compact_clock_range(
+            slot.start, slot.end, session.calendar_timezone, reference_tz=biz,
+        )
+        if cal:
+            out["calendar_display"] = cal
+    return out
 
 
 def _find_presented_slot(session: Session, slot_id: Optional[str]) -> Optional[SlotRef]:
@@ -2835,7 +3180,13 @@ def _group_slots_by_time(slots: List[Any]) -> List[SlotRef]:
 
 
 def _service_coordinates(session: Session) -> Optional[tuple]:
+    from ..catalog import channel_type
     from ..geo_eligibility import _coordinates_from_location
+
+    if channel_type(session.live_service) == "at_buyer_location":
+        coords = (session.service_address or {}).get("coordinates") or {}
+        if coords.get("lat") is not None and coords.get("lng") is not None:
+            return float(coords["lat"]), float(coords["lng"])
 
     for loc in (session.live_service or {}).get("locations") or []:
         coords = _coordinates_from_location(loc)
@@ -2931,6 +3282,13 @@ async def _query_slots_async(
             )
             slots = filter_slots_by_busy_times(slots, busy_blocks)
             calendar_filtered = True
+            if mode == CALENDAR_MODE_EVENTS:
+                try:
+                    session.calendar_timezone = _valid_iana_timezone(
+                        await cal.get_calendar_timezone(_CALENDAR_SESSION_ID),
+                    )
+                except Exception:
+                    session.calendar_timezone = None
             slots_filtered = slots_before_filter - len(slots)
 
     return live_service_summary(live), slots, calendar_filtered, slots_filtered, response_zones
@@ -3114,6 +3472,7 @@ def slots_list() -> None:
                 "start": s.start,
                 "end": s.end,
                 **tz_context.slot_displays(s.start, s.end, business_tz, buyer_tz, dual=dual),
+                **_compact_slot_displays(session, s, dual=dual),
                 **({"resource_options": 1 + len(s.alternate_slot_ids)} if s.alternate_slot_ids else {}),
             }
             for s in session.slots_presented
@@ -3129,13 +3488,17 @@ def slots_list() -> None:
         data["timezone_notice"] = tz_context.timezone_notice(business_tz, buyer_tz)
         prompt += (
             "Post data.timezone_notice once, above the list. Show each slot as its "
-            "business_start_display first, with its buyer_start_display in parentheses. "
+            "business_range_display first, with its buyer_range_display in parentheses "
+            "(the full business_start_display and buyer_start_display are there if needed). "
         )
     elif _valid_iana_timezone(business_tz) is None:
         data["business_timezone_unknown"] = True
         prompt += f"Show each slot's business_start_display. {_NO_BUSINESS_ZONE_TEXT} "
     else:
-        prompt += "Show each slot's business_start_display (the business's local time). "
+        prompt += (
+            "Show each slot's business_range_display (the business's local time, start "
+            "to end). "
+        )
         if session.buyer_timezone_error:
             data["buyer_timezone_unresolved"] = session.buyer_timezone_error
             data["timezone_fallback_note"] = (
@@ -3143,6 +3506,12 @@ def slots_list() -> None:
                 f"{tz_context.zone_label(business_tz)}."
             )
             prompt += "Add data.timezone_fallback_note as one line under the list. "
+    if any("calendar_display" in slot for slot in data["slots"]):
+        prompt += (
+            "The user's Google Calendar uses another timezone, so add each slot's "
+            "calendar_display in parentheses as \"(<calendar_display> on your Google "
+            "Calendar)\". "
+        )
     select_cmd = "booking-agent flow slots select --slot-id <id> --user-confirmed"
     gate = _timezone_gate(session)
     if gate:
@@ -3277,6 +3646,9 @@ def _selected_slot_view(session: Session, *, dual: bool) -> Optional[Dict[str, A
         "business_display": tz_context.range_display(
             slot.start, slot.end, session.business.timezone,
         ),
+        "business_display_short": tz_context.compact_range_display(
+            slot.start, slot.end, session.business.timezone,
+        ),
         "business_timezone": session.business.timezone,
     }
     if dual:
@@ -3330,23 +3702,30 @@ def _buyer_recap(
             "data.price_display (live catalog), never the registry discover price. "
             + payment_text
         )
-    time_text = "Give the time as data.selected_slot.business_display (the business's local time)."
+    time_text = "The When line is the business's local time."
     if _valid_iana_timezone(session.business.timezone) is None:
-        time_text = f"Give the time as data.selected_slot.business_display. {_NO_BUSINESS_ZONE_TEXT}"
+        time_text = _NO_BUSINESS_ZONE_TEXT
     elif dual:
         time_text = (
-            "Give the time as data.selected_slot.business_display with "
-            "data.selected_slot.buyer_display in parentheses, so one yes also covers the "
+            "The When line gives the business's local time with the user's own time "
+            "(data.selected_slot.buyer_display in parentheses), so one yes also covers the "
             "timezone difference."
         )
         if notice_needed:
             time_text = "Open with data.timezone_notice. " + time_text
     prompt = (
-        "Buyer resolved from link-cli. **STOP.** Recap the selected slot, business, "
-        f"service, and buyer details in one message. {time_text} {payment_text} Do not "
-        "run `flow book` until they approve."
+        "Buyer resolved from link-cli. **STOP.** In one message, show every line of "
+        "data.booking_recap_lines verbatim, one per line, in order. Do not reword, merge, "
+        f"or drop any line; it includes the exact address and the note for the business. "
+        f"{time_text} Then ask one question. {payment_text} Do not run `flow book` until "
+        "they approve. If they correct the note, re-run `booking-agent flow buyer resolve "
+        "--notes '<corrected note>'`. If they correct the address, run `booking-agent flow "
+        "search-area propose --purpose service-address`."
     )
     return prompt, summary
+
+
+BOOKING_NOTES_MAX_CHARS = 500
 
 
 @buyer_app.command("resolve")
@@ -3354,6 +3733,13 @@ def buyer_resolve(
     link_cli_bin: Optional[str] = typer.Option(
         None, "--link-cli-bin",
         help="Override path to the link-cli binary (default: `link-cli` on PATH).",
+    ),
+    notes: Optional[str] = typer.Option(
+        None, "--notes",
+        help=(
+            "Short note for the business drawn from the user's request (the problem, "
+            "the item, what they need). Never put the address, name, or contact details here."
+        ),
     ),
 ) -> None:
     """Run `link-cli user-info retrieve` and store the Buyer in session."""
@@ -3400,6 +3786,8 @@ def buyer_resolve(
 
     session.buyer = Buyer(name=name, email=email, phone=phone)
     session.buyer_source = BUYER_SOURCE_LINKCLI
+    if notes is not None:
+        session.booking_notes = " ".join(notes.split())[:BOOKING_NOTES_MAX_CHARS] or None
     _ensure_buyer_timezone(session, link_cli_bin=link_cli_bin)
     dual = _selected_slot_zones_differ(session)
     notice_needed = dual and not session.timezone_difference_shown
@@ -3408,6 +3796,7 @@ def buyer_resolve(
     transition(session, to="BUYER_RESOLVED")
     save_session(session)
 
+    from ..booking_summary import booking_recap_lines
     from ..catalog import payment_price_for_session
 
     price_info = payment_price_for_session(session)
@@ -3432,6 +3821,9 @@ def buyer_resolve(
         "pricing_consistency": consistency,
         "payment_route": session.payment_route,
         "payment_summary": payment_summary,
+        "booking_recap_lines": booking_recap_lines(session, price_info, dual=dual),
+        "notes_for_business": session.booking_notes,
+        "service_address": session.service_address_label,
     }
     if notice_needed:
         data["timezone_notice"] = tz_context.timezone_notice(
@@ -3452,40 +3844,32 @@ book_app = typer.Typer(help="Create a booking and poll for its status.", invoke_
 app.add_typer(book_app, name="book")
 
 
-def _parse_delivery_address_option(raw: Optional[str]) -> Optional[Dict[str, Any]]:
-    """Parse ``--delivery-address`` JSON into a USP DeliveryAddress dict."""
-    if raw is None:
-        return None
-    try:
-        payload = json.loads(raw)
-    except json.JSONDecodeError as e:
-        emit_error(
-            "BOOKED",
-            code="invalid_delivery_address",
-            message=f"Invalid --delivery-address JSON: {e}",
-        )
-        raise typer.Exit(code=1)
-    if not isinstance(payload, dict):
-        emit_error(
-            "BOOKED",
-            code="invalid_delivery_address",
-            message="--delivery-address must be a JSON object "
-            "(line1, city, country; optional line2, region, postal_code, coordinates).",
-        )
-        raise typer.Exit(code=1)
-    try:
-        from booking_agent.models.wire import DeliveryAddress
+def _confirmed_delivery_address(
+    session: Session, live_service: Optional[Dict[str, Any]], *, resume_command: str,
+) -> Optional[Dict[str, Any]]:
+    """The confirmed service address for a home visit, or None when the visit is elsewhere."""
+    from ..catalog import channel_type
 
-        return DeliveryAddress.model_validate(payload).model_dump(
-            by_alias=False, exclude_none=True
-        )
-    except Exception as e:
+    if channel_type(live_service) != "at_buyer_location":
+        return None
+    if not session.service_address:
+        session.area_resume_command = resume_command
+        save_session(session)
         emit_error(
-            "BOOKED",
-            code="invalid_delivery_address",
-            message=f"Invalid delivery_address shape: {e}",
+            session.flow_phase,
+            code="service_address_unconfirmed",
+            message=(
+                "This service comes to the customer and no street address has been "
+                "confirmed with the user. Propose their address and ask them first."
+            ),
+            next_command="booking-agent flow search-area propose --purpose service-address",
         )
         raise typer.Exit(code=1)
+    from booking_agent.models.wire import DeliveryAddress
+
+    return DeliveryAddress.model_validate(session.service_address).model_dump(
+        by_alias=False, exclude_none=True,
+    )
 
 
 @book_app.callback(invoke_without_command=True)
@@ -3494,22 +3878,6 @@ def book(
     service_id: Optional[str] = typer.Option(None, "--service-id"),
     dry_run: bool = typer.Option(False, "--dry-run",
                                  help="Skip create_booking; emit the planned payload only."),
-    notes: Optional[str] = typer.Option(None, "--notes"),
-    delivery_address: Optional[str] = typer.Option(
-        None,
-        "--delivery-address",
-        help=(
-            "JSON DeliveryAddress for at_buyer_location services "
-            "(line1, city, country required). Map from "
-            "`link-cli shipping-address list`; do not put the address in --notes."
-        ),
-    ),
-    local_return_listener: bool = typer.Option(
-        False,
-        "--local-return-listener",
-        help="Start a loopback PPRR listener so checkout can confirm the booking "
-        "immediately (local/agent runs; also via BOOKING_AGENT_LOCAL_RETURN_LISTENER=1).",
-    ),
 ) -> None:
     """Create the booking. Requires calendar gate + user-confirmed slot + link-cli buyer."""
     if ctx.invoked_subcommand is not None:
@@ -3526,7 +3894,6 @@ def book(
             "(Use `booking-agent flow book poll` to poll an existing booking.)",
         )
         raise typer.Exit(code=1)
-    delivery_addr = _parse_delivery_address_option(delivery_address)
     try:
         require_business(session)
         require_calendar_gate(session)
@@ -3579,14 +3946,10 @@ def book(
     session.payment_route = classified["route"]
     session.live_service = refreshed_live_service
     save_session(session)
-
-    use_listener = local_return_listener or os.environ.get(
-        "BOOKING_AGENT_LOCAL_RETURN_LISTENER", ""
-    ) in ("1", "true", "True")
-    if use_listener and not dry_run:
-        handle = start_local_return_listener()
-        session.local_return_listener = True
-        session.return_listener_url = handle.base_url
+    delivery_addr = _confirmed_delivery_address(
+        session, refreshed_live_service, resume_command="booking-agent flow book",
+    )
+    notes = session.booking_notes
 
     if dry_run:
         emit(_agent_out(
@@ -3644,40 +4007,20 @@ def book(
     apply_pending_timings(session)
 
     apply_booking_to_session(session, booking_ref, checkout_path)
-    if booking_ref.continue_url or checkout_path == "ucp":
+    if checkout_path == "ucp":
         transition(session, to="PAYMENT_PENDING")
     else:
         transition(session, to="BOOKED")
     save_session(session)
 
-    continue_url = booking_ref.continue_url
     payment_context = booking_ref.payment_context
     action_expires_at = booking_ref.action_expires_at
 
     at_service = session.payment_route == "at_service"
-    if checkout_path == "ucp":
-        next_pay = (
-            "booking-agent flow pay request --payment-method-id <id> "
-            "--context '<describe booking>'"
-        )
-        prompt_ucp = (
-            "UCP checkout session created. User already approved booking and charge at "
-            "buyer resolve. If data.price_display matches what you quoted, proceed directly "
-            "to `booking-agent flow pay request` without another confirmation STOP. If the price "
-            "changed, tell the user and get fresh approval first."
-        )
-    else:
-        next_pay = (
-            "booking-agent flow pay request --payment-method-id <id> "
-            "--context '<describe booking>'"
-        )
-        prompt_ucp = None
-
+    next_pay = "booking-agent flow pay request --payment-method-id <id>"
     path_summary = payment_path_summary(
         payment_route=session.payment_route,
         checkout_path=checkout_path,
-        continue_url=continue_url,
-        action_expires_at=action_expires_at,
     )
 
     from ..catalog import merchant_quote_for_session, payment_price_for_session
@@ -3685,7 +4028,7 @@ def book(
     price_info = payment_price_for_session(session, payment_context=payment_context)
     merchant_quote = merchant_quote_for_session(session)
 
-    direct = at_service or not (continue_url or checkout_path == "ucp")
+    direct = at_service or checkout_path != "ucp"
     booking_narration = None
     if at_service:
         booking_narration = (
@@ -3716,14 +4059,12 @@ def book(
             "data.payment_schedules and data.payment_disclosures, and get their agreement. "
             "Then run `booking-agent flow pay request` with --disclosures-confirmed."
         )
-    elif checkout_path == "ucp":
-        prompt_out = prompt_ucp
     else:
         prompt_out = (
-            "Booking created. User already approved booking and charge at buyer resolve. If "
-            "data.merchant_quote.total_display or data.price_display matches what you quoted, "
-            "proceed directly to `booking-agent flow pay request` without another confirmation "
-            "STOP. If the price changed, tell the user and get fresh approval first."
+            "UCP checkout session created. User already approved booking and charge at "
+            "buyer resolve. If data.price_display matches what you quoted, proceed directly "
+            "to `booking-agent flow pay request` without another confirmation STOP. If the price "
+            "changed, tell the user and get fresh approval first."
         )
     data_out: Dict[str, Any] = {}
     if booking_narration:
@@ -3762,16 +4103,11 @@ def book(
     emit(_agent_out(
         session,
         prompt=prompt_out,
-        next_command=(
-            next_pay
-            if (checkout_path == "ucp" or continue_url) and not at_service
-            else "booking-agent flow book poll --wait"
-        ),
+        next_command="booking-agent flow book poll --wait" if direct else next_pay,
         data={
             "booking_id": booking_obj.id,
             "booking_url": booking_obj.booking_url,
             "checkout_path": checkout_path,
-            "continue_url": continue_url,
             "payment_context": payment_context,
             "action_expires_at": action_expires_at,
             "ucp_checkout_session_id": session.ucp_checkout_session_id,
@@ -3792,47 +4128,29 @@ def book(
     ))
 
 
-pay_app = typer.Typer(help="Payment handoff and redirect checkout automation.")
+pay_app = typer.Typer(help="Link spend approval and UCP checkout completion.")
 app.add_typer(pay_app, name="pay")
 
 _REBOOK_MSG = (
-    "Run `booking-agent flow pay rebook --service-id <id>` to obtain a fresh continue_url, "
-    "then retry checkout."
+    "Run `booking-agent flow pay rebook --service-id <id>` to create a fresh checkout, "
+    "then retry payment."
 )
-
-
-def _emit_checkout_url_error(session: Session, code: str, message: str) -> None:
-    emit_error(
-        session.flow_phase,
-        code=code,
-        message=message + " " + _REBOOK_MSG,
-        next_command="booking-agent flow pay rebook --service-id <id>",
-    )
-
-
-def _require_browser_ready(session: Session) -> BrowserLaunchSpec:
-    try:
-        return get_browser_launch_spec(session)
-    except RuntimeError:
-        emit_error(
-            session.flow_phase,
-            code="browser_not_ready",
-            message="Browser not configured. Run `booking-agent flow prereq check` first.",
-            next_command="booking-agent flow prereq check",
-        )
-        raise typer.Exit(code=1)
 
 
 def _read_pay_context(
     session: Session, context: Optional[str], context_file: Optional[str],
-) -> str:
-    if (context is None) == (context_file is None):
+) -> Optional[str]:
+    """The caller's override, or None so the CLI writes the note from the session."""
+    if context is not None and context_file is not None:
         emit_error(
             session.flow_phase,
             code="context_required",
-            message="Pass exactly one of --context '<text>' or --context-file <path|->.",
+            message="Pass at most one of --context '<text>' or --context-file <path|->.",
+            next_command="booking-agent flow pay request --payment-method-id <id>",
         )
         raise typer.Exit(code=1)
+    if context is None and context_file is None:
+        return None
     if context_file is None:
         return context
     try:
@@ -3851,18 +4169,18 @@ def _read_pay_context(
 def pay_request(
     payment_method_id: str = typer.Option(..., "--payment-method-id"),
     context: Optional[str] = typer.Option(
-        None, "--context",
-        help="Booking description. Single-quote it: $ and backticks expand inside double quotes.",
+        None, "--context", hidden=True,
+        help="Scripts only: override the Link note the CLI writes from the booking.",
     ),
     context_file: Optional[str] = typer.Option(
-        None, "--context-file",
-        help="Read the booking description from this file, or '-' for stdin (no shell expansion).",
+        None, "--context-file", hidden=True,
+        help="Scripts only: read the Link note override from this file, or '-' for stdin.",
     ),
     then_complete: bool = typer.Option(
         False,
         "--then-complete/--no-then-complete",
         help=(
-            "After creating the spend request, poll Link approval and run pay checkout or "
+            "After creating the spend request, poll Link approval and run "
             "pay ucp-complete in the same process (blocks until checkout finishes; for "
             "scripts/CI only). Default returns immediately after surfacing the approval URL "
             "once so agents can show it before polling."
@@ -3969,7 +4287,7 @@ def pay_request(
             },
             next_command=(
                 "booking-agent flow pay request --payment-method-id <id> "
-                "--context '<describe booking>' --disclosures-confirmed"
+                "--disclosures-confirmed"
             ),
         )
         raise typer.Exit(code=1)
@@ -3995,7 +4313,7 @@ def pay_request(
                 data={"merchant_quote": merchant_quote_for_session(session)},
                 next_command=(
                     "booking-agent flow pay request --payment-method-id <id> "
-                    "--context '<describe booking>' --total-confirmed"
+                    "--total-confirmed"
                 ),
             )
             raise typer.Exit(code=1)
@@ -4025,17 +4343,24 @@ def pay_request(
             next_command="booking-agent flow link-auth connect",
         )
         raise typer.Exit(code=1)
-    if len(context) < 100:
-        emit_error(
-            session.flow_phase,
-            code="context_too_short",
-            message="--context must be at least 100 characters for Link spend approval.",
-        )
-        raise typer.Exit(code=1)
     try:
         fields = resolve_spend_request_fields_sync(session)
     except Exception as e:
         emit_error(session.flow_phase, code="payment_context_missing", message=str(e))
+        raise typer.Exit(code=1)
+    if context is None:
+        from ..booking_summary import payment_context_text
+
+        context = payment_context_text(
+            session, _format_price_display(fields["amount_minor_units"], fields["currency"]),
+        )
+    if len(context) < 100:
+        emit_error(
+            session.flow_phase,
+            code="context_too_short",
+            message="The Link note must be at least 100 characters for spend approval.",
+            next_command="booking-agent flow pay request --payment-method-id <id>",
+        )
         raise typer.Exit(code=1)
 
     merchant_name = session.business.name or "Merchant"
@@ -4291,7 +4616,7 @@ def pay_poll() -> None:
             session.flow_phase,
             code="no_spend_request",
             message="No spend request on session. Run `booking-agent flow pay request` first.",
-            next_command="booking-agent flow pay request --payment-method-id <id> --context '<...>'",
+            next_command="booking-agent flow pay request --payment-method-id <id>",
         )
         raise typer.Exit(code=1)
     if not session.payment.spend_approval_surfaced:
@@ -4299,7 +4624,7 @@ def pay_poll() -> None:
             session.flow_phase,
             code="approval_not_created",
             message="Spend approval URL was not surfaced yet. Run `booking-agent flow pay request`.",
-            next_command="booking-agent flow pay request --payment-method-id <id> --context '<...>'",
+            next_command="booking-agent flow pay request --payment-method-id <id>",
         )
         raise typer.Exit(code=1)
     session.payment.spend_approval_user_surfaced = True
@@ -4332,7 +4657,7 @@ def pay_ack_surface() -> None:
             session.flow_phase,
             code="no_spend_request",
             message="No spend request on session. Run `booking-agent flow pay request` first.",
-            next_command="booking-agent flow pay request --payment-method-id <id> --context '<...>'",
+            next_command="booking-agent flow pay request --payment-method-id <id>",
         )
         raise typer.Exit(code=1)
     if not session.payment.spend_approval_surfaced:
@@ -4340,7 +4665,7 @@ def pay_ack_surface() -> None:
             session.flow_phase,
             code="approval_not_created",
             message="Spend approval URL was not surfaced yet. Run `booking-agent flow pay request`.",
-            next_command="booking-agent flow pay request --payment-method-id <id> --context '<...>'",
+            next_command="booking-agent flow pay request --payment-method-id <id>",
         )
         raise typer.Exit(code=1)
     session.payment.spend_approval_user_surfaced = True
@@ -4355,48 +4680,11 @@ def pay_ack_surface() -> None:
     ))
 
 
-@pay_app.command("record")
-def pay_record(
-    spend_request_id: str = typer.Option(..., "--spend-request-id"),
-) -> None:
-    """Persist an approved spend request ID for checkout."""
-    session = must_load()
-    session.payment.spend_request_id = spend_request_id
-    save_session(session)
-    if session.booking.checkout_path == "ucp":
-        next_cmd = f"booking-agent flow pay ucp-complete --spend-request-id {spend_request_id}"
-        prompt = (
-            "Spend request recorded. Run next_command to poll Link approval and complete "
-            "UCP checkout."
-        )
-    else:
-        next_cmd = f"booking-agent flow pay ucp-complete --spend-request-id {spend_request_id}"
-        prompt = (
-            "Spend request recorded. Run next_command to poll Link approval and complete "
-            "UCP checkout."
-        )
-    emit(_agent_out(
-        session,
-        prompt=prompt,
-        next_command=next_cmd,
-        data={"spend_request_id": spend_request_id},
-    ))
-
-
 @pay_app.command("rebook")
 def pay_rebook(
     service_id: str = typer.Option(..., "--service-id"),
-    notes: Optional[str] = typer.Option(None, "--notes"),
-    delivery_address: Optional[str] = typer.Option(
-        None,
-        "--delivery-address",
-        help=(
-            "JSON DeliveryAddress for at_buyer_location services "
-            "(line1, city, country required)."
-        ),
-    ),
 ) -> None:
-    """Create a fresh booking with a new continue_url (same slot and buyer)."""
+    """Create a fresh checkout for the same slot, buyer, address, and note."""
     session = must_load()
     _refuse_charge_after_capture(session)
     try:
@@ -4408,7 +4696,11 @@ def pay_rebook(
         raise _handle_gate(session, e)
 
     prior_spend = session.payment.spend_request_id
-    delivery_addr = _parse_delivery_address_option(delivery_address)
+    delivery_addr = _confirmed_delivery_address(
+        session, session.live_service,
+        resume_command=f"booking-agent flow pay rebook --service-id {shlex.quote(service_id)}",
+    )
+    notes = session.booking_notes
     try:
         from booking_agent.step_timing import timed_step_sync
 
@@ -4428,26 +4720,15 @@ def pay_rebook(
     transition(session, to="PAYMENT_PENDING")
     save_session(session)
 
-    if checkout_path == "ucp":
-        next_cmd = (
-            "booking-agent flow pay record --spend-request-id <id> && "
-            "booking-agent flow pay ucp-complete [--handler-id <id>]"
-        )
-        prompt = "Fresh UCP checkout session. Record spend id after approval, then ucp-complete."
-    else:
-        next_cmd = (
-            f"booking-agent flow pay checkout --spend-request-id {prior_spend} --wait-for-approval"
-            if prior_spend
-            else "booking-agent flow pay checkout --spend-request-id <id> --wait-for-approval"
-        )
-        prompt = "Fresh continue_url created. Retry checkout with the same or new spend request."
     emit(_agent_out(
         session,
-        prompt=prompt,
-        next_command=next_cmd,
+        prompt=(
+            "Fresh checkout created. Create a new spend request for it with "
+            "`booking-agent flow pay request`."
+        ),
+        next_command="booking-agent flow pay request --payment-method-id <id>",
         data={
             "booking_id": booking_obj.id,
-            "continue_url": booking_ref.continue_url,
             "action_expires_at": booking_ref.action_expires_at,
             "spend_request_id": prior_spend,
             "checkout_path": checkout_path,
@@ -4468,16 +4749,8 @@ def pay_ucp_complete(
     spend_request_id: Optional[str] = typer.Option(
         None,
         "--spend-request-id",
-        help="Approved spend request id (or use `pay record` first). Used to retrieve SPT via link-cli.",
+        help="Approved spend request id (defaults to the one from `pay request`). Used to retrieve SPT via link-cli.",
     ),
-    wait_for_booking: bool = typer.Option(
-        False,
-        "--wait-for-booking",
-        help=(
-            "Unsupported on v2. Booking confirmation uses `book poll --wait`."
-        ),
-    ),
-    booking_timeout: float = typer.Option(120.0, "--booking-timeout"),
     approval_timeout: int = typer.Option(600, "--approval-timeout"),
     poll_interval: float = typer.Option(2.0, "--poll-interval"),
 ) -> None:
@@ -4504,24 +4777,10 @@ def pay_ucp_complete(
             next_command="booking-agent flow status",
         )
         raise typer.Exit(code=1)
-    if wait_for_booking:
-        emit_error(
-            session.flow_phase,
-            code="webhook_wait_not_supported",
-            message=(
-                "v2 confirms bookings by polling GET /bookings/{id}. "
-                "Run `booking-agent flow book poll --wait` after payment completes."
-            ),
-            next_command="booking-agent flow book poll --wait",
-        )
-        raise typer.Exit(code=1)
-
     _pay_ucp_complete_impl(
         session,
         handler_id=handler_id,
         spend_request_id=spend_request_id,
-        wait_for_booking=wait_for_booking,
-        booking_timeout=booking_timeout,
         approval_timeout=approval_timeout,
         poll_interval=poll_interval,
     )
@@ -4532,16 +4791,13 @@ def _pay_ucp_complete_impl(
     *,
     handler_id: Optional[str],
     spend_request_id: Optional[str],
-    wait_for_booking: bool,
-    booking_timeout: float,
     approval_timeout: int = 600,
     poll_interval: float = 2.0,
     continue_on_captured: bool = False,
 ) -> None:
     _refuse_charge_after_capture(session)
     sr_ucp = spend_request_id or session.payment.spend_request_id
-    test_spt = test_spt_from_env()
-    if not sr_ucp and not test_spt:
+    if not sr_ucp:
         emit_error(
             session.flow_phase,
             code="no_spend_request_for_ucp",
@@ -4549,7 +4805,7 @@ def _pay_ucp_complete_impl(
                 "UCP checkout needs a spend request id (SPT credential type). "
                 "Run `booking-agent flow pay request` or pass --spend-request-id."
             ),
-            next_command="booking-agent flow pay request --payment-method-id <id> --context '<...>'",
+            next_command="booking-agent flow pay request --payment-method-id <id>",
         )
         raise typer.Exit(code=1)
     if spend_request_id:
@@ -4557,20 +4813,14 @@ def _pay_ucp_complete_impl(
         save_session(session)
 
     sr_ucp = spend_request_id or session.payment.spend_request_id
-    next_cmd = (
-        f"booking-agent flow pay ucp-complete --spend-request-id {sr_ucp}"
-        if sr_ucp
-        else "booking-agent flow pay request --payment-method-id <id> --context '<...>'"
+    _require_spend_approval_surfaced_to_user(session)
+    _poll_spend_approval_or_exit(
+        session,
+        sr_ucp,
+        approval_timeout=approval_timeout,
+        poll_interval=poll_interval,
+        next_command=f"booking-agent flow pay ucp-complete --spend-request-id {sr_ucp}",
     )
-    if sr_ucp and not test_spt:
-        _require_spend_approval_surfaced_to_user(session)
-        _poll_spend_approval_or_exit(
-            session,
-            sr_ucp,
-            approval_timeout=approval_timeout,
-            poll_interval=poll_interval,
-            next_command=next_cmd,
-        )
 
     async def _go():
         from booking_agent.step_timing import timed_step
@@ -4629,7 +4879,7 @@ def _pay_ucp_complete_impl(
         next_cmd = (
             f"booking-agent flow pay ucp-complete --spend-request-id {sr_retry}"
             if sr_retry
-            else "booking-agent flow pay request --payment-method-id <id> --context '<...>'"
+            else "booking-agent flow pay request --payment-method-id <id>"
         )
         emit_error(
             session.flow_phase,
@@ -4642,17 +4892,9 @@ def _pay_ucp_complete_impl(
         raise typer.Exit(code=1)
 
     sr_ucp = spend_request_id or session.payment.spend_request_id
-    test_spt = test_spt_from_env()
-    spt_source = (
-        "link-cli spend-request retrieve"
-        if sr_ucp
-        else "test bypass"
-        if test_spt
-        else "unknown"
-    )
     result = {
         **result,
-        "spt_source": spt_source,
+        "spt_source": "link-cli spend-request retrieve",
         "handler_id_resolved": result.get("handler_id_resolved"),
     }
 
@@ -4678,7 +4920,7 @@ def _pay_ucp_complete_impl(
 
 
 _NEW_CARD_NEXT_COMMAND = (
-    "booking-agent flow pay request --payment-method-id <id> --context '<describe booking>'"
+    "booking-agent flow pay request --payment-method-id <id>"
 )
 
 
@@ -4985,382 +5227,16 @@ def _record_new_card_retry_success(session: Session, spend_request_id: Optional[
     session.payment.declined_checkout_id = None
 
 
-@pay_app.command("checkout")
-def pay_checkout(
-    spend_request_id: Optional[str] = typer.Option(None, "--spend-request-id"),
-    wait_for_approval: bool = typer.Option(False, "--wait-for-approval"),
-    approval_timeout: int = typer.Option(600, "--approval-timeout"),
-    poll_interval: float = typer.Option(1.0, "--poll-interval"),
-    wait_for_booking: bool = typer.Option(
-        False,
-        "--wait-for-booking",
-        help="After checkout, block until the booking reaches a terminal status "
-        "(skips a separate `book poll` turn).",
-    ),
-    booking_timeout: float = typer.Option(
-        120.0, "--booking-timeout", help="Max seconds to wait for booking confirmation."
-    ),
-    auto_card: bool = typer.Option(
-        True,
-        "--auto-card/--no-auto-card",
-        help="Try automated card fill first; fall back to assist handoff on failure.",
-    ),
-    assist_card: bool = typer.Option(
-        False,
-        "--assist-card",
-        help="Skip automated card fill; hand off Link virtual card for human PCI paste.",
-    ),
-    headless: bool = typer.Option(False, "--headless/--no-headless"),
-) -> None:
-    """Retrieve Link card credentials and complete redirect checkout in one step."""
-    if assist_card:
-        auto_card = False
-
-    session = must_load()
-    _refuse_charge_after_capture(session)
-    if session.booking.checkout_path == "ucp":
-        emit_error(
-            session.flow_phase,
-            code="use_ucp_complete",
-            message="UCP checkout session: use `booking-agent flow pay ucp-complete` (add `--handler-id` if needed).",
-            next_command="booking-agent flow pay ucp-complete",
-        )
-        raise typer.Exit(code=1)
-
-    if session.flow_phase != "PAYMENT_PENDING":
-        emit_error(
-            session.flow_phase,
-            code="wrong_phase",
-            message="Checkout requires PAYMENT_PENDING phase.",
-            next_command="booking-agent flow status",
-        )
-        raise typer.Exit(code=1)
-
-    sr_id = spend_request_id or session.payment.spend_request_id
-    if not sr_id:
-        emit_error(
-            session.flow_phase,
-            code="no_spend_request_id",
-            message="Provide --spend-request-id or run `booking-agent flow pay record` first.",
-            next_command="booking-agent flow pay record --spend-request-id <id>",
-        )
-        raise typer.Exit(code=1)
-
-    _require_approval_gate_before_charge(session)
-
-    try:
-        check_continue_url_valid(session)
-    except ValueError as err:
-        code = str(err)
-        if code == "checkout_url_expired":
-            _emit_checkout_url_error(
-                session,
-                code,
-                f"The payment action has expired (at {session.booking.action_expires_at}).",
-            )
-        else:
-            emit_error(
-                session.flow_phase,
-                code=code,
-                message="No continue_url in session.",
-                next_command="booking-agent flow book",
-            )
-        raise typer.Exit(code=1)
-
-    remaining = seconds_until_checkout_expires(session)
-    if remaining is not None and remaining < 90:
-        _emit_checkout_url_error(
-            session,
-            "checkout_url_expiring",
-            (
-                f"Checkout URL expires in {remaining}s; rebook before checkout "
-                "(need at least 90s remaining)."
-            ),
-        )
-        raise typer.Exit(code=1)
-
-    browser_spec = _require_browser_ready(session)
-    card_path = None
-
-    try:
-        if wait_for_approval:
-            secs = seconds_until_checkout_expires(session)
-            if secs is not None and secs < 60:
-                _emit_checkout_url_error(
-                    session,
-                    "checkout_url_expiring",
-                    f"Checkout URL expires in {secs}s; rebook before waiting for approval.",
-                )
-                raise typer.Exit(code=1)
-            _poll_spend_approval_or_exit(
-                session,
-                sr_id,
-                approval_timeout=approval_timeout,
-                poll_interval=poll_interval,
-                next_command=(
-                    f"booking-agent flow pay checkout --spend-request-id {sr_id} "
-                    "--wait-for-approval --wait-for-booking"
-                ),
-            )
-        else:
-            sr = retrieve_spend_request(sr_id)
-            if sr.status != "approved":
-                emit_error(
-                    session.flow_phase,
-                    code="spend_request_not_approved",
-                    message=(
-                        f"Spend request status is '{sr.status}'. Approve in Link first "
-                        "or use --wait-for-approval."
-                    ),
-                    next_command=(
-                        f"booking-agent flow pay checkout --spend-request-id {sr_id} "
-                        "--wait-for-approval"
-                    ),
-                    data={"spend_request_id": sr_id},
-                )
-                raise typer.Exit(code=1)
-            session.payment.approved_at = sr.approved_at or datetime.now(timezone.utc).isoformat()
-            save_session(session)
-
-        return_prefix = (
-            f"{session.return_listener_url}/usp/return"
-            if session.local_return_listener and session.return_listener_url
-            else None
-        )
-        card_data, card_path = retrieve_spend_request_card(sr_id)
-        card = CardCredential.from_link_cli_payload(card_data)
-        from booking_agent.observability import emit_event, money_path_fields
-
-        emit_event(
-            "charge_attempt",
-            **money_path_fields(
-                spend_request_id=sr_id,
-                booking_id=session.booking.id,
-            ),
-        )
-        from booking_agent.step_timing import timed_step_sync
-
-        with timed_step_sync("pay"):
-            result = run_redirect_checkout(CheckoutInput(
-                continue_url=session.booking.continue_url,  # type: ignore[arg-type]
-                buyer=session.buyer,
-                card=card,
-                browser_launch=browser_spec,
-                headless=headless,
-                auto_card=auto_card,
-                assist_timeout_ms=compute_assist_timeout_ms(session),
-                expires_at=session.booking.action_expires_at,
-                expires_in_sec=remaining,
-                return_url_prefix=return_prefix,
-            ))
-    except RuntimeError as e:
-        msg = str(e)
-        if "not approved" in msg:
-            emit_error(
-                session.flow_phase,
-                code="spend_request_not_approved",
-                message=msg,
-            )
-        else:
-            emit_error(
-                session.flow_phase,
-                code="link_cli_card_retrieve_failed",
-                message=msg,
-            )
-        raise typer.Exit(code=1)
-    finally:
-        if card_path is not None and card_path.exists():
-            card_path.unlink(missing_ok=True)
-
-    session.payment.spend_request_id = sr_id
-
-    from ..flow_timings import apply_pending_timings
-
-    apply_pending_timings(session)
-    save_session(session)
-
-    if result.error or not result.submitted:
-        if result.assist_timeout:
-            code = "assist_card_timeout"
-            message = result.error or "User did not complete card entry in time."
-        elif result.browser_closed:
-            code = "checkout_failed"
-            message = result.error or "Browser was closed before checkout completed."
-        else:
-            code = "checkout_failed"
-            message = result.error or "Checkout form submit did not complete."
-        emit_error(
-            session.flow_phase,
-            code=code,
-            message=message,
-            next_command="booking-agent flow pay rebook --service-id <id>",
-            data={"final_url": result.final_url, "title": result.title},
-        )
-        raise typer.Exit(code=1)
-
-    if wait_for_booking:
-        from booking_agent.step_timing import timed_step_sync
-
-        listener = get_active_listener(session.return_listener_url)
-        try:
-            with timed_step_sync("confirm"):
-                booking = wait_for_booking_terminal(
-                    session,
-                    deadline_ts=time.time() + booking_timeout,
-                    poll_interval=poll_interval,
-                    return_event=listener.event if listener else None,
-                )
-            apply_pending_timings(session)
-        except BookingPollTimeout as e:
-            from ..booking_poll import emit_payment_unconfirmed_on_poll_timeout
-
-            emit_payment_unconfirmed_on_poll_timeout(session)
-            session.payment.status = session.payment.status or "pending"
-            save_session(session)
-            emit_error(
-                session.flow_phase,
-                code="poll_timeout",
-                message=str(e),
-                next_command="booking-agent flow book poll --wait",
-                data={"booking_id": session.booking.id, "spend_request_id": sr_id},
-            )
-            raise typer.Exit(code=1)
-        except BookingServerError as e:
-            if e.code == "not_found":
-                emit_error(
-                    session.flow_phase,
-                    code="booking_not_found",
-                    message=(
-                        "The booking was not found on the business server "
-                        "(payment window may have expired). " + _REBOOK_MSG
-                    ),
-                    next_command="booking-agent flow pay rebook --service-id <id>",
-                )
-            else:
-                emit_error(
-                    session.flow_phase,
-                    code=f"poll_failed_server_error_{e.code}",
-                    message=f"Business server returned error '{e.code}': {e.server_message}",
-                )
-            raise typer.Exit(code=1)
-
-        status_val = apply_booking_status(session, booking)
-        save_session(session)
-        emit(_agent_out(
-            session,
-            prompt=f"Checkout submitted; booking {session.booking.id} status: {status_val}.",
-            next_command="booking-agent flow validate-skill-compliance",
-            data={
-                "booking_id": session.booking.id,
-                "status": status_val,
-                "final_url": result.final_url,
-                "spend_request_id": sr_id,
-                "checkout_mode": "redirect",
-                "card_fill_method": (
-                    "assisted" if assist_card or result.assist_timeout else "automated"
-                ),
-            },
-        ))
-        return
-
-    emit(_agent_out(
-        session,
-        prompt="Checkout submitted. Poll booking status next.",
-        next_command="booking-agent flow book poll --wait",
-        data={
-            "booking_id": session.booking.id,
-            "final_url": result.final_url,
-            "spend_request_id": sr_id,
-            "checkout_mode": "redirect",
-            "card_fill_method": (
-                "assisted" if assist_card or result.assist_timeout else "automated"
-            ),
-        },
-    ))
-
-
 def _run_payment_completion(
     session: Session, spend_request_id: str, *, continue_on_captured: bool = False,
 ) -> None:
     """Poll Link approval and complete payment (used by pay request --then-complete)."""
-    if session.checkout_mode == "ucp_native":
-        _pay_ucp_complete_impl(
-            session,
-            handler_id=None,
-            spend_request_id=spend_request_id,
-            wait_for_booking=False,
-            booking_timeout=120.0,
-            continue_on_captured=continue_on_captured,
-        )
-    else:
-        pay_checkout(
-            spend_request_id=spend_request_id,
-            wait_for_approval=True,
-            approval_timeout=600,
-            poll_interval=1.0,
-            wait_for_booking=True,
-            booking_timeout=120.0,
-            auto_card=True,
-            assist_card=False,
-            headless=False,
-        )
-
-
-@pay_app.command("prepare")
-def pay_prepare() -> None:
-    """Emit continue_url + payment_context for the agent to hand to link-cli.
-
-    Exits 1 with ``checkout_url_expired`` if ``action_expires_at`` is in the
-    past. The USP spec does not define a way to refresh an expired
-    ``continue_url`` via the REST API; the only recovery is to cancel this
-    booking and create a new one.
-    """
-    session = must_load()
-    if not session.booking.continue_url:
-        emit_error(
-            session.flow_phase,
-            code="no_continue_url",
-            message="No continue_url in session. Did `booking-agent flow book` succeed and "
-                    "return a redirect checkout?",
-            next_command="booking-agent flow book",
-        )
-        raise typer.Exit(code=1)
-
-    if session.booking.action_expires_at:
-        try:
-            expires = datetime.fromisoformat(session.booking.action_expires_at)
-            if expires.tzinfo is None:
-                expires = expires.replace(tzinfo=timezone.utc)
-            if datetime.now(timezone.utc) >= expires:
-                _emit_checkout_url_error(
-                    session,
-                    "checkout_url_expired",
-                    (
-                        "The payment action for this booking has expired "
-                        f"(expired at {session.booking.action_expires_at}). "
-                        "The continue_url is no longer valid."
-                    ),
-                )
-                raise typer.Exit(code=1)
-        except (ValueError, TypeError):
-            pass  # unparseable expires_at — don't block, proceed with warning
-
-    emit(_agent_out(
+    _pay_ucp_complete_impl(
         session,
-        prompt="Run next_command to poll Link approval and complete redirect checkout.",
-        next_command=(
-            f"booking-agent flow pay checkout --spend-request-id "
-            f"{session.payment.spend_request_id or '<id>'} --wait-for-approval"
-        ),
-        data={
-            "continue_url": session.booking.continue_url,
-            "payment_context": session.booking.payment_context,
-            "booking_id": session.booking.id,
-            "action_expires_at": session.booking.action_expires_at,
-            "browser_channel": session.browser_channel,
-            "spend_request_id": session.payment.spend_request_id,
-        },
-    ))
+        handler_id=None,
+        spend_request_id=spend_request_id,
+        continue_on_captured=continue_on_captured,
+    )
 
 
 @book_app.command("poll")

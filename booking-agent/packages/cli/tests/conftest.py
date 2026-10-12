@@ -2,15 +2,14 @@
 import pytest
 from typer.testing import CliRunner
 
-from support.mock import MockCalendarService, MockCheckoutServer, MockUSPBackend
+from support.mock import MockCalendarService, MockUSPBackend, reset_paid
 
 
-@pytest.fixture
-def mock_checkout_server():
-    server = MockCheckoutServer()
-    server.start()
-    yield server
-    server.stop()
+@pytest.fixture(autouse=True)
+def _reset_paid_bookings():
+    reset_paid()
+    yield
+    reset_paid()
 
 
 @pytest.fixture
@@ -33,9 +32,17 @@ def _reset_observability_context():
 
 
 @pytest.fixture(autouse=True)
+def _reset_loaded_config():
+    """Values an env file put into os.environ must not outlive the test that loaded it."""
+    from booking_agent_cli import config_loader
+
+    yield
+    config_loader.reset()
+
+
+@pytest.fixture(autouse=True)
 def _reset_flow_process_globals():
     """Keep hermetic flow stubs and loopback HTTP tests order-independent."""
-    import booking_agent.backend.cached_live as cached_live
     import booking_agent.backend.live as live
     import booking_agent.ucp_profile as ucp_profile
     import booking_agent_cli.booking_poll as booking_poll
@@ -43,7 +50,7 @@ def _reset_flow_process_globals():
     import booking_agent_cli.commands.lowlevel as lowlevel
     import booking_agent_cli.payment_helpers as payment_helpers
     from booking_agent.merchant_pacing import reset_merchant_pacing_for_tests
-    from booking_agent_cli.secrets.demo import resolve_backend
+    from booking_agent_cli.runtime import resolve_backend
 
     # Capture the authoritative profile resolver before isolated_session can
     # patch it. live.py imports the same function by value, so both bindings
@@ -62,7 +69,6 @@ def _reset_flow_process_globals():
             fetch_and_resolve_business_profile
         )
         reset_merchant_pacing_for_tests()
-        cached_live.BOOKING_CACHE.clear()
 
     reset()
     yield
@@ -72,13 +78,17 @@ def _reset_flow_process_globals():
 @pytest.fixture(autouse=True)
 def _no_buyer_timezone_network(monkeypatch):
     """Buyer-zone lookup is off by default and its geocoder never leaves the host."""
+    import booking_agent_cli.geocode as geocode
     import booking_agent_cli.timezone_context as timezone_context
 
     def _offline_geocoder(_params):
-        raise timezone_context.BuyerTimezoneError("geocoder_unavailable")
+        raise geocode.GeocodeError("geocoder_unavailable")
 
+    geocode.clear_cache()
     monkeypatch.setenv(timezone_context.LOOKUP_ENV, "off")
-    monkeypatch.setattr(timezone_context, "_geocode_http", _offline_geocoder)
+    monkeypatch.setattr(geocode, "_geocode_http", _offline_geocoder)
+    yield
+    geocode.clear_cache()
 
 
 @pytest.fixture
@@ -86,7 +96,6 @@ def isolated_session(tmp_path, monkeypatch):
     """Chdir into a tmp dir, set test env defaults, and inject the in-memory mocks."""
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("BOOKING_AGENT_SESSION_DIR", str(tmp_path))
-    monkeypatch.setenv("BOOKING_AGENT_ALLOW_TEST_BYPASSES", "1")
     monkeypatch.setenv("USP_AGENT_PROFILE_URL", "https://booking-agent.test/agents/demo")
     monkeypatch.setenv("USP_REGISTRY_URL", "https://registry.booking-agent.test/search")
     monkeypatch.setenv("USP_PLATFORM_RETURN_URL", "https://booking-agent.test/return")
@@ -94,7 +103,6 @@ def isolated_session(tmp_path, monkeypatch):
 
     # Inject the in-memory backend/calendar. `resolve_backend` is imported into
     # several modules, so patch the bound name in each.
-    import booking_agent_cli.checkout_prereq as checkout_prereq
     import booking_agent_cli.commands.flow as flow
     import booking_agent_cli.commands.lowlevel as lowlevel
     import booking_agent_cli.payment_helpers as payment_helpers
@@ -172,22 +180,6 @@ def isolated_session(tmp_path, monkeypatch):
         "_create_booking_via_ucp_checkout",
         _create_mock_ucp_checkout,
     )
-    _browser_spec = __import__(
-        "booking_agent_cli.browser", fromlist=["BrowserLaunchSpec"]
-    ).BrowserLaunchSpec(channel="chromium", source="playwright")
-
-    def _fake_prereq_redirect(session):
-        from booking_agent_cli.payment_helpers import browser_config_from_launch
-        from booking_agent_cli.session import load_store, save_store
-
-        store = load_store()
-        store.browser_config = browser_config_from_launch(_browser_spec)
-        session.browser_channel = _browser_spec.channel
-        save_store(store)
-        return _browser_spec
-
-    monkeypatch.setattr(checkout_prereq, "resolve_browser_for_checkout", lambda: _browser_spec)
-    monkeypatch.setattr(checkout_prereq, "run_prereq_check_redirect", _fake_prereq_redirect)
     MockCalendarService._connected_sessions.clear()
 
     from booking_agent_cli.link_cli import AuthStatus
@@ -198,7 +190,7 @@ def isolated_session(tmp_path, monkeypatch):
         lambda: AuthStatus(authenticated=True),
     )
 
-    from support.mock_link_cli import mock_link_cli_user_info
+    from support.mock.link_cli import mock_link_cli_user_info
 
     mock_link_cli_user_info(
         monkeypatch, {"name": "Ada Lovelace", "email": "ada@booking-agent.test"}

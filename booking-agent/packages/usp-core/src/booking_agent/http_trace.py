@@ -16,6 +16,7 @@ from typing import Any, Dict, Optional
 
 import httpx
 
+from . import settings
 from .circuit_breaker import HostCircuitBreaker, default_breaker
 from .http_deadlines import coerce_timeout
 from .observability import HEADER, current, emit_event
@@ -35,6 +36,7 @@ _REDACT_BODY_KEYS = frozenset({
     "first_name",
     "last_name",
     "name",
+    "notes",
 })
 # Keys are compared lowercased with "_" and "-" removed, so camelCase aliases match too.
 _ADDRESS_LEAF_KEYS = frozenset({
@@ -67,29 +69,21 @@ _RAW_ADDRESS_LEAF = re.compile(
     re.IGNORECASE,
 )
 _RAW_ADDRESS_OBJECT = re.compile(r'"(\w*address)"\s*:\s*\{[^{}]*\}', re.IGNORECASE)
-_DEFAULT_MAX_BYTES = 5 * 1024 * 1024
 
 
 def tracing_enabled() -> bool:
-    return os.environ.get("BOOKING_AGENT_HTTP_TRACE", "").strip() == "1"
+    return settings.get_bool("BOOKING_AGENT_HTTP_TRACE")
 
 
 def trace_path() -> Path:
     """Location of the trace log; follows ``BOOKING_AGENT_SESSION_DIR`` like the session store."""
-    session_dir = os.environ.get("BOOKING_AGENT_SESSION_DIR")
-    base = Path(session_dir) if session_dir else Path.home() / ".booking-agent"
+    base = settings.booking_agent_home()
     ensure_private_dir(base)
     return base / "http_trace.log"
 
 
 def _max_trace_bytes() -> int:
-    raw = os.environ.get("BOOKING_AGENT_HTTP_TRACE_MAX_BYTES", "").strip()
-    if not raw:
-        return _DEFAULT_MAX_BYTES
-    try:
-        return max(int(raw), 1024)
-    except ValueError:
-        return _DEFAULT_MAX_BYTES
+    return settings.get_int("BOOKING_AGENT_HTTP_TRACE_MAX_BYTES", minimum=1024)
 
 
 def _redact(headers: httpx.Headers) -> Dict[str, str]:
@@ -143,6 +137,7 @@ def _redact_body_text(body: str | None) -> str | None:
             r'"shared_payment_token"\s*:\s*"[^"]*"',
             r'"email"\s*:\s*"[^"]*"',
             r'"phone(?:_number)?"\s*:\s*"[^"]*"',
+            r'"notes"\s*:\s*"[^"]*"',
         ):
             redacted = re.sub(pattern, '"<redacted>"', redacted)
         redacted = _RAW_ADDRESS_OBJECT.sub(r'"\1": "<redacted>"', redacted)

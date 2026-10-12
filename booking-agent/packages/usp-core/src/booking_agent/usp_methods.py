@@ -6,7 +6,7 @@ spec issue #9 drifted to "all 13 privileged_scoped methods" after registry
 writes were re-tiered to ``privileged_platform``, which is exactly the failure
 mode a hand-maintained enumeration invites.
 
-``tests/test_scoped_method_authorization.py`` walks ``CLIENT_METHODS`` and
+``tests/unit/test_scoped_method_authorization.py`` walks ``CLIENT_METHODS`` and
 asserts every privileged entry reaches the wire with a proof and every public
 entry reaches it without one.  Adding a client method without registering it
 here fails that test.
