@@ -1482,7 +1482,7 @@ def test_discover_uses_the_confirmed_area(runner, isolated_session, monkeypatch)
     assert body["data"]["discover_location"] == {"lat": 32.6927, "lng": -114.6277, "radius_km": 40.0}
     assert body["data"]["search_area"] == "100 Test Street, Yuma AZ 85364"
     location = load_store().sessions[0].discover_registry_request_body["location"]
-    assert location["radiusKm"] == 40.0
+    assert location["radius_km"] == 40.0
 
 
 def test_discover_with_confirmed_area_needs_a_radius(runner, isolated_session, monkeypatch):
@@ -1543,7 +1543,7 @@ def test_discover_optional_location(runner, isolated_session):
     store = load_store()
     assert store.sessions[0].discover_location_lat == 32.6927
     assert store.sessions[0].discover_registry_request_body["location"]["coordinates"]["lat"] == 32.6927
-    assert "radiusKm" not in store.sessions[0].discover_registry_request_body["location"]
+    assert "radius_km" not in store.sessions[0].discover_registry_request_body["location"]
 
 
 def test_discover_sends_radius_km_when_provided(runner, isolated_session):
@@ -1565,7 +1565,7 @@ def test_discover_sends_radius_km_when_provided(runner, isolated_session):
     assert body["data"]["discover_location"]["radius_km"] == 25.0
     store = load_store()
     assert store.sessions[0].discover_location_radius_km == 25.0
-    assert store.sessions[0].discover_registry_request_body["location"]["radiusKm"] == 25.0
+    assert store.sessions[0].discover_registry_request_body["location"]["radius_km"] == 25.0
 
 
 def test_discover_sends_geo_and_time_preferences_together(runner, isolated_session):
@@ -1607,7 +1607,7 @@ def test_discover_sends_geo_and_time_preferences_together(runner, isolated_sessi
     request = session.discover_registry_request_body
     assert request["location"]["coordinates"]["lat"] == 32.6927
     assert request["location"]["coordinates"]["lng"] == -114.6277
-    assert request["location"]["radiusKm"] == 25.0
+    assert request["location"]["radius_km"] == 25.0
     assert request["desired_service_time_ranges"] == expected_ranges
     assert request["prefer_sooner_availability_slots"] is False
 
@@ -1637,7 +1637,7 @@ def test_discover_geo_and_time_preferences_omit_prefer_sooner_when_true(
     assert body["data"]["prefer_sooner_availability_slots"] is True
 
     request = load_store().sessions[0].discover_registry_request_body
-    assert request["location"]["radiusKm"] == 10.0
+    assert request["location"]["radius_km"] == 10.0
     assert request["desired_service_time_ranges"] == [
         {"start": "2026-09-02T09:00:00+00:00"}
     ]
@@ -1714,7 +1714,7 @@ def test_lowlevel_search_combines_geo_and_time_ranking_flags(
         limit=DEFAULT_REGISTRY_SEARCH_LIMIT,
     )
     assert request["location"]["coordinates"]["lat"] == 32.6927
-    assert request["location"]["radiusKm"] == 25.0
+    assert request["location"]["radius_km"] == 25.0
     assert request["desired_service_time_ranges"] == [{"at": "2026-09-01T12:00:00Z"}]
     assert request["prefer_sooner_availability_slots"] is False
 

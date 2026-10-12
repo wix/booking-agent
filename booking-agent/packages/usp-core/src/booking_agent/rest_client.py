@@ -78,8 +78,6 @@ logger = logging.getLogger(__name__)
 # servers to their nearest spec equivalent.  Entries here indicate a server-side
 # compliance bug that should be fixed in the emitting implementation.
 _NON_SPEC_STATUS_MAP: Dict[str, str] = {
-    # Wix Bookings platform returns "created" for auto-confirmed bookings
-    # instead of the spec-required "confirmed".
     "created": "confirmed",
 }
 
@@ -102,9 +100,9 @@ class BookingServerError(Exception):
 def _booking_from_response(data: Dict[str, Any]) -> Booking:
     """Parse ``booking`` from a USP JSON response.
 
-    Handles two non-compliance patterns seen in production:
-    - Non-spec ``status`` values (e.g. Wix returns ``"created"`` instead of
-      ``"confirmed"``) — remapped via ``_NON_SPEC_STATUS_MAP`` with a WARNING.
+    Handles two non-spec response shapes:
+    - Non-spec ``status`` values (for example ``"created"``), remapped via
+      ``_NON_SPEC_STATUS_MAP`` with a WARNING.
     - HTTP 200 error bodies (no ``booking`` field, ``messages`` array with
       ``type="error"``) — raised as ``BookingServerError`` so callers can
       distinguish "booking not found" from a parse failure.
@@ -1212,6 +1210,96 @@ class USPBusinessRestClient(BaseUSPRestClient):
         )
 
 
+REGISTRY_SEARCH_FILTER_KEYS = (
+    "query",
+    "location",
+    "verticals",
+    "categories",
+    "price_range",
+    "duration_range",
+)
+
+
+class RegistrySearchRejectedError(ValueError):
+    """The registry refused a ``search_services`` request (USP §6.3, §9.4).
+
+    Raised the same way whether the registry answered HTTP 200 with an error in
+    ``messages[]``, a 400/422 Problem Details body, or the request was refused
+    locally before sending (``http_status`` is ``None``).
+    """
+
+    def __init__(
+        self,
+        *,
+        code: str,
+        message: str,
+        http_status: Optional[int],
+        path: Optional[str] = None,
+    ) -> None:
+        super().__init__(f"[{code}] {message}")
+        self.code = code
+        self.message = message
+        self.http_status = http_status
+        self.path = path
+
+    def as_dict(self) -> Dict[str, Any]:
+        return {
+            "code": self.code,
+            "message": self.message,
+            "http_status": self.http_status,
+            "path": self.path,
+        }
+
+
+def _registry_rejection_in_body(
+    data: Any, http_status: int
+) -> Optional[RegistrySearchRejectedError]:
+    if not isinstance(data, dict):
+        return None
+    for message in data.get("messages") or []:
+        if isinstance(message, dict) and message.get("type") == "error":
+            return RegistrySearchRejectedError(
+                code=message.get("code") or "registry_error",
+                message=message.get("content") or "The registry rejected the search.",
+                http_status=http_status,
+                path=message.get("path") or None,
+            )
+    usp = data.get("usp")
+    if isinstance(usp, dict) and usp.get("status") == "error":
+        return RegistrySearchRejectedError(
+            code="registry_error",
+            message="The registry reported an error without details.",
+            http_status=http_status,
+        )
+    return None
+
+
+def _registry_rejection_from_problem(
+    response: httpx.Response,
+) -> RegistrySearchRejectedError:
+    status = response.status_code
+    try:
+        problem = response.json()
+    except ValueError:
+        problem = None
+    if not isinstance(problem, dict):
+        problem = {}
+    problem_type = str(problem.get("type") or "")
+    slug = problem_type.rstrip("/").rsplit("/", 1)[-1] if "/errors/" in problem_type else ""
+    code = slug.replace("-", "_") if slug else (
+        "invalid_request" if status == 400 else "validation_error"
+    )
+    message = (
+        problem.get("detail")
+        or problem.get("title")
+        or (response.text or "").strip()[:500]
+        or f"HTTP {status}"
+    )
+    return RegistrySearchRejectedError(
+        code=code, message=str(message), http_status=status,
+    )
+
+
 def build_registry_search_body(
     query: str,
     *,
@@ -1226,33 +1314,29 @@ def build_registry_search_body(
     cursor: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Build the JSON body for ``POST /registry/search_services``."""
+    # Field names follow the spec's snake_case wire form (USP §6.3).
     body: Dict[str, Any] = {}
+    query = (query or "").strip()
     if query:
         body["query"] = query
     if location:
-        body["location"] = location.model_dump(by_alias=True, exclude_none=True)
+        body["location"] = location.model_dump(mode="json", exclude_none=True)
     if verticals:
         body["verticals"] = verticals
     if categories:
         body["categories"] = categories
     if price_range:
-        body["price_range"] = price_range.model_dump(by_alias=True, exclude_none=True)
+        price = price_range.model_dump(mode="json", exclude_none=True)
+        if price:
+            body["price_range"] = price
     if duration_range:
-        body["duration_range"] = duration_range.model_dump(by_alias=True, exclude_none=True)
-    has_filter = any(
-        key in body
-        for key in (
-            "query",
-            "location",
-            "verticals",
-            "categories",
-            "price_range",
-            "duration_range",
-        )
-    )
+        duration = duration_range.model_dump(mode="json", exclude_none=True)
+        if duration:
+            body["duration_range"] = duration
+    has_filter = any(key in body for key in REGISTRY_SEARCH_FILTER_KEYS)
     if has_filter and desired_service_time_ranges:
         body["desired_service_time_ranges"] = [
-            preference.model_dump(by_alias=True, exclude_none=True)
+            preference.model_dump(mode="json", exclude_none=True)
             for preference in desired_service_time_ranges
         ]
     if has_filter and prefer_sooner_availability_slots is False:
@@ -1313,6 +1397,15 @@ class USPRegistryRestClient(BaseUSPRestClient):
             limit=limit,
             cursor=cursor,
         )
+        if not any(key in body for key in REGISTRY_SEARCH_FILTER_KEYS):
+            raise RegistrySearchRejectedError(
+                code="validation_error",
+                message=(
+                    "search_services needs at least one filter: query, location, "
+                    "verticals, categories, price_range, or duration_range."
+                ),
+                http_status=None,
+            )
 
         post_url = registry_search_post_url(registry_url)
         logger.info("USP Registry POST %s", post_url)
@@ -1340,6 +1433,8 @@ class USPRegistryRestClient(BaseUSPRestClient):
                 latency_ms=latency_ms,
                 status=exc.response.status_code,
             )
+            if exc.response.status_code in (400, 422):
+                raise _registry_rejection_from_problem(exc.response) from exc
             raise
         except Exception:
             latency_ms = round((time.monotonic() - started) * 1000, 1)
@@ -1351,8 +1446,25 @@ class USPRegistryRestClient(BaseUSPRestClient):
             raise
 
         latency_ms = round((time.monotonic() - started) * 1000, 1)
-        emit_event("registry_search", ok=True, latency_ms=latency_ms)
         data = response.json()
+        # Registries may report validation_error at HTTP 200 instead of the
+        # 422 Problem Details the spec requires (USP §9.4.3).
+        rejection = _registry_rejection_in_body(data, response.status_code)
+        if rejection is not None:
+            emit_event(
+                "registry_search_error",
+                error_class="malformed_request",
+                latency_ms=latency_ms,
+                status=response.status_code,
+            )
+            raise rejection
+        emit_event("registry_search", ok=True, latency_ms=latency_ms)
+        for message in data.get("messages") or []:
+            if isinstance(message, dict):
+                logger.info(
+                    "USP Registry %s %s: %s",
+                    message.get("type"), message.get("code"), message.get("content"),
+                )
 
         if "results" in data:
             results_raw = data["results"]

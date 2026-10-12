@@ -28,7 +28,12 @@ from booking_agent.calendar.scope import (
 from booking_agent.platform_profile import platform_profile_url
 from booking_agent.pop import PopKeyStore
 from booking_agent.http_deadlines import coerce_timeout
-from booking_agent.rest_client import BookingServerError, PopAuthorizationError, RevisionMismatch
+from booking_agent.rest_client import (
+    BookingServerError,
+    PopAuthorizationError,
+    RegistrySearchRejectedError,
+    RevisionMismatch,
+)
 from booking_agent.ucp_checkout import CompleteOutcome, UcpCheckoutHttpError, UcpCompleteOutcomeError
 from booking_agent.ucp_profile import UcpProfileValidationError
 from pathlib import Path
@@ -1734,6 +1739,14 @@ def discover(
 
     try:
         intent, services = asyncio.run(_go())
+    except RegistrySearchRejectedError as e:
+        emit_error(
+            session.flow_phase,
+            code="registry_search_rejected",
+            message=f"The registry rejected the search: {e.message}",
+            data={"registry_error": e.as_dict()},
+        )
+        raise typer.Exit(code=1)
     except Exception as e:
         raise _emit_flow_http_error(
             session.flow_phase, e, default_code="discover_failed",

@@ -155,9 +155,8 @@ class ServiceSearchResult(BaseModel):
     """schemas/registry.json#/$defs/ServiceSearchResult.
 
     Spec REQUIRES (service_id, service_name, business, category, pricing, timezone).
-    ``pricing`` (named ``price`` here for backward-compat with the Wix endpoint
-    field name) and ``timezone`` are kept Optional because the current Wix
-    semantic-search endpoint frequently returns results without them.
+    ``pricing`` (named ``price`` here, the field name the client reads) and
+    ``timezone`` are Optional: the client accepts results without them.
     """
     model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
 

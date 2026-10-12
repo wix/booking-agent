@@ -1353,10 +1353,8 @@ def build_ucp_checkout_client(
 
     Checkout is the privileged half of UCP-Native booking, so it needs the same
     ``platform_key_pop`` proof as a direct ``POST /bookings`` (USP Section
-    10.1.6).  Unlike the USP binding, the ``dev.ucp.shopping`` binding publishes
-    no ``config.authorization``, so there is no policy to negotiate the mechanism
-    from: the client presents the proof and a business that does not implement
-    it ignores the header.
+    10.1.6).  The client does not negotiate a mechanism for the
+    ``dev.ucp.shopping`` binding: it always presents the proof.
 
     The key is per checkout origin and generated on first contact, which is the
     whole of platform onboarding -- there is no registration round trip.

@@ -362,13 +362,11 @@ async def query_availability_with_quirk(
     timezone_str: Optional[str] = None,
     single_day_retry_days: int = 7,
 ) -> List[TimeSlot]:
-    """Query availability with the Wix single-day-empty quirk handled.
+    """Query availability, widening an empty single-day window once.
 
-    USP spec note: some business servers (notably the Wix Bookings adapter)
-    return 0 slots for a single-day window when the day in question actually
-    has availability. Workaround: if the requested window is a single day and
-    we get 0 results, retry with a ``single_day_retry_days``-wide range
-    starting at the same date and filter to slots that fall on that date.
+    If the requested window is a single day and returns 0 slots, retry with a
+    ``single_day_retry_days``-wide range starting at the same date and keep only
+    the slots that fall on that date.
     """
     slots = await backend.query_availability(
         profile, service_id, start_date, end_date, timezone_str

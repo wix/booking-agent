@@ -29,7 +29,7 @@ def test_build_registry_search_body_omits_match_when_unset():
         duration_range=DurationRange(min_minutes=30, max_minutes=90),
     )
     assert body["price_range"] == {"min": 5000, "max": 20000, "currency": "USD"}
-    assert body["duration_range"] == {"minMinutes": 30, "maxMinutes": 90}
+    assert body["duration_range"] == {"min_minutes": 30, "max_minutes": 90}
     assert "match" not in body["price_range"]
     assert "match" not in body["duration_range"]
 
@@ -55,7 +55,23 @@ def test_build_registry_search_body_serializes_match_modes():
     )
     assert body["price_range"]["match"] == "contains"
     assert body["duration_range"]["match"] == "overlap"
-    assert body["location"]["radiusKm"] == 5
+    assert body["location"]["radius_km"] == 5
+    assert "radiusKm" not in body["location"]
+
+
+def test_build_registry_search_body_trims_query():
+    assert build_registry_search_body("  ac repair  ")["query"] == "ac repair"
+    assert "query" not in build_registry_search_body("   ", limit=5)
+
+
+def test_build_registry_search_body_omits_empty_range_objects():
+    body = build_registry_search_body(
+        "ac repair",
+        price_range=PriceRange(currency="USD"),
+        duration_range=DurationRange(),
+    )
+    assert "duration_range" not in body
+    assert body["price_range"] == {"currency": "USD"}
 
 
 def test_build_registry_search_body_serializes_time_preference_shapes():
