@@ -1296,3 +1296,7 @@ Use `booking-agent flow sessions list` only to find unfinished flows or upcoming
 
 - Stripe link-cli spend-request commands: https://github.com/stripe/link-cli
 - USP spec: https://usp-protocol.dev/specification
+
+## License
+
+This skill and the Booking Agent source are released under the Apache License 2.0, Copyright 2026 Wix.com. Complete terms: https://github.com/wix/booking-agent/blob/master/LICENSE
