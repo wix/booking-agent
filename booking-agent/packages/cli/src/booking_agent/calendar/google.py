@@ -45,7 +45,7 @@ def _client_secret() -> str:
 
 
 def _redirect_base_url() -> str:
-    return load_config().google_calendar_oauth_redirect_base_url or ""
+    return f"http://localhost:{_redirect_port()}"
 
 
 def _redirect_uri() -> str:
@@ -58,13 +58,6 @@ def _launcher_uri() -> str:
 
 def _redirect_port() -> int:
     return load_config().google_calendar_redirect_port
-
-
-def _ssl_files() -> tuple:
-    cfg = load_config()
-    if cfg.google_calendar_ssl_certfile and cfg.google_calendar_ssl_keyfile:
-        return cfg.google_calendar_ssl_certfile, cfg.google_calendar_ssl_keyfile
-    return None
 
 
 _GOOGLE_AUTH_ENDPOINT = "https://accounts.google.com/o/oauth2/v2/auth"
@@ -289,30 +282,21 @@ def _start_callback_server() -> None:
     if _callback_server_started:
         return
     _callback_server_started = True
-    ssl_files = _ssl_files()
     port = _redirect_port()
 
     def _run():
         import uvicorn
 
-        ssl_kwargs = {}
-        if ssl_files:
-            ssl_kwargs["ssl_certfile"], ssl_kwargs["ssl_keyfile"] = ssl_files
         uvicorn.run(
             _build_callback_app(),
             host="0.0.0.0",
             port=port,
             log_level="warning",
-            **ssl_kwargs,
         )
 
     t = threading.Thread(target=_run, daemon=True)
     t.start()
-    logger.info(
-        "Google Calendar OAuth callback server started on %s://0.0.0.0:%d",
-        "https" if ssl_files else "http",
-        port,
-    )
+    logger.info("Google Calendar OAuth callback server started on http://0.0.0.0:%d", port)
 
 
 # ---------------------------------------------------------------------------

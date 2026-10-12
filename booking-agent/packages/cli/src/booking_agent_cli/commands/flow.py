@@ -160,15 +160,15 @@ app = typer.Typer(help="Stateful USP booking flow with hard human gates.")
 
 @app.callback()
 def _flow_setup(ctx: typer.Context) -> None:
-    """Reconstruct config for every command process.
+    """Load config for every command process.
 
     Each ``booking-agent flow ...`` invocation is a separate process, so config is
-    re-derived from the persisted session on every call: its env file, then (outside
-    production) the user and folder ``.env`` files, then the shipped defaults. ``init``
-    loads its own (it may receive ``--env-file``), and ``sessions`` commands load per
-    session, so both are skipped here.
+    re-read on every call: the process environment, then the user and folder ``.env``
+    files, then the shipped defaults.
     """
     from booking_agent.http_trace import clear_last_http_failure
+
+    from .. import config_loader
 
     clear_last_http_failure()
     sub = ctx.invoked_subcommand
@@ -177,10 +177,7 @@ def _flow_setup(ctx: typer.Context) -> None:
         if session is not None:
             record_command(session)
             save_session(session)
-    if sub in ("init", "sessions"):
-        return
-    session = load_session()
-    _load_config(session)
+    config_loader.load()
 
 
 # ---------------------------------------------------------------------------
@@ -193,28 +190,6 @@ FORBIDDEN = [
     "Hand-entered or placeholder buyer details",
     "Selecting a slot without user confirmation",
 ]
-
-
-def _env_file_missing(phase: str, err: Exception) -> None:
-    emit_error(
-        phase,
-        code="env_file_not_found",
-        message=(
-            f"{err}. Restore that file, or start a new booking without it "
-            "(`booking-agent flow init --force`)."
-        ),
-        next_command="booking-agent flow init --user-request '<request>' --force",
-    )
-    raise typer.Exit(code=1)
-
-
-def _load_config(session: Optional[Session]) -> None:
-    from .. import config_loader
-
-    try:
-        config_loader.load_for_session(session)
-    except config_loader.EnvFileNotFound as err:
-        _env_file_missing(session.flow_phase if session is not None else "INIT", err)
 
 
 def _agent_out(
@@ -284,10 +259,6 @@ def _emit_flow_http_error(
 @app.command("init")
 def init(
     user_request: str = typer.Option(..., "--user-request", help="Natural-language request that started this flow"),
-    env_file: Optional[str] = typer.Option(
-        None, "--env-file",
-        help="Env file for this booking (saved with it, so later commands reload it).",
-    ),
     force: bool = typer.Option(False, help="Overwrite an active incomplete session"),
     allow_duplicate: bool = typer.Option(
         False, "--allow-duplicate",
@@ -332,13 +303,6 @@ def init(
         ))
         return
 
-    from .. import config_loader
-
-    try:
-        chosen_env_file = config_loader.chosen_env_file(env_file)
-        config_loader.load(env_file=str(chosen_env_file) if chosen_env_file else None)
-    except config_loader.EnvFileNotFound as err:
-        _env_file_missing("INIT", err)
     try:
         init_data: dict = {"agent_profile_url": require_fetchable_profile_url()}
     except ProfileUrlError as e:
@@ -354,7 +318,6 @@ def init(
         user_request=user_request,
         schema_version=SCHEMA_VERSION,
         flow_phase=initial_phase,
-        env_file=str(chosen_env_file) if chosen_env_file else None,
     )
     try:
         if get_auth_status().authenticated:
@@ -689,18 +652,9 @@ def _cancel_open_row(session: Session, active_id: Optional[str]) -> Dict[str, An
 
 @contextlib.contextmanager
 def _session_environment(session: Session):
-    """Apply one session's config, then put the environment back.
-
-    ``sessions`` commands skip the flow callback, and one bulk run can span
-    sessions with different env files, so one session's config must never
-    outlive it.
-    """
-    from .. import config_loader
-
-    with config_loader.preserved():
-        config_loader.load_for_session(session)
-        require_fetchable_profile_url()
-        yield
+    """Refuse to act on *session* without a fetchable platform profile URL."""
+    require_fetchable_profile_url()
+    yield
 
 
 def _bulk_cancel_one(session: Session, reason: Optional[str]) -> Dict[str, Any]:

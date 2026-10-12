@@ -3158,10 +3158,8 @@ _BUYER = {"name": "Ada Lovelace", "email": "ada@booking-agent.test"}
 
 
 def _geocoder(monkeypatch, coords):
-    """Enable the buyer-zone lookup with a fake geocoder (None means it is down)."""
+    """Give the buyer-zone lookup a fake geocoder (None means it is down)."""
     import booking_agent_cli.timezone_context as tc
-
-    monkeypatch.setenv(tc.LOOKUP_ENV, "on")
 
     def fake(_params):
         if coords is None:

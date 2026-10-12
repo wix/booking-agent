@@ -8,11 +8,8 @@ from typing import Any, Dict, Optional, Tuple
 
 import httpx
 
-from booking_agent import settings
 from booking_agent.http_retry import with_http_retry
 from booking_agent.http_trace import traced_async_client
-
-from booking_agent.models.wire import PostPaymentReturnRequest
 
 from .link_cli import retrieve_spend_request
 from .output import write_spend_approval_notice
@@ -153,7 +150,6 @@ async def _create_booking_via_ucp_checkout(
         session.ucp_checkout_rest_base,
         platform_profile_url=plat_url,
         ucp_version_header=ver,
-        bearer_token=cfg.booking_agent_ucp_merchant_bearer_token,
     )
     checkout = await client.create_checkout(body)
     checkout_id = _attach_ucp_checkout_handles(session, checkout)
@@ -277,7 +273,6 @@ async def cancel_ucp_checkout_async(
     client = build_ucp_checkout_client(
         session.ucp_checkout_rest_base,
         platform_profile_url=cfg.usp_agent_profile_url,
-        bearer_token=cfg.booking_agent_ucp_merchant_bearer_token,
     )
     return await client.cancel_checkout(cid, credential=presented)
 
@@ -299,7 +294,6 @@ async def get_ucp_checkout_async(
     client = build_ucp_checkout_client(
         session.ucp_checkout_rest_base,
         platform_profile_url=cfg.usp_agent_profile_url,
-        bearer_token=cfg.booking_agent_ucp_merchant_bearer_token,
     )
     return await client.get_checkout(cid, credential=presented)
 
@@ -448,7 +442,6 @@ async def create_booking_async(
             )
 
     backend = resolve_backend()
-    return_url = settings.get("USP_PLATFORM_RETURN_URL")
 
     profile = await backend.resolve_profile(session.business.profile_url)
     buyer = {
@@ -458,10 +451,6 @@ async def create_booking_async(
     }
     if session.buyer.phone:
         buyer["phone_number"] = session.buyer.phone
-    pprr = PostPaymentReturnRequest(
-        url=return_url,
-        params={"booking_session": session.id, "session_phase": "PAYMENT_PENDING"},
-    )
     booking_obj = await backend.create_booking(
         profile=profile,
         service_id=service_id,
@@ -470,7 +459,6 @@ async def create_booking_async(
         party_size=1,
         notes=notes,
         delivery_address=delivery_address,
-        post_payment_return_request=pprr,
     )
 
     checkout_path = "none"
@@ -548,7 +536,6 @@ async def complete_ucp_checkout_async(
             session.ucp_checkout_rest_base or "",
             platform_profile_url=cfg_paid.usp_agent_profile_url,
             ucp_version_header=session.ucp_protocol_version,
-            bearer_token=cfg_paid.booking_agent_ucp_merchant_bearer_token,
         )
         replay = await client_paid.get_checkout(cid)
         return {
@@ -587,7 +574,6 @@ async def complete_ucp_checkout_async(
         session.ucp_checkout_rest_base or "",
         platform_profile_url=plat_url,
         ucp_version_header=ver,
-        bearer_token=cfg.booking_agent_ucp_merchant_bearer_token,
     )
     checkout_state = await client.get_checkout(cid)
     # The live checkout response remains authoritative: re-validate its capability

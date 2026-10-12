@@ -46,11 +46,10 @@ def search(
         None,
         "--prefer-sooner-availability-slots/--no-prefer-sooner-availability-slots",
     ),
-    env_file: Optional[str] = typer.Option(None, "--env-file"),
 ) -> None:
     if ctx.invoked_subcommand is not None:
         return
-    config_loader.load(env_file=env_file)
+    config_loader.load()
     backend = resolve_backend()
 
     async def _go():
@@ -113,9 +112,8 @@ profile_app = typer.Typer(help="Low-level: profile resolution.")
 @profile_app.command("resolve")
 def profile_resolve(
     profile_url: str = typer.Option(..., "--profile-url"),
-    env_file: Optional[str] = typer.Option(None, "--env-file"),
 ) -> None:
-    config_loader.load(env_file=env_file)
+    config_loader.load()
     backend = resolve_backend()
 
     async def _go():
@@ -143,9 +141,8 @@ def availability_query(
     service_id: str = typer.Option(..., "--service-id"),
     start: Optional[str] = typer.Option(None, "--from"),
     end: Optional[str] = typer.Option(None, "--to"),
-    env_file: Optional[str] = typer.Option(None, "--env-file"),
 ) -> None:
-    config_loader.load(env_file=env_file)
+    config_loader.load()
     now = datetime.now(timezone.utc)
     window_from = start or (now + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
     window_to = end or (now + timedelta(days=14)).replace(hour=23, minute=59, second=59, microsecond=0).isoformat()

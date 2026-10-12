@@ -3,6 +3,7 @@ import pytest
 from typer.testing import CliRunner
 
 from support.mock import MockCalendarService, MockUSPBackend, reset_paid
+from support.mock.link_cli import REAL_RETRIEVE_DEFAULT_SHIPPING_ADDRESS  # noqa: F401
 
 
 @pytest.fixture(autouse=True)
@@ -77,15 +78,19 @@ def _reset_flow_process_globals():
 
 @pytest.fixture(autouse=True)
 def _no_buyer_timezone_network(monkeypatch):
-    """Buyer-zone lookup is off by default and its geocoder never leaves the host."""
+    """The buyer-zone lookup never runs the real link-cli or geocoder.
+
+    The Link default address is absent unless a test stubs link-cli with
+    ``mock_link_cli_user_info``.
+    """
     import booking_agent_cli.geocode as geocode
-    import booking_agent_cli.timezone_context as timezone_context
+    import booking_agent_cli.link_cli as link_cli
 
     def _offline_geocoder(_params):
         raise geocode.GeocodeError("geocoder_unavailable")
 
     geocode.clear_cache()
-    monkeypatch.setenv(timezone_context.LOOKUP_ENV, "off")
+    monkeypatch.setattr(link_cli, "retrieve_default_shipping_address", lambda **_kw: None)
     monkeypatch.setattr(geocode, "_geocode_http", _offline_geocoder)
     yield
     geocode.clear_cache()
@@ -98,7 +103,6 @@ def isolated_session(tmp_path, monkeypatch):
     monkeypatch.setenv("BOOKING_AGENT_SESSION_DIR", str(tmp_path))
     monkeypatch.setenv("USP_AGENT_PROFILE_URL", "https://booking-agent.test/agents/demo")
     monkeypatch.setenv("USP_REGISTRY_URL", "https://registry.booking-agent.test/search")
-    monkeypatch.setenv("USP_PLATFORM_RETURN_URL", "https://booking-agent.test/return")
     monkeypatch.delenv("GOOGLE_CALENDAR_CLIENT_ID", raising=False)
 
     # Inject the in-memory backend/calendar. `resolve_backend` is imported into

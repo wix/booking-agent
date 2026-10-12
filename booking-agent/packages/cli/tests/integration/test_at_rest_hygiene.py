@@ -18,7 +18,6 @@ import pytest
 from booking_agent import http_trace, profile_cache
 from booking_agent.discovery import USPBusinessInfo, USPBusinessProfile
 from booking_agent.pop import PopKey, PopKeyStore, build_rest_proof, credential_ath
-from booking_agent.rest_client import USPTokenStore
 from booking_agent.secure_file import write_private_text
 
 
@@ -47,15 +46,6 @@ def test_write_private_text_replaces_atomically(tmp_path):
     assert target.read_text() == "second"
     assert _mode(target) == 0o600
     assert not list(tmp_path.glob(".secret.json.*")), "temp file left behind"
-
-
-def test_token_store_is_owner_only(isolated_home):
-    path = isolated_home / "tokens.json"
-    path.write_text("{}")
-    store = USPTokenStore(str(path))
-    store._entries["https://b.example"] = {"client_id": "cid", "client_secret": "shh"}
-    store._save()
-    assert _mode(path) == 0o600
 
 
 def test_profile_cache_is_owner_only(isolated_home):

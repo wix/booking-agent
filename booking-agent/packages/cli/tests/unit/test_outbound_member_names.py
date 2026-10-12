@@ -105,17 +105,17 @@ async def test_create_booking_sends_snake_case_names():
             "slot_1",
             {"first_name": "Ada", "last_name": "Lovelace", "email": "ada@example.com"},
             hold_id="hold_1",
-            post_payment_return_request=PostPaymentReturnRequest(
-                url="https://agent.example/return",
-                params={"sessionId": "opaque"},
-            ),
         )
 
-    body = sent[0]
-    assert body["post_payment_return_request"] == {
-        "url": "https://agent.example/return",
-        "params": {"sessionId": "opaque"},
-    }
+    _assert_snake_case(sent[0])
+
+
+def test_post_payment_return_request_dumps_snake_case_names():
+    dumped = PostPaymentReturnRequest(
+        url="https://agent.example/return",
+        params={"sessionId": "opaque"},
+    ).model_dump(exclude_none=True)
+    assert dumped == {"url": "https://agent.example/return", "params": {"sessionId": "opaque"}}
     # ``params`` is a map of opaque values the business echoes back, not
     # USP-defined member names, so its keys are the caller's to choose.
-    _assert_snake_case(body, data_maps=frozenset({"params"}))
+    _assert_snake_case(dumped, data_maps=frozenset({"params"}))

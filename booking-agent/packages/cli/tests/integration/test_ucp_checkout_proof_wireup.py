@@ -1,6 +1,6 @@
 """``booking-agent flow book`` and ``flow pay`` must prove possession on UCP checkout.
 
-The client-side mechanism is covered in ``usp-core``; what shipped broken was the
+The client-side mechanism is covered by the ``booking_agent`` tests; what shipped broken was the
 wire-up. Both commands built a ``UcpCheckoutClient`` with no key, so the outgoing
 ``POST /checkout-sessions`` carried no ``DPoP`` header and a business
 implementing ``platform_key_pop`` answered 401.

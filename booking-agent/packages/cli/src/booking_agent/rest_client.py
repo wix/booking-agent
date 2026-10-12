@@ -16,11 +16,9 @@ transport can implement the same method signatures.
 """
 import json
 import logging
-import os
 import time
 import uuid
 from datetime import date, datetime, timezone
-from pathlib import Path
 from typing import Optional, Dict, Any, List, Tuple
 from urllib.parse import urlparse
 
@@ -49,7 +47,6 @@ from .pop import (
     nonce_challenge_from_401,
     usp_error_payload,
 )
-from .secure_file import write_private_text
 
 from .models.wire import (
     AvailabilityResult,
@@ -58,7 +55,6 @@ from .models.wire import (
     Hold,
     Booking,
     USPPaymentResult,
-    PostPaymentReturnRequest,
 )
 from .discovery import USPBusinessProfile
 from .registry_url import registry_search_post_url
@@ -228,7 +224,7 @@ _REST_CLIENT_KWARGS = {"timeout": 15.0, "follow_redirects": True}
 class USPTokenStore:
     """Manages per-business OAuth credentials and bearer tokens.
 
-    Credentials are persisted in a JSON file keyed by business REST endpoint::
+    Credentials live in memory for one process, keyed by business REST endpoint::
 
         {
           "https://biz.example.com/usp/v1": {
@@ -243,10 +239,6 @@ class USPTokenStore:
 
     ``auth_header`` is optional and defaults to ``"Authorization"``.
 
-    v2 stores these machine credentials at mode ``0600`` via ``write_private_text``.
-    OS keychain encryption is deferred; ``0600`` is the accepted ceiling for merchant
-    OAuth material on the agent host (distinct from consumer Link/Google identity).
-
     Resolution order for ``get_token(endpoint)``:
       1. Cached ``access_token`` that has not expired.
       2. ``client_id``/``client_secret`` present -> acquire a new token.
@@ -259,27 +251,12 @@ class USPTokenStore:
 
     def __init__(
         self,
-        path: Optional[str] = None,
         platform_name: Optional[str] = None,
         platform_contact: Optional[str] = None,
     ) -> None:
         self._entries: Dict[str, Dict[str, Any]] = {}
-        self._path: Optional[str] = None
         self._platform_name = platform_name
         self._platform_contact = platform_contact
-
-        if not path:
-            return
-        self._path = os.path.expanduser(path)
-        if not os.path.isfile(self._path):
-            logger.warning("USP token store not found at %s", self._path)
-            return
-        with open(self._path) as f:
-            self._entries = json.load(f)
-        logger.info(
-            "Loaded %d USP credential(s) from %s",
-            len(self._entries), self._path,
-        )
 
     # -- Public API ----------------------------------------------------------
 
@@ -367,7 +344,6 @@ class USPTokenStore:
         entry["access_token"] = access_token
         entry["expires_at"] = new_expires_at
         self._entries[endpoint] = entry
-        self._save()
         return access_token
 
     # -- OAuth metadata discovery (RFC 8414) ---------------------------------
@@ -377,20 +353,13 @@ class USPTokenStore:
         entry["oauth_unavailable"] = True
         entry.pop("metadata_failed_at", None)
         self._entries[endpoint] = entry
-        self._save()
 
     def _clear_oauth_unavailable(self, endpoint: str) -> None:
         entry = self._entries.get(endpoint)
         if not entry:
             return
-        changed = False
-        if entry.pop("oauth_unavailable", None):
-            changed = True
-        if entry.pop("metadata_failed_at", None):
-            changed = True
-        if changed:
-            self._entries[endpoint] = entry
-            self._save()
+        entry.pop("oauth_unavailable", None)
+        entry.pop("metadata_failed_at", None)
 
     async def _discover_oauth_metadata(
         self, endpoint: str,
@@ -461,7 +430,6 @@ class USPTokenStore:
             logger.info(
                 "Registered with %s as client_id=%s", endpoint, client_id,
             )
-            self._save()
             return client_id, client_secret, token_endpoint
 
         except Exception:
@@ -504,16 +472,6 @@ class USPTokenStore:
                 "Token acquisition failed at %s", token_endpoint, exc_info=True,
             )
             return None
-
-    # -- Persistence ---------------------------------------------------------
-
-    def _save(self) -> None:
-        if not self._path:
-            return
-        try:
-            write_private_text(Path(self._path), json.dumps(self._entries, indent=2))
-        except Exception:
-            logger.warning("Failed to persist token store to %s", self._path, exc_info=True)
 
     # -- Helpers -------------------------------------------------------------
 
@@ -580,10 +538,8 @@ class BaseUSPRestClient:
         if if_match:
             headers["If-Match"] = if_match
 
-        # A pre-provisioned bearer is an operator decision (the OAuth store or
-        # BOOKING_AGENT_USP_MERCHANT_BEARER), so it travels on whatever the operator
-        # configured it for, public reads included -- some deployments gate the
-        # catalog.  This is the dormant path; see ``oauth_dormant`` and #199.
+        # A bearer from the OAuth token store travels on every operation, public
+        # reads included -- some deployments gate the catalog.  This is the dormant path; see ``oauth_dormant`` and #199.
         if self.bearer_token:
             headers[self.auth_header_name] = f"Bearer {self.bearer_token}"
 
@@ -1043,7 +999,6 @@ class USPBusinessRestClient(BaseUSPRestClient):
         delivery_address: Optional[Dict[str, Any]] = None,
         recipient: Optional[Dict[str, Any]] = None,
         consent: Optional[Dict[str, Any]] = None,
-        post_payment_return_request: Optional[PostPaymentReturnRequest] = None,
     ) -> Booking:
         body: Dict[str, Any] = {
             "service_id": service_id,
@@ -1063,10 +1018,6 @@ class USPBusinessRestClient(BaseUSPRestClient):
             body["recipient"] = recipient
         if consent:
             body["consent"] = consent
-        if post_payment_return_request:
-            body["post_payment_return_request"] = post_payment_return_request.model_dump(
-                exclude_none=True
-            )
         data = await self._post(
             "/bookings", body, idempotent=True,
             access=usp_methods.PRIVILEGED_PLATFORM,

@@ -6,7 +6,6 @@ USPBusinessRestClient. No local booking cache.
 """
 import asyncio
 import logging
-import os
 from typing import Any, Dict, List, Optional, Tuple
 
 import httpx
@@ -24,7 +23,6 @@ from ..models.wire import (
     AvailabilityResult,
     Booking,
     Hold,
-    PostPaymentReturnRequest,
     TimeSlot,
     USPPaymentResult,
     USPService,
@@ -53,12 +51,7 @@ class LiveUSPBackend(USPBackend):
         self._cfg = cfg
         self._resolver = USPProfileResolver()
         self._agent_profile_url = cfg.usp_agent_profile_url
-        token_store_path = cfg.usp_token_store_path
-        if token_store_path:
-            token_store_path = os.path.expanduser(token_store_path)
-        self._token_store = USPTokenStore(
-            token_store_path, cfg.usp_platform_name, cfg.usp_platform_contact,
-        )
+        self._token_store = USPTokenStore(cfg.usp_platform_name, cfg.usp_platform_contact)
         self._posture = resolve_posture(cfg.usp_auth_scoped_credential)
         self._pop_keys = PopKeyStore()
         self.profile_cache: Dict[str, USPBusinessProfile] = {}
@@ -80,9 +73,7 @@ class LiveUSPBackend(USPBackend):
         endpoint = profile.rest_endpoint
         auth_header = self._token_store.get_auth_header_name(endpoint)
         bearer: Optional[str] = None
-        if self._cfg.booking_agent_usp_merchant_bearer_token:
-            bearer = self._cfg.booking_agent_usp_merchant_bearer_token
-        elif self._token_store.has_stored_credentials(endpoint):
+        if self._token_store.has_stored_credentials(endpoint):
             bearer = await self._token_store.get_token(endpoint, allow_discovery=True)
 
         # Negotiate the mechanism from the business's published policy.
@@ -420,7 +411,6 @@ class LiveUSPBackend(USPBackend):
         resource_id: Optional[str] = None,
         notes: Optional[str] = None,
         delivery_address: Optional[Dict[str, Any]] = None,
-        post_payment_return_request: Optional[PostPaymentReturnRequest] = None,
     ) -> Booking:
         client = await self._client(profile)
         booking = await client.create_booking(
@@ -431,7 +421,6 @@ class LiveUSPBackend(USPBackend):
             resource_id=resource_id,
             notes=notes,
             delivery_address=delivery_address,
-            post_payment_return_request=post_payment_return_request,
         )
         # The only point at which a credential is issued.  The caller that owns
         # session state persists it against (endpoint, booking id).

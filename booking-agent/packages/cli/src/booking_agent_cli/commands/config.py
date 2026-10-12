@@ -5,7 +5,7 @@ import json
 import os
 import re
 import shutil
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 import typer
 
@@ -19,6 +19,8 @@ app = typer.Typer(help="Show effective configuration, or create ~/.booking-agent
 MASKED = "<set, hidden>"
 # Written once, uncommented-ready, in the calendar block of the header.
 _CALENDAR_APP_NAMES = frozenset({"GOOGLE_CALENDAR_CLIENT_ID", "GOOGLE_CALENDAR_CLIENT_SECRET"})
+# The user .env lives in this folder, so the file cannot move it.
+_PROCESS_ONLY_NAMES = frozenset({"BOOKING_AGENT_SESSION_DIR"})
 _SECRET_NAME = re.compile(r"SECRET|TOKEN|BEARER|PASSWORD|_KEY\b|KEYFILE|SPT", re.IGNORECASE)
 
 USER_ENV_HEADER = """\
@@ -60,31 +62,20 @@ def _variables() -> List[Dict[str, Any]]:
     return out
 
 
-def _load(env_file: Optional[str]) -> None:
-    from ..session import load_session
-
-    try:
-        if env_file:
-            config_loader.load(env_file=env_file)
-        else:
-            config_loader.load_for_session(load_session())
-    except config_loader.EnvFileNotFound as err:
-        typer.echo(json.dumps({"error": {"code": "env_file_not_found", "message": str(err)}}))
-        raise typer.Exit(code=1)
-
-
 @app.command("show")
-def config_show(
-    env_file: Optional[str] = typer.Option(None, "--env-file", help="Also load this env file."),
-) -> None:
+def config_show() -> None:
     """Print every setting's effective value and where it came from (secrets hidden)."""
-    _load(env_file)
+    config_loader.load()
     link_bin = settings.get("LINK_CLI_BIN") or "link-cli"
     report = {
         "files": [{"source": s, "path": str(p)} for s, p in config_loader.loaded_files()],
         "variables": _variables(),
         "unknown_keys": [
             {"source": s, "path": str(p), "name": n} for s, p, n in config_loader.unknown_keys()
+        ],
+        "ignored_runtime_keys": [
+            {"source": s, "path": str(p), "name": n}
+            for s, p, n in config_loader.ignored_runtime_keys()
         ],
         "runtime": {
             "calendar": _calendar_status(),
@@ -103,7 +94,7 @@ def config_init() -> None:
         return
     lines = [USER_ENV_HEADER, "\n# --- Shipped defaults (uncomment to override) ---------------------------------\n"]
     for entry in settings.entries():
-        if entry.value is None or entry.name in _CALENDAR_APP_NAMES:
+        if entry.value is None or entry.name in _CALENDAR_APP_NAMES | _PROCESS_ONLY_NAMES:
             continue
         lines.append(f"# {entry.name}={entry.value}\n")
     ensure_private_dir(path.parent)

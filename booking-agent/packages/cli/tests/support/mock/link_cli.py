@@ -6,6 +6,11 @@ import subprocess
 from typing import Optional
 from unittest.mock import MagicMock
 
+import booking_agent_cli.link_cli as _link_cli
+
+#: Captured before the autouse fixture in conftest swaps it for an offline stub.
+REAL_RETRIEVE_DEFAULT_SHIPPING_ADDRESS = _link_cli.retrieve_default_shipping_address
+
 YUMA_SHIPPING_ADDRESS = {
     "id": "csmrsa_test_default",
     "is_default": True,
@@ -54,6 +59,9 @@ def mock_link_cli_user_info(
     monkeypatch.setattr("booking_agent_cli.commands.flow.shutil.which", lambda _name: "/usr/bin/link-cli")
     monkeypatch.setattr("booking_agent_cli.link_cli.subprocess.run", fake_run)
     monkeypatch.setattr("booking_agent_cli.link_cli.shutil.which", lambda _name: "/usr/bin/link-cli")
+    monkeypatch.setattr(
+        _link_cli, "retrieve_default_shipping_address", REAL_RETRIEVE_DEFAULT_SHIPPING_ADDRESS
+    )
 
 
 class FakeSharedPaymentTokenSource:

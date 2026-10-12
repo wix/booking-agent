@@ -82,8 +82,7 @@ def trace_path() -> Path:
     return base / "http_trace.log"
 
 
-def _max_trace_bytes() -> int:
-    return settings.get_int("BOOKING_AGENT_HTTP_TRACE_MAX_BYTES", minimum=1024)
+_MAX_TRACE_BYTES = 5 * 1024 * 1024
 
 
 def _redact(headers: httpx.Headers) -> Dict[str, str]:
@@ -147,9 +146,8 @@ def _redact_body_text(body: str | None) -> str | None:
 
 
 def _rotate_trace_if_needed(path: Path) -> None:
-    max_bytes = _max_trace_bytes()
     try:
-        if path.is_file() and path.stat().st_size > max_bytes:
+        if path.is_file() and path.stat().st_size > _MAX_TRACE_BYTES:
             backup = path.with_suffix(".log.1")
             if backup.is_file():
                 backup.unlink()

@@ -151,21 +151,8 @@ async def test_live_client_skips_get_token_without_stored_credentials(monkeypatc
     backend._token_store.has_stored_credentials = MagicMock(return_value=False)  # type: ignore[method-assign]
     get_token = AsyncMock(return_value="should-not-run")
     backend._token_store.get_token = get_token  # type: ignore[method-assign]
-    backend._cfg.booking_agent_usp_merchant_bearer_token = None
 
     client = await backend._client(_profile())
     get_token.assert_not_called()
     assert client.bearer_token is None
     assert client._token_store is backend._token_store
-
-
-@pytest.mark.asyncio
-async def test_live_client_prefers_env_bearer_without_get_token(monkeypatch):
-    backend = LiveUSPBackend()
-    backend._cfg.booking_agent_usp_merchant_bearer_token = "env-bearer"
-    get_token = AsyncMock(return_value="store-token")
-    backend._token_store.get_token = get_token  # type: ignore[method-assign]
-
-    client = await backend._client(_profile())
-    get_token.assert_not_called()
-    assert client.bearer_token == "env-bearer"

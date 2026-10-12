@@ -22,7 +22,6 @@ from ..models.platform import ServiceSearchIntent
 from ..models.wire import (
     Booking,
     Hold,
-    PostPaymentReturnRequest,
     TimeSlot,
     USPPaymentResult,
     USPService,
@@ -147,7 +146,6 @@ class USPBackend(ABC):
         resource_id: Optional[str] = None,
         notes: Optional[str] = None,
         delivery_address: Optional[Dict[str, Any]] = None,
-        post_payment_return_request: Optional[PostPaymentReturnRequest] = None,
     ) -> Booking: ...
 
     @abstractmethod

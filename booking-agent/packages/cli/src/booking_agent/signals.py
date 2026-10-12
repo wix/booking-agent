@@ -7,9 +7,8 @@ setting turns them off:
 - ``dev.usp-protocol.agent_host_ip``: the public IP of the machine this process
   runs on. On a hosted agent that is shared by many buyers, which is why it has
   its own key.
-- ``dev.ucp.buyer_ip``: only when the buyer's device IP is known, either because
-  the installation declares that it runs on the buyer's own device or because
-  the hosting surface relays the address it observed on the buyer's device.
+- ``dev.ucp.buyer_ip``: only when the hosting surface relays the address it
+  observed on the buyer's device.
 """
 from __future__ import annotations
 
@@ -27,13 +26,10 @@ USER_AGENT_KEY = "dev.ucp.user_agent"
 BUYER_IP_KEY = "dev.ucp.buyer_ip"
 AGENT_HOST_IP_KEY = "dev.usp-protocol.agent_host_ip"
 
-RUNS_ON_BUYER_DEVICE_ENV = "BOOKING_AGENT_RUNS_ON_BUYER_DEVICE"
 BUYER_DEVICE_IP_ENV = "BOOKING_AGENT_BUYER_DEVICE_IP"
 
 PUBLIC_IP_URL = "https://api.ipify.org"
 _PUBLIC_IP_TIMEOUT_S = 3.0
-
-_TRUTHY = frozenset({"1", "true", "yes", "on"})
 
 _host_ip_cache: Optional[str] = None
 _host_ip_resolved = False
@@ -44,14 +40,12 @@ class SignalsConfigError(ValueError):
 
 
 def user_agent() -> str:
-    for dist in ("booking-agent-cli", "booking-agent-core"):
-        try:
-            return f"{dist}/{metadata.version(dist)}"
-        except metadata.PackageNotFoundError:
-            continue
-    from . import __version__
+    try:
+        return f"booking-agent-cli/{metadata.version('booking-agent-cli')}"
+    except metadata.PackageNotFoundError:
+        from . import __version__
 
-    return f"booking-agent-core/{__version__}"
+        return f"booking-agent-cli/{__version__}"
 
 
 def _parse_ip(raw: str) -> Optional[str]:
@@ -92,18 +86,16 @@ def reset_agent_host_ip_cache() -> None:
     _host_ip_resolved = False
 
 
-def buyer_device_ip(host_ip: Optional[str]) -> Optional[str]:
+def buyer_device_ip() -> Optional[str]:
     relayed = (os.environ.get(BUYER_DEVICE_IP_ENV) or "").strip()
-    if relayed:
-        parsed = _parse_ip(relayed)
-        if parsed is None:
-            raise SignalsConfigError(
-                f"{BUYER_DEVICE_IP_ENV} is not an IPv4 or IPv6 address: {relayed!r}"
-            )
-        return parsed
-    if (os.environ.get(RUNS_ON_BUYER_DEVICE_ENV) or "").strip().lower() in _TRUTHY:
-        return host_ip
-    return None
+    if not relayed:
+        return None
+    parsed = _parse_ip(relayed)
+    if parsed is None:
+        raise SignalsConfigError(
+            f"{BUYER_DEVICE_IP_ENV} is not an IPv4 or IPv6 address: {relayed!r}"
+        )
+    return parsed
 
 
 async def build_checkout_signals() -> Dict[str, str]:
@@ -111,7 +103,7 @@ async def build_checkout_signals() -> Dict[str, str]:
     host_ip = await agent_host_ip()
     if host_ip:
         signals[AGENT_HOST_IP_KEY] = host_ip
-    buyer_ip = buyer_device_ip(host_ip)
+    buyer_ip = buyer_device_ip()
     if buyer_ip:
         signals[BUYER_IP_KEY] = buyer_ip
     return signals

@@ -33,7 +33,6 @@ from .models.wire import (
     Channel,
     ChannelType,
     Duration,
-    PostPaymentReturnRequest,
     Pricing,
     PricingModel,
     ReschedulingPolicy,
@@ -445,7 +444,6 @@ async def create_booking(
     resource_id: Optional[str] = None,
     notes: Optional[str] = None,
     delivery_address: Optional[Dict[str, Any]] = None,
-    post_payment_return_request: Optional[PostPaymentReturnRequest] = None,
 ) -> Booking:
     return await backend.create_booking(
         profile=profile,
@@ -456,7 +454,6 @@ async def create_booking(
         resource_id=resource_id,
         notes=notes,
         delivery_address=delivery_address,
-        post_payment_return_request=post_payment_return_request,
     )
 
 
