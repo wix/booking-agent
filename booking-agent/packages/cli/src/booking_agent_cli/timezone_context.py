@@ -8,31 +8,19 @@ There is no device, host, process, VPN, or cloud-region fallback.
 from __future__ import annotations
 
 import atexit
-import os
 import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from functools import lru_cache
-from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
-from urllib.parse import urlparse
+from typing import Any, Callable, Dict, Iterable, Optional, Tuple
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-import httpx
+from booking_agent_cli.geocode import GeocodeError, geocode_address
 
 BUYER_TIMEZONE_SOURCE = "link_shipping_address"
 LOOKUP_ENV = "BOOKING_AGENT_BUYER_TIMEZONE_LOOKUP"
-GEOCODER_URL_ENV = "BOOKING_AGENT_GEOCODER_URL"
-DEFAULT_GEOCODER_URL = "https://nominatim.openstreetmap.org/search"
-GEOCODER_USER_AGENT = "booking-agent-cli/0.1 (+https://github.com/wix/booking-agent)"
-GEOCODER_TIMEOUT_SECONDS = 10.0
-
-
-class BuyerTimezoneError(Exception):
-    """Sanitized lookup failure. ``code`` never contains the address or geocoder URL."""
-
-    def __init__(self, code: str) -> None:
-        super().__init__(code)
-        self.code = code
+# Geocoder and timezone failures share one sanitized error type.
+BuyerTimezoneError = GeocodeError
 
 
 @dataclass
@@ -160,70 +148,72 @@ def range_display(start: Any, end: Any, tz_name: Optional[str]) -> Optional[str]
     return f"{begin} to {finish}" if finish else begin
 
 
-def lookup_enabled() -> bool:
-    return os.environ.get(LOOKUP_ENV, "").strip().lower() not in ("0", "off", "false", "no")
+def _clock(dt: datetime) -> str:
+    return f"{dt.hour % 12 or 12}:{dt:%M}"
 
 
-def _geocoder_url() -> str:
-    url = os.environ.get(GEOCODER_URL_ENV, "").strip() or DEFAULT_GEOCODER_URL
-    if urlparse(url).scheme != "https":
-        raise BuyerTimezoneError("geocoder_url_invalid")
-    return url
-
-
-def _geocode_queries(address: Dict[str, Any]) -> List[Dict[str, str]]:
-    def pick(*keys: str) -> Optional[str]:
-        for key in keys:
-            value = address.get(key)
-            if isinstance(value, str) and value.strip():
-                return value.strip()
+def compact_range_display(
+    start: Any, end: Any, tz_name: Optional[str], *, now: Optional[datetime] = None,
+) -> Optional[str]:
+    """``Tue, Oct 13, 10:00 - 11:00 AM MST``; the year shows only when it is not the current one."""
+    zone = valid_iana_timezone(tz_name)
+    begin = _parse_instant(start)
+    if zone is None or begin is None:
         return None
+    tz = ZoneInfo(zone)
+    local_start = begin.astimezone(tz)
+    finish = _parse_instant(end)
+    local_end = finish.astimezone(tz) if finish is not None else None
+    this_year = (now or datetime.now(timezone.utc)).astimezone(tz).year
 
-    street = pick("line_1", "line1", "address_line_1")
-    city = pick("locality", "city")
-    state = pick("administrative_area", "state", "region")
-    postal = pick("postal_code", "zip")
-    country = pick("country_code", "country")
-    if not country or not (city or postal):
-        raise BuyerTimezoneError("address_incomplete")
-    coarse = {k: v for k, v in (
-        ("city", city), ("state", state), ("postalcode", postal),
-    ) if v}
-    queries = []
-    if street:
-        queries.append({"street": street, **coarse})
-    queries.append(coarse)
-    return [{**q, "countrycodes": country.lower()} for q in queries]
+    def day(dt: datetime) -> str:
+        text = f"{dt:%a, %b} {dt.day}"
+        return text if dt.year == this_year else f"{text}, {dt.year}"
 
-
-def _geocode_http(params: Dict[str, str]) -> List[Dict[str, Any]]:
-    url = _geocoder_url()
-    try:
-        response = httpx.get(
-            url,
-            params={**params, "format": "jsonv2", "limit": "1"},
-            headers={"User-Agent": GEOCODER_USER_AGENT, "Accept": "application/json"},
-            timeout=GEOCODER_TIMEOUT_SECONDS,
-            follow_redirects=False,
+    if local_end is None:
+        return f"{day(local_start)}, {_clock(local_start)} {local_start:%p} {local_start.tzname()}"
+    if local_end.date() != local_start.date():
+        return (
+            f"{day(local_start)}, {_clock(local_start)} {local_start:%p} - "
+            f"{day(local_end)}, {_clock(local_end)} {local_end:%p} {local_end.tzname()}"
         )
-        response.raise_for_status()
-        payload = response.json()
-    except httpx.HTTPStatusError:
-        raise BuyerTimezoneError("geocoder_http_error") from None
-    except (httpx.HTTPError, ValueError):
-        raise BuyerTimezoneError("geocoder_unavailable") from None
-    return payload if isinstance(payload, list) else []
+    if local_start.strftime("%p") == local_end.strftime("%p"):
+        times = f"{_clock(local_start)} - {_clock(local_end)} {local_end:%p}"
+    else:
+        times = f"{_clock(local_start)} {local_start:%p} - {_clock(local_end)} {local_end:%p}"
+    return f"{day(local_start)}, {times} {local_end.tzname()}"
 
 
-def geocode_address(address: Dict[str, Any]) -> Tuple[float, float]:
-    """``(lat, lon)`` for a Link shipping address, trying a street-level then coarse query."""
-    for params in _geocode_queries(address):
-        for row in _geocode_http(params):
-            try:
-                return float(row["lat"]), float(row["lon"])
-            except (KeyError, TypeError, ValueError):
-                continue
-    raise BuyerTimezoneError("geocoder_no_match")
+def compact_clock_range(
+    start: Any, end: Any, tz_name: Optional[str], *, reference_tz: Optional[str] = None,
+) -> Optional[str]:
+    """``8:00 - 9:00 PM IDT``: the time of day for a second zone shown in parentheses.
+
+    The weekday is added when that day differs from the day in ``reference_tz``.
+    """
+    zone = valid_iana_timezone(tz_name)
+    begin, finish = _parse_instant(start), _parse_instant(end)
+    if zone is None or begin is None:
+        return None
+    tz = ZoneInfo(zone)
+    a = begin.astimezone(tz)
+    ref = valid_iana_timezone(reference_tz)
+    ref_day = begin.astimezone(ZoneInfo(ref)).date() if ref else a.date()
+    prefix = f"{a:%a} " if a.date() != ref_day else ""
+    if finish is None:
+        return f"{prefix}{_clock(a)} {a:%p} {a.tzname()}"
+    b = finish.astimezone(tz)
+    if b.date() != a.date():
+        return f"{prefix}{_clock(a)} {a:%p} - {b:%a} {_clock(b)} {b:%p} {b.tzname()}"
+    if a.strftime("%p") == b.strftime("%p"):
+        return f"{prefix}{_clock(a)} - {_clock(b)} {b:%p} {b.tzname()}"
+    return f"{prefix}{_clock(a)} {a:%p} - {_clock(b)} {b:%p} {b.tzname()}"
+
+
+def lookup_enabled() -> bool:
+    from booking_agent import settings
+
+    return (settings.get(LOOKUP_ENV) or "").strip().lower() not in ("0", "off", "false", "no")
 
 
 @lru_cache(maxsize=1)

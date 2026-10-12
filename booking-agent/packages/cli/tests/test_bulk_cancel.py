@@ -77,7 +77,10 @@ class _Backend:
         return SimpleNamespace(rest_endpoint="https://biz.example/usp")
 
     async def cancel_booking(self, _profile, booking_id, **_kwargs):
-        self.env_seen[booking_id] = os.environ.get("USP_PLATFORM_NAME")
+        from booking_agent import settings
+        from booking_agent_cli import config_loader
+
+        self.env_seen[booking_id] = (settings.get("USP_PLATFORM_NAME"), config_loader.production())
         outcome = self.outcomes.get(booking_id)
         if isinstance(outcome, BaseException):
             raise outcome
@@ -264,18 +267,23 @@ def test_forget_unfinished_never_drops_payment_in_progress(runner, backend):
 
 
 def test_each_session_gets_its_own_secrets_mode(runner, backend, monkeypatch):
+    from booking_agent_cli import config_loader
+
     monkeypatch.delenv("USP_PLATFORM_NAME", raising=False)
     monkeypatch.setenv("USP_AGENT_PROFILE_URL", "https://booking-agent.test/agents/prod")
+    config_loader.user_env_path().write_text("USP_PLATFORM_NAME=From the user env\n")
     demo = _booked("b_demo")
     prod = _booked("b_prod", secrets_mode="booking-agent")
     _seed(demo, prod)
+    production_before = config_loader.production()
 
     data = _invoke(runner, "--user-confirmed", "--all")["data"]
 
     assert data["summary"] == {"canceled": 2}
-    assert backend.env_seen["b_demo"] == "USP Agent"
-    assert backend.env_seen["b_prod"] is None
+    assert backend.env_seen["b_demo"] == ("From the user env", False)
+    assert backend.env_seen["b_prod"] == ("USP Agent", True)
     assert "USP_PLATFORM_NAME" not in os.environ
+    assert config_loader.production() is production_before
 
 
 def test_invalid_production_config_fails_only_that_row(runner, backend, monkeypatch):

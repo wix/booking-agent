@@ -373,8 +373,6 @@
           "additionalProperties": false,
           "properties": {"code": {"$ref": "#/$defs/id"}}
         },
-        "browser_channel": {"$ref": "#/$defs/id"},
-        "local_return_listener": {"$ref": "#/$defs/bool"},
         "discover_location_radius_km": {"$ref": "#/$defs/num"},
         "discover_registry_url": {"$ref": "#/$defs/url"},
         "discover_services": {
@@ -392,6 +390,9 @@
         "flow_timings": {"$ref": "#/$defs/timings"},
         "human_gate_timings": {"$ref": "#/$defs/timings"},
         "skill_compliance_validated": {"$ref": "#/$defs/bool"},
+        "search_area_confirmed": {"$ref": "#/$defs/bool"},
+        "service_address_set": {"$ref": "#/$defs/bool"},
+        "calendar_timezone": {"$ref": "#/$defs/tz"},
         "reschedule_original_slot_id": {"$ref": "#/$defs/id"},
         "reschedule_slots": {"$ref": "#/$defs/slots"},
         "reschedule_slot_id": {"$ref": "#/$defs/id"},

@@ -5,8 +5,8 @@ fetch on first contact. The identity URI and public registry use canonical
 defaults; operator environment variables can override them. Backend, merchant
 credentials, and calendar credentials come from the operator environment.
 
-``DEMO_DEFAULTS`` from ``secrets.demo`` are never applied here. A production
-install must not silently inherit demo identity or demo endpoints.
+The ``# [demo]`` section of the shipped defaults and the user and folder ``.env``
+files are never loaded here, so a production install cannot inherit demo settings.
 """
 from __future__ import annotations
 

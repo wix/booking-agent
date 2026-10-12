@@ -4,12 +4,12 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
-import os
 import threading
 import time
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple, TYPE_CHECKING
 
+from . import settings
 from .secure_file import ensure_private_dir, write_private_text
 
 if TYPE_CHECKING:
@@ -18,7 +18,6 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-_DEFAULT_TTL_SECONDS = 900  # 15 minutes
 _CACHE_FILE_NAME = "profile_cache.json"
 
 #: Bumped when the cached shape gains a field whose *absence* changes behaviour.
@@ -32,16 +31,11 @@ _store_lock = threading.Lock()
 
 
 def _ttl_seconds() -> int:
-    raw = os.environ.get("BOOKING_AGENT_PROFILE_CACHE_TTL_SECONDS", str(_DEFAULT_TTL_SECONDS))
-    try:
-        return max(0, int(raw))
-    except ValueError:
-        return _DEFAULT_TTL_SECONDS
+    return settings.get_int("BOOKING_AGENT_PROFILE_CACHE_TTL_SECONDS", minimum=0)
 
 
 def cache_path() -> Path:
-    session_dir = os.environ.get("BOOKING_AGENT_SESSION_DIR")
-    base = Path(session_dir) if session_dir else Path.home() / ".booking-agent"
+    base = settings.booking_agent_home()
     ensure_private_dir(base)
     return base / _CACHE_FILE_NAME
 

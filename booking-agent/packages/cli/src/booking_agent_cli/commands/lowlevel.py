@@ -7,13 +7,13 @@ from __future__ import annotations
 
 import asyncio
 import json
-import os
 from datetime import datetime, timedelta, timezone
 from typing import List, Optional
 
 import typer
 
-from ..secrets.demo import load_env_file, resolve_backend
+from .. import config_loader
+from ..secrets.demo import resolve_backend
 
 # search ---------------------------------------------------------------------
 
@@ -50,8 +50,7 @@ def search(
 ) -> None:
     if ctx.invoked_subcommand is not None:
         return
-    if env_file:
-        load_env_file(env_file)
+    config_loader.load(env_file=env_file)
     backend = resolve_backend()
 
     async def _go():
@@ -116,8 +115,7 @@ def profile_resolve(
     profile_url: str = typer.Option(..., "--profile-url"),
     env_file: Optional[str] = typer.Option(None, "--env-file"),
 ) -> None:
-    if env_file:
-        load_env_file(env_file)
+    config_loader.load(env_file=env_file)
     backend = resolve_backend()
 
     async def _go():
@@ -147,8 +145,7 @@ def availability_query(
     end: Optional[str] = typer.Option(None, "--to"),
     env_file: Optional[str] = typer.Option(None, "--env-file"),
 ) -> None:
-    if env_file:
-        load_env_file(env_file)
+    config_loader.load(env_file=env_file)
     now = datetime.now(timezone.utc)
     window_from = start or (now + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
     window_to = end or (now + timedelta(days=14)).replace(hour=23, minute=59, second=59, microsecond=0).isoformat()
@@ -167,58 +164,3 @@ def availability_query(
         [{"slot_id": s.id, "start": s.start, "end": s.end, "duration": s.duration} for s in slots],
         indent=2,
     ))
-
-
-# booking --------------------------------------------------------------------
-
-booking_app = typer.Typer(help="Low-level: booking create (operator repair).")
-
-
-@booking_app.command("create")
-def booking_create(
-    profile_url: str = typer.Option(..., "--profile-url"),
-    service_id: str = typer.Option(..., "--service-id"),
-    slot_id: str = typer.Option(..., "--slot-id"),
-    buyer_json: str = typer.Option(..., "--buyer", help="JSON {first_name, last_name, email}"),
-    notes: Optional[str] = typer.Option(None, "--notes"),
-    delivery_address: Optional[str] = typer.Option(
-        None,
-        "--delivery-address",
-        help="JSON DeliveryAddress (line1, city, country required).",
-    ),
-    env_file: Optional[str] = typer.Option(None, "--env-file"),
-) -> None:
-    if env_file:
-        load_env_file(env_file)
-    try:
-        buyer = json.loads(buyer_json)
-    except json.JSONDecodeError as e:
-        typer.echo(f"Invalid --buyer JSON: {e}", err=True)
-        raise typer.Exit(code=1)
-    delivery_addr = None
-    if delivery_address is not None:
-        try:
-            raw = json.loads(delivery_address)
-        except json.JSONDecodeError as e:
-            typer.echo(f"Invalid --delivery-address JSON: {e}", err=True)
-            raise typer.Exit(code=1)
-        from booking_agent.models.wire import DeliveryAddress
-
-        delivery_addr = DeliveryAddress.model_validate(raw).model_dump(
-            by_alias=False, exclude_none=True
-        )
-    backend = resolve_backend()
-
-    async def _go():
-        profile = await backend.resolve_profile(profile_url)
-        return await backend.create_booking(
-            profile=profile,
-            service_id=service_id,
-            slot_id=slot_id,
-            buyer=buyer,
-            notes=notes,
-            delivery_address=delivery_addr,
-        )
-
-    booking = asyncio.run(_go())
-    typer.echo(booking.model_dump_json(by_alias=True, exclude_none=True, indent=2))

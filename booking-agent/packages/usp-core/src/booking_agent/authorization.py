@@ -30,13 +30,14 @@ Placement differs by deployment mode:
 from __future__ import annotations
 
 import logging
-import os
 import re
 from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, ConfigDict, field_validator
+
+from . import settings
 
 logger = logging.getLogger(__name__)
 
@@ -320,7 +321,7 @@ POSTURE_ENV_VAR = "BOOKING_AGENT_USP_AUTH_SCOPED_CREDENTIAL"
 
 
 def resolve_posture(explicit: Optional[str] = None) -> ScopedCredentialPosture:
-    raw = explicit or os.environ.get(POSTURE_ENV_VAR)
+    raw = explicit or settings.get(POSTURE_ENV_VAR)
     if not raw:
         return DEFAULT_POSTURE
     try:

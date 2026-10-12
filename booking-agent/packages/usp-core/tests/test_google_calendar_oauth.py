@@ -136,3 +136,36 @@ def test_inspect_access_token_classifies_non_json_body(monkeypatch):
     scope, info = inspect_access_token(_SECRET_TOKEN)
     assert scope is None
     assert info == {"error": "tokeninfo_unavailable"}
+
+
+def test_get_calendar_timezone_reads_events_list_time_zone(monkeypatch):
+    import asyncio
+    import time
+
+    import httpx
+
+    from booking_agent import http_trace
+
+    seen = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["url"] = str(request.url)
+        seen["auth"] = request.headers.get("authorization")
+        return httpx.Response(200, json={"timeZone": "Asia/Jerusalem"})
+
+    real = http_trace.traced_async_client
+    monkeypatch.setattr(
+        gcal, "traced_async_client",
+        lambda **kw: real(transport=httpx.MockTransport(handler), **kw),
+    )
+    gcal._TOKEN_STORE["cli"] = {"access_token": "tok", "expires_at": time.time() + 600}
+    try:
+        zone = asyncio.run(gcal.GoogleCalendarService().get_calendar_timezone("cli"))
+    finally:
+        gcal._TOKEN_STORE.clear()
+    assert zone == "Asia/Jerusalem"
+    assert seen["url"].startswith(
+        "https://www.googleapis.com/calendar/v3/calendars/primary/events?"
+    )
+    assert "maxResults=1" in seen["url"] and "fields=timeZone" in seen["url"]
+    assert seen["auth"] == "Bearer tok"

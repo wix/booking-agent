@@ -21,17 +21,18 @@ from __future__ import annotations
 import json
 import os
 import uuid
-from dataclasses import dataclass, field, asdict
+from dataclasses import dataclass, field, fields, asdict
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
+from booking_agent import settings
 from booking_agent.secure_file import ensure_private_dir, write_private_text
 
 if TYPE_CHECKING:
     from booking_agent.authorization import BookingScopedCredential
 
-SCHEMA_VERSION = 1           # per-Session object format version (unchanged)
+SCHEMA_VERSION = 2           # per-Session object format version
 STORE_SCHEMA_VERSION = 2     # SessionStore envelope version
 SESSION_FILE_NAME = ".usp-session.json"
 DEFAULT_MAX_SESSIONS = 30
@@ -72,13 +73,6 @@ BUYER_SOURCE_LINKCLI = "link-cli user-info retrieve"
 
 
 @dataclass
-class BrowserConfig:
-    channel: str
-    source: str  # system | playwright
-    executable_path: Optional[str] = None
-
-
-@dataclass
 class Business:
     profile_url: Optional[str] = None
     rest_endpoint: Optional[str] = None
@@ -113,10 +107,9 @@ class Buyer:
 @dataclass
 class BookingRef:
     id: Optional[str] = None
-    checkout_path: Optional[str] = None  # redirect | embedded | none
-    continue_url: Optional[str] = None
+    checkout_path: Optional[str] = None  # ucp | none
     payment_context: Optional[Dict[str, Any]] = None
-    action_expires_at: Optional[str] = None  # ISO 8601; when the payment action (and continue_url) expires
+    action_expires_at: Optional[str] = None  # ISO 8601; when the checkout expires
 
     # -- USP Section 10.1.6 per-resource authorization ------------------------
     # The booking-scoped credential issued at creation, keyed implicitly by
@@ -176,6 +169,7 @@ class Session:
     schema_version: int = SCHEMA_VERSION
     flow_phase: str = "INIT"
     secrets_mode: str = "demo"
+    env_file: Optional[str] = None  # absolute path from init --env-file or BOOKING_AGENT_ENV_FILE
     business: Business = field(default_factory=Business)
     service_timezone: Optional[str] = None  # selected registry result's zone; business.timezone wins
     buyer_timezone: Optional[str] = None  # IANA zone of the buyer's default Link shipping address
@@ -205,7 +199,7 @@ class Session:
     total_confirmed_amount_minor: Optional[int] = None  # checkout total the user re-approved
     accepted_term: Optional[Dict[str, Any]] = None
     complete_checkout_idempotency_key: Optional[str] = None
-    checkout_mode: str = "redirect"  # redirect | ucp_native
+    checkout_mode: Optional[str] = None  # ucp_native | direct; set by business use
     supported_checkout_modes: List[str] = field(default_factory=list)
     checkout_prereq_completed: bool = False
     ucp_checkout_rest_base: Optional[str] = None
@@ -232,9 +226,6 @@ class Session:
     payment: PaymentRef = field(default_factory=PaymentRef)
     last_error: Optional[LastError] = None
     activity_log: List[ActivityEntry] = field(default_factory=list)
-    browser_channel: Optional[str] = None  # set by prereq check: system exe name or "chromium"
-    local_return_listener: bool = False  # use a loopback PPRR listener for fast booking confirm
-    return_listener_url: Optional[str] = None  # base URL of the loopback listener (when active)
     discover_query: Optional[str] = None  # last registry search query (for demo dashboard)
     discover_location_lat: Optional[float] = None
     discover_location_lng: Optional[float] = None
@@ -258,6 +249,18 @@ class Session:
     support_report_bytes: Optional[str] = None
     support_report_recovery_command: Optional[str] = None
     support_report_send_failures: int = 0
+    # Area the user confirmed for a place-based search:
+    # {label, lat, lng, source, link_address_id, street_level, confirmed}.
+    search_area: Optional[Dict[str, Any]] = None
+    # Geocoded proposal shown to the user and not yet confirmed; ``purpose`` is
+    # ``search`` or ``service_address``.
+    pending_area: Optional[Dict[str, Any]] = None
+    # Confirmed street address (USP DeliveryAddress fields) for home visits.
+    service_address: Optional[Dict[str, Any]] = None
+    service_address_label: Optional[str] = None
+    area_resume_command: Optional[str] = None  # command to rerun after an address confirmation
+    booking_notes: Optional[str] = None  # note for the business, set at buyer resolve
+    calendar_timezone: Optional[str] = None  # primary Google Calendar zone (events mode only)
 
 
 @dataclass
@@ -266,7 +269,6 @@ class SessionStore:
     max_sessions: int = DEFAULT_MAX_SESSIONS
     sessions_created: int = 0  # lifetime counter; never decrements on reset
     active_session_id: Optional[str] = None
-    browser_config: Optional[BrowserConfig] = None
     last_calendar_state: Optional[str] = None  # connected | skipped
     last_calendar_mode: Optional[str] = None  # freebusy | events | none
     sessions: List[Session] = field(default_factory=list)
@@ -295,7 +297,7 @@ def session_path() -> Path:
 def load_store() -> SessionStore:
     p = session_path()
     if not p.exists():
-        max_s = int(os.environ.get("BOOKING_AGENT_MAX_SESSIONS", DEFAULT_MAX_SESSIONS))
+        max_s = settings.get_int("BOOKING_AGENT_MAX_SESSIONS")
         return SessionStore(max_sessions=max_s)
     raw = json.loads(p.read_text())
     if "sessions" not in raw:
@@ -464,6 +466,11 @@ def archive_expired_session(session: Session, *, now: Optional[datetime] = None)
     clear_credential(session)
     session.buyer = Buyer()
     session.buyer_source = "none"
+    session.search_area = None
+    session.pending_area = None
+    session.service_address = None
+    session.service_address_label = None
+    session.booking_notes = None
     # Keep dispute join keys (#189): spend request id, order id, payment status, approval time.
     # Wipe only ephemeral approval-gate flags and anything secret-bearing.
     session.payment.spend_approval_surfaced = False
@@ -657,26 +664,6 @@ def endpoint_still_in_use(
 # Serialisation
 # ---------------------------------------------------------------------------
 
-def _browser_config_to_dict(cfg: Optional[BrowserConfig]) -> Optional[Dict[str, Any]]:
-    if cfg is None:
-        return None
-    return {
-        "channel": cfg.channel,
-        "source": cfg.source,
-        "executable_path": cfg.executable_path,
-    }
-
-
-def _browser_config_from_dict(raw: Optional[Dict[str, Any]]) -> Optional[BrowserConfig]:
-    if not raw:
-        return None
-    return BrowserConfig(
-        channel=raw["channel"],
-        source=raw["source"],
-        executable_path=raw.get("executable_path"),
-    )
-
-
 def _store_to_dict(store: SessionStore) -> Dict[str, Any]:
     d: Dict[str, Any] = {
         "schema_version": store.schema_version,
@@ -685,9 +672,6 @@ def _store_to_dict(store: SessionStore) -> Dict[str, Any]:
         "active_session_id": store.active_session_id,
         "sessions": [_session_to_dict(s) for s in store.sessions],
     }
-    bc = _browser_config_to_dict(store.browser_config)
-    if bc is not None:
-        d["browser_config"] = bc
     if store.last_calendar_state is not None:
         d["last_calendar_state"] = store.last_calendar_state
     if store.last_calendar_mode is not None:
@@ -696,15 +680,15 @@ def _store_to_dict(store: SessionStore) -> Dict[str, Any]:
 
 
 def _store_from_dict(raw: Dict[str, Any]) -> SessionStore:
-    max_s = int(
-        os.environ.get("BOOKING_AGENT_MAX_SESSIONS", raw.get("max_sessions", DEFAULT_MAX_SESSIONS))
-    )
+    max_s = int(os.environ.get(
+        "BOOKING_AGENT_MAX_SESSIONS",
+        raw.get("max_sessions") or settings.get_int("BOOKING_AGENT_MAX_SESSIONS"),
+    ))
     return SessionStore(
         schema_version=raw.get("schema_version", STORE_SCHEMA_VERSION),
         max_sessions=max_s,
         sessions_created=raw.get("sessions_created", 0),
         active_session_id=raw.get("active_session_id"),
-        browser_config=_browser_config_from_dict(raw.get("browser_config")),
         last_calendar_state=raw.get("last_calendar_state"),
         last_calendar_mode=raw.get("last_calendar_mode"),
         sessions=[_session_from_dict(s) for s in (raw.get("sessions") or [])],
@@ -724,6 +708,11 @@ def _session_to_dict(s: Session) -> Dict[str, Any]:
     return d
 
 
+def _known_fields(cls, raw: Dict[str, Any]):
+    names = {f.name for f in fields(cls)}
+    return cls(**{k: v for k, v in raw.items() if k in names})
+
+
 def _session_from_dict(raw: Dict[str, Any]) -> Session:
     raw = dict(raw)  # avoid mutating caller's dict
     aw_in = raw.get("availability_window") or {}
@@ -739,6 +728,7 @@ def _session_from_dict(raw: Dict[str, Any]) -> Session:
         schema_version=raw.get("schema_version", SCHEMA_VERSION),
         flow_phase=raw.get("flow_phase", "INIT"),
         secrets_mode=raw.get("secrets_mode", "demo"),
+        env_file=raw.get("env_file"),
         business=Business(**(raw.get("business") or {})),
         service_timezone=raw.get("service_timezone"),
         buyer_timezone=raw.get("buyer_timezone"),
@@ -768,7 +758,7 @@ def _session_from_dict(raw: Dict[str, Any]) -> Session:
         total_confirmed_amount_minor=raw.get("total_confirmed_amount_minor"),
         accepted_term=raw.get("accepted_term"),
         complete_checkout_idempotency_key=raw.get("complete_checkout_idempotency_key"),
-        checkout_mode=raw.get("checkout_mode", "redirect"),
+        checkout_mode=raw.get("checkout_mode"),
         supported_checkout_modes=list(raw.get("supported_checkout_modes") or []),
         checkout_prereq_completed=raw.get("checkout_prereq_completed", False),
         ucp_checkout_rest_base=raw.get("ucp_checkout_rest_base"),
@@ -787,13 +777,10 @@ def _session_from_dict(raw: Dict[str, Any]) -> Session:
         ucp_checkout_cancel_error=raw.get("ucp_checkout_cancel_error"),
         buyer_source=raw.get("buyer_source", "none"),
         buyer=Buyer(**(raw.get("buyer") or {})),
-        booking=BookingRef(**(raw.get("booking") or {})),
+        booking=_known_fields(BookingRef, raw.get("booking") or {}),
         payment=PaymentRef(**(raw.get("payment") or {})),
         last_error=(LastError(**raw["last_error"]) if raw.get("last_error") else None),
         activity_log=[ActivityEntry(**e) for e in (raw.get("activity_log") or [])],
-        browser_channel=raw.get("browser_channel"),
-        local_return_listener=raw.get("local_return_listener", False),
-        return_listener_url=raw.get("return_listener_url"),
         discover_query=raw.get("discover_query"),
         discover_location_lat=raw.get("discover_location_lat"),
         discover_location_lng=raw.get("discover_location_lng"),
@@ -813,13 +800,20 @@ def _session_from_dict(raw: Dict[str, Any]) -> Session:
         support_report_bytes=raw.get("support_report_bytes"),
         support_report_recovery_command=raw.get("support_report_recovery_command"),
         support_report_send_failures=int(raw.get("support_report_send_failures") or 0),
+        search_area=raw.get("search_area"),
+        pending_area=raw.get("pending_area"),
+        service_address=raw.get("service_address"),
+        service_address_label=raw.get("service_address_label"),
+        area_resume_command=raw.get("area_resume_command"),
+        booking_notes=raw.get("booking_notes"),
+        calendar_timezone=raw.get("calendar_timezone"),
     )
 
 
 def _migrate_v1(raw: Dict[str, Any]) -> SessionStore:
     """Wrap a schema-version-1 single-object file in a v2 store envelope."""
     session = _session_from_dict(raw)
-    max_s = int(os.environ.get("BOOKING_AGENT_MAX_SESSIONS", DEFAULT_MAX_SESSIONS))
+    max_s = settings.get_int("BOOKING_AGENT_MAX_SESSIONS")
     return SessionStore(
         schema_version=STORE_SCHEMA_VERSION,
         max_sessions=max_s,

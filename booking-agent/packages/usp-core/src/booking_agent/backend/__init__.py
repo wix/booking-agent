@@ -1,12 +1,8 @@
 """USP Backend abstraction layer.
 
 Single interface (USPBackend) for all USP operations — registry search,
-profile resolution, catalog, availability, and booking. Two implementations
-selected by config.usp_backend:
-
-    live         → booking_agent.backend.live.LiveUSPBackend          (fully live)
-    cached-live  → booking_agent.backend.cached_live.CachingLiveUSPBackend
-                   (live HTTP + in-memory booking cache for poll consistency)
+profile resolution, catalog, availability, and booking. The product
+implementation is booking_agent.backend.live.LiveUSPBackend.
 
 The in-memory MockUSPBackend used by tests lives under the CLI test support
 tree (packages/cli/tests/support/mock), never in product code.
@@ -19,11 +15,10 @@ from datetime import datetime, timedelta, timezone
 def _parse_iso(s: str) -> datetime:
     """Parse an ISO8601 datetime string, handling the Z suffix for Python 3.10."""
     return datetime.fromisoformat(s.replace("Z", "+00:00"))
-from enum import Enum
+
 from typing import Any, Dict, List, Optional
 
 from ..authorization import BookingScopedCredential
-from ..config import load_config
 from ..discovery import USPBusinessProfile
 from ..models.platform import ServiceSearchIntent
 from ..models.wire import (
@@ -36,11 +31,6 @@ from ..models.wire import (
 )
 
 logger = logging.getLogger(__name__)
-
-
-class USPBackendType(Enum):
-    LIVE = "live"
-    CACHED_LIVE = "cached-live"
 
 
 class USPBackend(ABC):
@@ -209,16 +199,6 @@ class USPBackend(ABC):
 
 
 def get_usp_backend() -> USPBackend:
-    """Factory; reads config.usp_backend.
-
-    ``cached-live`` adds an in-memory booking cache on top of the live backend;
-    ``live`` is the pure live backend. Defaults to ``live``.
-    """
-    cfg = load_config()
-    backend_type = (cfg.usp_backend or "live").lower()
-    if backend_type == "cached-live":
-        from .cached_live import CachingLiveUSPBackend
-        return CachingLiveUSPBackend()
     from .live import LiveUSPBackend
     return LiveUSPBackend()
 
