@@ -23,6 +23,7 @@ from booking_agent.http_deadlines import coerce_timeout
 from booking_agent.http_trace import traced_async_client
 
 from ..config import load_config
+from ..settings import google_calendar_token_dir
 from . import CustomerCalendarService
 from .scope import (
     CALENDAR_MODE_FREEBUSY,
@@ -33,36 +34,48 @@ from .scope import (
 
 logger = logging.getLogger(__name__)
 
-_cfg = load_config()
-GOOGLE_CALENDAR_CLIENT_ID = _cfg.google_calendar_client_id
-GOOGLE_CALENDAR_CLIENT_SECRET = _cfg.google_calendar_client_secret
-GOOGLE_CALENDAR_OAUTH_REDIRECT_BASE_URL = _cfg.google_calendar_oauth_redirect_base_url or ""
-GOOGLE_CALENDAR_REDIRECT_PORT = _cfg.google_calendar_redirect_port
-GOOGLE_CALENDAR_SSL_CERTFILE = _cfg.google_calendar_ssl_certfile
-GOOGLE_CALENDAR_SSL_KEYFILE = _cfg.google_calendar_ssl_keyfile
-GOOGLE_CALENDAR_TOKEN_CACHE_DIR = _cfg.google_calendar_token_cache_dir
 
-_REDIRECT_URI = f"{GOOGLE_CALENDAR_OAUTH_REDIRECT_BASE_URL}/oauth/google/callback"
-_LAUNCHER_URI = f"{GOOGLE_CALENDAR_OAUTH_REDIRECT_BASE_URL}/oauth/google/start"
+
+def _client_id() -> str:
+    return load_config().google_calendar_client_id
+
+
+def _client_secret() -> str:
+    return load_config().google_calendar_client_secret
+
+
+def _redirect_base_url() -> str:
+    return load_config().google_calendar_oauth_redirect_base_url or ""
+
+
+def _redirect_uri() -> str:
+    return f"{_redirect_base_url()}/oauth/google/callback"
+
+
+def _launcher_uri() -> str:
+    return f"{_redirect_base_url()}/oauth/google/start"
+
+
+def _redirect_port() -> int:
+    return load_config().google_calendar_redirect_port
+
+
+def _ssl_files() -> tuple:
+    cfg = load_config()
+    if cfg.google_calendar_ssl_certfile and cfg.google_calendar_ssl_keyfile:
+        return cfg.google_calendar_ssl_certfile, cfg.google_calendar_ssl_keyfile
+    return None
+
 
 _GOOGLE_AUTH_ENDPOINT = "https://accounts.google.com/o/oauth2/v2/auth"
 _GOOGLE_TOKEN_ENDPOINT = "https://oauth2.googleapis.com/token"
 _GOOGLE_FREEBUSY_ENDPOINT = "https://www.googleapis.com/calendar/v3/freeBusy"
+_GOOGLE_PRIMARY_EVENTS_ENDPOINT = "https://www.googleapis.com/calendar/v3/calendars/primary/events"
 _GOOGLE_SCOPE_DEFAULT = "https://www.googleapis.com/auth/calendar.freebusy"
 
 # ---------------------------------------------------------------------------
 # Token persistence (per-user, directory-backed + in-memory)
 # ---------------------------------------------------------------------------
-
-_TOKEN_CACHE_DIR = (
-    GOOGLE_CALENDAR_TOKEN_CACHE_DIR
-    if os.path.isabs(GOOGLE_CALENDAR_TOKEN_CACHE_DIR or "")
-    else os.path.join(
-        os.path.expanduser("~"),
-        ".booking-agent",
-        GOOGLE_CALENDAR_TOKEN_CACHE_DIR or "google-calendar-tokens",
-    )
-)
 
 _TOKEN_STORE: Dict[str, Dict[str, Any]] = {}
 _PKCE_STORE: Dict[str, Dict[str, str]] = {}
@@ -70,9 +83,10 @@ _PKCE_STORE: Dict[str, Dict[str, str]] = {}
 
 def _user_cache_path(user_key: str) -> str:
     """Return the per-user token cache file path (creates dir if needed)."""
-    os.makedirs(_TOKEN_CACHE_DIR, exist_ok=True)
+    cache_dir = google_calendar_token_dir()
+    os.makedirs(cache_dir, exist_ok=True)
     safe_name = hashlib.sha256(user_key.encode()).hexdigest()[:16]
-    return os.path.join(_TOKEN_CACHE_DIR, f"{safe_name}.json")
+    return os.path.join(cache_dir, f"{safe_name}.json")
 
 
 def _load_cached_token(user_key: str) -> Optional[Dict[str, Any]]:
@@ -116,8 +130,8 @@ def _refresh_access_token_sync(
             data={
                 "grant_type": "refresh_token",
                 "refresh_token": refresh_token,
-                "client_id": GOOGLE_CALENDAR_CLIENT_ID,
-                "client_secret": GOOGLE_CALENDAR_CLIENT_SECRET,
+                "client_id": _client_id(),
+                "client_secret": _client_secret(),
             },
             headers={"Content-Type": "application/x-www-form-urlencoded"},
             timeout=coerce_timeout(15.0),
@@ -176,14 +190,14 @@ def _resolve_oauth_state(request) -> Optional[str]:
 def _build_launcher_url(session_id: str) -> str:
     """Build the local launcher URL (state in path so chat links keep it)."""
     safe_id = urllib.parse.quote(session_id, safe="")
-    return f"{_LAUNCHER_URI}/{safe_id}"
+    return f"{_launcher_uri()}/{safe_id}"
 
 
 def _build_google_auth_url(state: str, code_challenge: str, scope: str) -> str:
     params = {
         "response_type": "code",
-        "client_id": GOOGLE_CALENDAR_CLIENT_ID,
-        "redirect_uri": _REDIRECT_URI,
+        "client_id": _client_id(),
+        "redirect_uri": _redirect_uri(),
         "scope": scope,
         "state": state,
         "code_challenge": code_challenge,
@@ -275,33 +289,29 @@ def _start_callback_server() -> None:
     if _callback_server_started:
         return
     _callback_server_started = True
+    ssl_files = _ssl_files()
+    port = _redirect_port()
 
     def _run():
         import uvicorn
 
         ssl_kwargs = {}
-        if GOOGLE_CALENDAR_SSL_CERTFILE and GOOGLE_CALENDAR_SSL_KEYFILE:
-            ssl_kwargs["ssl_certfile"] = GOOGLE_CALENDAR_SSL_CERTFILE
-            ssl_kwargs["ssl_keyfile"] = GOOGLE_CALENDAR_SSL_KEYFILE
+        if ssl_files:
+            ssl_kwargs["ssl_certfile"], ssl_kwargs["ssl_keyfile"] = ssl_files
         uvicorn.run(
             _build_callback_app(),
             host="0.0.0.0",
-            port=GOOGLE_CALENDAR_REDIRECT_PORT,
+            port=port,
             log_level="warning",
             **ssl_kwargs,
         )
 
     t = threading.Thread(target=_run, daemon=True)
     t.start()
-    scheme = (
-        "https"
-        if GOOGLE_CALENDAR_SSL_CERTFILE and GOOGLE_CALENDAR_SSL_KEYFILE
-        else "http"
-    )
     logger.info(
         "Google Calendar OAuth callback server started on %s://0.0.0.0:%d",
-        scheme,
-        GOOGLE_CALENDAR_REDIRECT_PORT,
+        "https" if ssl_files else "http",
+        port,
     )
 
 
@@ -319,9 +329,9 @@ async def _exchange_code_for_token(
                 data={
                     "grant_type": "authorization_code",
                     "code": code,
-                    "redirect_uri": _REDIRECT_URI,
-                    "client_id": GOOGLE_CALENDAR_CLIENT_ID,
-                    "client_secret": GOOGLE_CALENDAR_CLIENT_SECRET,
+                    "redirect_uri": _redirect_uri(),
+                    "client_id": _client_id(),
+                    "client_secret": _client_secret(),
                     "code_verifier": code_verifier,
                 },
                 headers={"Content-Type": "application/x-www-form-urlencoded"},
@@ -485,10 +495,11 @@ class GoogleCalendarService(CustomerCalendarService):
     async def initiate_connection(
         self, session_id: str, user_key: str = "", mode: str = CALENDAR_MODE_FREEBUSY
     ) -> dict:
-        if not GOOGLE_CALENDAR_CLIENT_ID:
+        if not _client_id():
             raise RuntimeError(
                 "GOOGLE_CALENDAR_CLIENT_ID is not set. "
-                "Set it in client/.env to use live Google Calendar integration."
+                "Set it in ~/.booking-agent/.env (see `booking-agent config init`) to use "
+                "live Google Calendar integration."
             )
 
         user_key = user_key or session_id
@@ -521,7 +532,7 @@ class GoogleCalendarService(CustomerCalendarService):
         # Launcher opens Google OAuth in a popup so the callback page can call
         # window.close() (browsers block close on tabs the user opened directly).
         # State lives in the path (not ?state=) so agent/chat links are less
-        # likely to drop it when presenting a shortened localhost URL.
+        # likely to drop it when presenting a shortened loopback URL.
         auth_url = _build_launcher_url(session_id)
         logger.info("Built Google Calendar OAuth launcher for session %s", session_id)
         return {"auth_url": auth_url, "mode": mode, "requested_scope": requested_scope}
@@ -545,9 +556,20 @@ class GoogleCalendarService(CustomerCalendarService):
             return False
         return time.time() < entry.get("expires_at", 0)
 
-    async def get_busy_times(
-        self, session_id: str, time_min: str, time_max: str
-    ) -> List[Dict[str, str]]:
+    async def get_calendar_timezone(self, session_id: str) -> Optional[str]:
+        """Read ``timeZone`` from a one-row events.list (allowed by the calendar.events scope)."""
+        access_token = self._fresh_access_token(session_id)
+        async with traced_async_client(timeout=15.0) as client:
+            resp = await client.get(
+                _GOOGLE_PRIMARY_EVENTS_ENDPOINT,
+                params={"maxResults": "1", "fields": "timeZone"},
+                headers={"Authorization": f"Bearer {access_token}"},
+            )
+            resp.raise_for_status()
+            zone = resp.json().get("timeZone")
+        return zone if isinstance(zone, str) and zone else None
+
+    def _fresh_access_token(self, session_id: str) -> str:
         entry = _TOKEN_STORE.get(session_id)
         if not entry or not entry.get("access_token"):
             raise RuntimeError(
@@ -563,8 +585,12 @@ class GoogleCalendarService(CustomerCalendarService):
                 entry = refreshed
             else:
                 raise RuntimeError("Google Calendar token expired and refresh failed.")
+        return entry["access_token"]
 
-        access_token = entry["access_token"]
+    async def get_busy_times(
+        self, session_id: str, time_min: str, time_max: str
+    ) -> List[Dict[str, str]]:
+        access_token = self._fresh_access_token(session_id)
         body = {
             "timeMin": time_min,
             "timeMax": time_max,

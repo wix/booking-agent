@@ -51,7 +51,7 @@ DEFAULT_SUPPORT_INGEST_URL = (
 # script's JSON reply is served. Only this exact host pair is ever followed.
 _APPS_SCRIPT_HOST = "script.google.com"
 _APPS_SCRIPT_ECHO_HOST = "script.googleusercontent.com"
-SKILL_VERSION = "0.39.0"
+SKILL_VERSION = "0.42.0"
 BUNDLE_VERSION = 1
 MAX_BUNDLE_BYTES = 64 * 1024
 SEND_TIMEOUT_S = 10.0
@@ -87,24 +87,26 @@ SKILL_TABLE_CODES = frozenset({
     "cancel_failed", "cancel_forbidden", "cancel_open_selection_conflict",
     "cancel_open_selection_required", "cancel_unauthorized", "checkout_already_in_progress",
     "checkout_prereq_not_completed", "checkout_total_unconfirmed", "complete_in_progress",
-    "context_required", "disclosures_unconfirmed", "link_auth_expired",
-    "link_auth_gate_not_completed", "link_auth_timeout", "link_cli_card_retrieve_failed",
+    "context_required", "disclosures_unconfirmed", "discover_radius_required",
+    "env_file_not_found", "link_address_not_found", "link_auth_expired",
+    "link_auth_gate_not_completed", "link_auth_timeout",
     "mandatory_acceptance_pending", "missing_network_id_for_spt", "payment_already_captured",
     "payment_authentication_unsupported", "payment_captured_booking_unconfirmed",
     "payment_declined", "payment_failed", "payment_not_processed", "payment_timing_changed",
     "payment_timing_not_supported", "payment_unrecoverable", "profile_unreachable",
-    "redirect_checkout_not_supported", "reschedule_at_business",
+    "reschedule_at_business",
     "reschedule_booking_not_active", "reschedule_failed", "reschedule_fee_unsupported",
     "reschedule_not_actionable", "reschedule_not_allowed", "reschedule_price_changed",
     "reschedule_price_unknown", "reschedule_same_slot", "reschedule_unauthorized",
-    "service_details_changed", "service_not_available_in_area",
+    "search_area_input_invalid", "search_area_not_user_confirmed", "search_area_unconfirmed",
+    "service_address_unconfirmed", "service_details_changed", "service_not_available_in_area",
     "shared_payment_token_not_issued", "slot_not_selected", "spend_request_not_approved",
     "spend_request_replacement_required", "timezone_confirmation_required",
-    "ucp_complete_failed", "ucp_native_required", "webhook_wait_not_supported",
+    "ucp_complete_failed", "ucp_native_required",
 })
 SKILL_PROSE_CODES = frozenset({
     "calendar_insufficient_scope", "calendar_oauth_not_configured", "calendar_oauth_timeout",
-    "session_active", "session_not_found", "use_ucp_complete",
+    "session_active", "session_not_found",
 })
 EXPECTED_CODES = SKILL_TABLE_CODES | SKILL_PROSE_CODES
 # The business is still working; seeing these again is progress, not a failed step.
@@ -358,7 +360,6 @@ BUSINESS_RULES: Dict[str, FieldRule] = {
 BOOKING_RULES: Dict[str, FieldRule] = {
     "id": ("id", _id),
     "checkout_path": ("checkout_path", _id),
-    "continue_url": EXCLUDE,
     "payment_context": EXCLUDE,
     "action_expires_at": ("action_expires_at", _ts),
     "endpoint": ("endpoint", _url),
@@ -421,7 +422,7 @@ SESSION_RULES: Dict[str, FieldRule] = {
     "user_request": EXCLUDE,
     "schema_version": ("schema_version", _num),
     "flow_phase": ("flow_phase", _id),
-    "secrets_mode": EXCLUDE,  # `env.secrets_mode`
+    "env_file": EXCLUDE,
     "business": ("business", _nested(BUSINESS_RULES)),
     "service_timezone": ("service_timezone", _tz),
     "buyer_timezone": ("buyer_timezone", _tz),
@@ -474,9 +475,6 @@ SESSION_RULES: Dict[str, FieldRule] = {
     "payment": ("payment", _nested(PAYMENT_RULES)),
     "last_error": ("last_error", _last_error),
     "activity_log": EXCLUDE,  # top-level `activity`
-    "browser_channel": ("browser_channel", _id),
-    "local_return_listener": ("local_return_listener", _bool),
-    "return_listener_url": EXCLUDE,
     "discover_query": EXCLUDE,
     "discover_location_lat": EXCLUDE,
     "discover_location_lng": EXCLUDE,
@@ -496,6 +494,16 @@ SESSION_RULES: Dict[str, FieldRule] = {
     "support_report_bytes": EXCLUDE,
     "support_report_recovery_command": EXCLUDE,
     "support_report_send_failures": EXCLUDE,
+    # Addresses and the free-text note never leave the device; only whether they are set.
+    "search_area": (
+        "search_area_confirmed", lambda v: bool(isinstance(v, dict) and v.get("confirmed")),
+    ),
+    "pending_area": EXCLUDE,
+    "service_address": ("service_address_set", lambda v: bool(v)),
+    "service_address_label": EXCLUDE,
+    "area_resume_command": EXCLUDE,
+    "booking_notes": EXCLUDE,
+    "calendar_timezone": ("calendar_timezone", _tz),
 }
 
 # Dataclass -> its rules table, for the classification test.
@@ -699,7 +707,6 @@ def _env(session: Session) -> Dict[str, Any]:
         "python": _safe_call(lambda: _id(platform.python_version())),
         "os": _safe_call(lambda: _label(f"{platform.system()} {platform.release()}")),
         "machine": _safe_call(lambda: _id(platform.machine())),
-        "secrets_mode": _id(getattr(session, "secrets_mode", None)),
     }
 
 

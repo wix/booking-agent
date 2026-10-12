@@ -2,27 +2,23 @@
 from __future__ import annotations
 
 import asyncio
-import os
 from datetime import datetime, timezone
 from types import SimpleNamespace
 from typing import Any, Dict, Optional, Tuple
 
 import httpx
 
+from booking_agent import settings
 from booking_agent.http_retry import with_http_retry
 from booking_agent.http_trace import traced_async_client
 
 from booking_agent.models.wire import PostPaymentReturnRequest
 
-from .browser import BrowserLaunchSpec, launch_spec_from_session
-from .link_cli import (
-    retrieve_spend_request,
-    retrieve_spend_request_shared_payment_token,
-)
+from .link_cli import retrieve_spend_request
 from .output import write_spend_approval_notice
-from .session import BookingRef, BrowserConfig, PaymentRef, Session, load_store
-from .secrets.demo import resolve_backend
-from .test_bypasses import test_spt_from_env
+from .payment_token import shared_payment_token_source
+from .session import BookingRef, PaymentRef, Session
+from .runtime import resolve_backend
 
 
 CHECKOUT_SAFETY_MARGIN_SEC = 30
@@ -44,35 +40,6 @@ def announce_spend_approval_url(spend_request_id: str) -> Optional[str]:
     return approval_url
 
 
-def browser_config_to_launch_spec(cfg: BrowserConfig) -> BrowserLaunchSpec:
-    return BrowserLaunchSpec(
-        channel=cfg.channel,
-        source=cfg.source,
-        executable_path=cfg.executable_path,
-    )
-
-
-def browser_config_from_launch(spec: BrowserLaunchSpec) -> BrowserConfig:
-    return BrowserConfig(
-        channel=spec.channel,
-        source=spec.source,
-        executable_path=spec.executable_path,
-    )
-
-
-def get_browser_launch_spec(session: Session) -> BrowserLaunchSpec:
-    store = load_store()
-    store_spec = (
-        browser_config_to_launch_spec(store.browser_config)
-        if store.browser_config
-        else None
-    )
-    try:
-        return launch_spec_from_session(session.browser_channel, store_spec)
-    except ValueError as exc:
-        raise RuntimeError("browser_not_ready") from exc
-
-
 def parse_expires_at(iso: Optional[str]) -> Optional[datetime]:
     if not iso:
         return None
@@ -85,24 +52,6 @@ def parse_expires_at(iso: Optional[str]) -> Optional[datetime]:
         return None
 
 
-def check_continue_url_valid(session: Session) -> None:
-    if session.booking.checkout_path == "ucp":
-        return
-    if not session.booking.continue_url:
-        raise ValueError("no_continue_url")
-    expires = parse_expires_at(session.booking.action_expires_at)
-    if expires and datetime.now(timezone.utc) >= expires:
-        raise ValueError("checkout_url_expired")
-
-
-def seconds_until_checkout_expires(session: Session) -> Optional[int]:
-    expires = parse_expires_at(session.booking.action_expires_at)
-    if not expires:
-        return None
-    delta = (expires - datetime.now(timezone.utc)).total_seconds()
-    return max(0, int(delta))
-
-
 def approval_poll_deadline(session: Session, approval_timeout: int) -> float:
     import time
 
@@ -113,16 +62,6 @@ def approval_poll_deadline(session: Session, approval_timeout: int) -> float:
         checkout_deadline = expires.timestamp() - CHECKOUT_SAFETY_MARGIN_SEC
         deadline = min(deadline, checkout_deadline)
     return deadline
-
-
-def compute_assist_timeout_ms(session: Session) -> int:
-    """Cap assist wait by checkout expiry minus safety margin."""
-    cap = int(os.environ.get("BOOKING_AGENT_ASSIST_TIMEOUT_MS", "300000"))
-    remaining = seconds_until_checkout_expires(session)
-    if remaining is None:
-        return cap
-    budget_ms = (remaining - CHECKOUT_SAFETY_MARGIN_SEC) * 1000
-    return min(cap, max(0, budget_ms))
 
 
 async def _fetch_json(url: str) -> Dict[str, Any]:
@@ -215,7 +154,6 @@ async def _create_booking_via_ucp_checkout(
         platform_profile_url=plat_url,
         ucp_version_header=ver,
         bearer_token=cfg.booking_agent_ucp_merchant_bearer_token,
-        auth_posture=cfg.usp_auth_scoped_credential,
     )
     checkout = await client.create_checkout(body)
     checkout_id = _attach_ucp_checkout_handles(session, checkout)
@@ -340,7 +278,6 @@ async def cancel_ucp_checkout_async(
         session.ucp_checkout_rest_base,
         platform_profile_url=cfg.usp_agent_profile_url,
         bearer_token=cfg.booking_agent_ucp_merchant_bearer_token,
-        auth_posture=cfg.usp_auth_scoped_credential,
     )
     return await client.cancel_checkout(cid, credential=presented)
 
@@ -363,7 +300,6 @@ async def get_ucp_checkout_async(
         session.ucp_checkout_rest_base,
         platform_profile_url=cfg.usp_agent_profile_url,
         bearer_token=cfg.booking_agent_ucp_merchant_bearer_token,
-        auth_posture=cfg.usp_auth_scoped_credential,
     )
     return await client.get_checkout(cid, credential=presented)
 
@@ -483,7 +419,6 @@ async def _finalize_ucp_checkout_create(
     ref = BookingRef(
         id=booking_id,
         checkout_path="ucp",
-        continue_url=None,
         payment_context=None,
         action_expires_at=None,
         endpoint=session.booking.endpoint,
@@ -513,14 +448,7 @@ async def create_booking_async(
             )
 
     backend = resolve_backend()
-    # When a local return listener is active, point the merchant's post-payment
-    # redirect at the loopback listener so checkout can confirm immediately.
-    if session.local_return_listener and session.return_listener_url:
-        return_url = f"{session.return_listener_url}/usp/return"
-    else:
-        return_url = os.environ.get(
-            "USP_PLATFORM_RETURN_URL", "http://localhost:3000/usp/return"
-        )
+    return_url = settings.get("USP_PLATFORM_RETURN_URL")
 
     profile = await backend.resolve_profile(session.business.profile_url)
     buyer = {
@@ -545,28 +473,10 @@ async def create_booking_async(
         post_payment_return_request=pprr,
     )
 
-    continue_url = None
-    payment_context = None
     checkout_path = "none"
-    action_expires_at = None
-    if session.payment_route not in ("free", "at_service") and booking_obj.actions:
-        for action in booking_obj.actions:
-            if action.type == "payment" and action.continue_url:
-                continue_url = action.continue_url
-                action_expires_at = action.expires_at if action.expires_at else None
-                if action.payment_context:
-                    payment_context = action.payment_context.model_dump(
-                        by_alias=True, exclude_none=True
-                    )
-                checkout_path = "redirect"
-                break
-
     ref = BookingRef(
         id=booking_obj.id,
         checkout_path=checkout_path,
-        continue_url=continue_url,
-        payment_context=payment_context,
-        action_expires_at=action_expires_at,
         # The creation response is the only place a booking-scoped credential
         # ever appears, so it is captured here or lost.  ``booking_url`` is the
         # handoff target when the credential is later missing or rejected.
@@ -639,7 +549,6 @@ async def complete_ucp_checkout_async(
             platform_profile_url=cfg_paid.usp_agent_profile_url,
             ucp_version_header=session.ucp_protocol_version,
             bearer_token=cfg_paid.booking_agent_ucp_merchant_bearer_token,
-            auth_posture=cfg_paid.usp_auth_scoped_credential,
         )
         replay = await client_paid.get_checkout(cid)
         return {
@@ -649,16 +558,12 @@ async def complete_ucp_checkout_async(
             "replay": True,
         }
     sr_id = session.payment.spend_request_id
-    spt: Optional[str] = None
-    if sr_id:
-        spt = retrieve_spend_request_shared_payment_token(sr_id)
-    else:
-        spt = test_spt_from_env()
+    spt = shared_payment_token_source().token_for(sr_id) if sr_id else None
     if not spt:
         raise RuntimeError(
             "UCP complete_checkout needs a shared payment token: run "
-            "`booking-agent flow pay record --spend-request-id <id>` after the user approves the "
-            "spend request (SPT credential type)."
+            "`booking-agent flow pay ucp-complete --spend-request-id <id>` after the user "
+            "approves the spend request (SPT credential type)."
         )
     cfg = load_config()
     plat_url = cfg.usp_agent_profile_url
@@ -683,7 +588,6 @@ async def complete_ucp_checkout_async(
         platform_profile_url=plat_url,
         ucp_version_header=ver,
         bearer_token=cfg.booking_agent_ucp_merchant_bearer_token,
-        auth_posture=cfg.usp_auth_scoped_credential,
     )
     checkout_state = await client.get_checkout(cid)
     # The live checkout response remains authoritative: re-validate its capability
@@ -866,7 +770,7 @@ def apply_booking_to_session(
     checkout_path: str,
 ) -> None:
     session.booking = booking_ref
-    if booking_ref.continue_url or checkout_path == "ucp":
+    if checkout_path == "ucp":
         session.payment = PaymentRef(
             status="pending",
             spend_request_id=session.payment.spend_request_id,
@@ -921,14 +825,9 @@ def payment_path_summary(
     *,
     payment_route: Optional[str],
     checkout_path: str,
-    continue_url: Optional[str],
-    action_expires_at: Optional[str],
 ) -> str:
     if payment_route == "at_service":
         return "Pay at appointment; no digital payment required"
     if checkout_path == "ucp":
         return "UCP checkout session created; await SPT from approved spend request"
-    if continue_url:
-        suffix = f" at {action_expires_at}" if action_expires_at else ""
-        return f"Redirect checkout; continue_url expires{suffix}"
     return "Free service; no payment required"

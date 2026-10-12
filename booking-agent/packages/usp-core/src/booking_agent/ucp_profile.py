@@ -65,7 +65,7 @@ class UcpNativeProfileDocument(BaseModel):
     """Typed view of the UCP profile JSON (``ucp`` + ``business`` keys).
 
     ``payment_handlers`` is modelled as ``dict[namespace_key, list[HandlerInstance]]``
-    per the UCP spec (GH-060).  Each ``HandlerInstance.id`` (e.g. ``stripe_spt_demo_h1``)
+    per the UCP spec (GH-060).  Each ``HandlerInstance.id`` (e.g. ``stripe_spt_h1``)
     is the value to use as ``handler_id`` in ``complete_checkout`` - never the outer
     namespace key such as ``com.stripe.agentic_commerce.shared_payment_token`` (GH-061).
     """

@@ -6,9 +6,6 @@ from typing import List, Optional, Tuple
 from booking_agent.platform_profile import platform_profile_doc, platform_profile_url
 from booking_agent.ucp_profile import UcpNativeContext
 
-from .browser import BrowserLaunchSpec, resolve_browser_for_checkout
-from .payment_helpers import browser_config_from_launch
-from .session import Session, load_store, save_store
 
 
 class PrereqFailure(Exception):
@@ -48,26 +45,6 @@ def select_checkout_mode(supported_modes: List[str]) -> str:
             "through the agent."
         ),
     )
-
-
-def run_prereq_check_redirect(session: Session) -> BrowserLaunchSpec:
-    """Validate redirect checkout prerequisites and persist browser config."""
-    store = load_store()
-    try:
-        spec = resolve_browser_for_checkout()
-    except RuntimeError as exc:
-        raise PrereqFailure(
-            code="browser_not_ready",
-            message=(
-                f"Could not install Playwright Chromium: {exc}. "
-                "Install Chrome or run `python -m playwright install chromium` manually."
-            ),
-        ) from exc
-    cfg = browser_config_from_launch(spec)
-    store.browser_config = cfg
-    session.browser_channel = spec.channel
-    save_store(store)
-    return spec
 
 
 def run_prereq_check_ucp() -> None:

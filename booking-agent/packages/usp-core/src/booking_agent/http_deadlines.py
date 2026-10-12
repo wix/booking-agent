@@ -8,31 +8,20 @@ overall deadline.
 """
 from __future__ import annotations
 
-import os
 from typing import Optional, Union
 
 import httpx
 
-DEFAULT_OVERALL_SECONDS = 15.0
-DEFAULT_CONNECT_SECONDS = 5.0
+from . import settings
 
-
-def _env_float(name: str, default: float) -> float:
-    raw = os.environ.get(name)
-    if raw is None or not str(raw).strip():
-        return default
-    try:
-        return max(0.1, float(raw))
-    except ValueError:
-        return default
 
 
 def connect_timeout_seconds() -> float:
-    return _env_float("BOOKING_AGENT_HTTP_CONNECT_TIMEOUT", DEFAULT_CONNECT_SECONDS)
+    return settings.get_float("BOOKING_AGENT_HTTP_CONNECT_TIMEOUT", minimum=0.1)
 
 
 def default_overall_seconds() -> float:
-    return _env_float("BOOKING_AGENT_HTTP_TIMEOUT", DEFAULT_OVERALL_SECONDS)
+    return settings.get_float("BOOKING_AGENT_HTTP_TIMEOUT", minimum=0.1)
 
 
 def coerce_timeout(

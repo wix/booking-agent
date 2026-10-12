@@ -138,8 +138,7 @@ def spend_approval_surface(
             "agents should use default pay request (immediate return) instead. "
             "Post user_message to the user as the raw URL (never markdown [label](url)) before "
             "the blocking poll "
-            "starts (stdout is flushed first). Do not run pay ucp-complete or pay checkout "
-            "in a separate step."
+            "starts (stdout is flushed first). Do not run pay ucp-complete in a separate step."
         )
     else:
         awaiting_user = AWAITING_LINK_SPEND_APPROVAL if approval_url else None
