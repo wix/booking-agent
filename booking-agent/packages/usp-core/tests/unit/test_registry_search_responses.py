@@ -208,6 +208,24 @@ async def test_blank_query_without_other_filter_is_rejected_before_sending(regis
 
 
 @pytest.mark.asyncio
+async def test_boundless_range_alone_is_rejected_before_sending(registry):
+    from booking_agent.models.platform import DurationRange, PriceRange
+
+    registry["handler"] = lambda _r: httpx.Response(200, json=SNAKE_CASE_RESPONSE)
+
+    with pytest.raises(RegistrySearchRejectedError) as info:
+        await _search(
+            "",
+            price_range=PriceRange(currency="USD"),
+            duration_range=DurationRange(),
+        )
+
+    assert info.value.code == "validation_error"
+    assert info.value.http_status is None
+    assert registry["requests"] == []
+
+
+@pytest.mark.asyncio
 async def test_blank_query_with_location_sends_no_query(registry):
     registry["handler"] = lambda _r: httpx.Response(200, json=CAMEL_CASE_RESPONSE)
 

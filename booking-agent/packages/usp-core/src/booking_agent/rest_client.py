@@ -1065,7 +1065,7 @@ class USPBusinessRestClient(BaseUSPRestClient):
             body["consent"] = consent
         if post_payment_return_request:
             body["post_payment_return_request"] = post_payment_return_request.model_dump(
-                by_alias=True, exclude_none=True
+                exclude_none=True
             )
         data = await self._post(
             "/bookings", body, idempotent=True,
@@ -1135,7 +1135,7 @@ class USPBusinessRestClient(BaseUSPRestClient):
     ) -> Booking:
         data = await self._post(
             f"/bookings/{booking_id}/confirm-payment",
-            {"payment_result": payment_result.model_dump(by_alias=True, exclude_none=True)},
+            {"payment_result": payment_result.model_dump(exclude_none=True)},
             idempotent=True,
             access=usp_methods.PRIVILEGED_SCOPED,
             credential=self._guard_scope(credential, "usp_bookings_confirm_payment"),
@@ -1325,14 +1325,14 @@ def build_registry_search_body(
         body["verticals"] = verticals
     if categories:
         body["categories"] = categories
-    if price_range:
-        price = price_range.model_dump(mode="json", exclude_none=True)
-        if price:
-            body["price_range"] = price
-    if duration_range:
-        duration = duration_range.model_dump(mode="json", exclude_none=True)
-        if duration:
-            body["duration_range"] = duration
+    # A range needs at least one bound to be a filter (USP §6.3); a boundless
+    # one such as {"currency": "USD"} is a validation_error, so it is dropped.
+    if price_range and (price_range.min is not None or price_range.max is not None):
+        body["price_range"] = price_range.model_dump(mode="json", exclude_none=True)
+    if duration_range and (
+        duration_range.min_minutes is not None or duration_range.max_minutes is not None
+    ):
+        body["duration_range"] = duration_range.model_dump(mode="json", exclude_none=True)
     has_filter = any(key in body for key in REGISTRY_SEARCH_FILTER_KEYS)
     if has_filter and desired_service_time_ranges:
         body["desired_service_time_ranges"] = [

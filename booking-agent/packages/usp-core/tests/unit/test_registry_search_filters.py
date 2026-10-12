@@ -64,14 +64,39 @@ def test_build_registry_search_body_trims_query():
     assert "query" not in build_registry_search_body("   ", limit=5)
 
 
-def test_build_registry_search_body_omits_empty_range_objects():
+def test_build_registry_search_body_omits_boundless_ranges():
+    # USP §6.3: a range needs min or max to be a filter; currency or match
+    # alone is a validation_error at the registry.
     body = build_registry_search_body(
         "ac repair",
-        price_range=PriceRange(currency="USD"),
-        duration_range=DurationRange(),
+        price_range=PriceRange(currency="USD", match=RangeMatchMode.OVERLAP),
+        duration_range=DurationRange(match=RangeMatchMode.OVERLAP),
     )
-    assert "duration_range" not in body
-    assert body["price_range"] == {"currency": "USD"}
+    assert body == {"query": "ac repair"}
+
+
+def test_build_registry_search_body_keeps_one_sided_ranges():
+    body = build_registry_search_body(
+        "ac repair",
+        price_range=PriceRange(max=10000, currency="EUR"),
+        duration_range=DurationRange(min_minutes=30),
+    )
+    assert body["price_range"] == {"max": 10000, "currency": "EUR"}
+    assert body["duration_range"] == {"min_minutes": 30}
+
+
+def test_boundless_ranges_do_not_count_as_filters():
+    from booking_agent.rest_client import REGISTRY_SEARCH_FILTER_KEYS
+
+    body = build_registry_search_body(
+        "",
+        price_range=PriceRange(currency="USD"),
+        duration_range=DurationRange(match=RangeMatchMode.CONTAINS),
+        prefer_sooner_availability_slots=False,
+        limit=5,
+    )
+    assert not any(key in body for key in REGISTRY_SEARCH_FILTER_KEYS)
+    assert body == {"pagination": {"limit": 5}}
 
 
 def test_build_registry_search_body_serializes_time_preference_shapes():
