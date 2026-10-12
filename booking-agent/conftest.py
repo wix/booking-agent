@@ -12,7 +12,6 @@ import pytest
 
 _ROOT = Path(__file__).parent
 for src in (
-    _ROOT / "packages" / "usp-core" / "src",
     _ROOT / "packages" / "cli" / "src",
     _ROOT / "packages" / "cli" / "tests",  # makes `support.mock` importable in tests
 ):
@@ -45,7 +44,6 @@ def _stub_agent_host_ip(monkeypatch):
 
     signals.reset_agent_host_ip_cache()
     monkeypatch.setattr(signals, "_fetch_public_ip", _documentation_address)
-    monkeypatch.delenv(signals.RUNS_ON_BUYER_DEVICE_ENV, raising=False)
     monkeypatch.delenv(signals.BUYER_DEVICE_IP_ENV, raising=False)
     yield
     signals.reset_agent_host_ip_cache()

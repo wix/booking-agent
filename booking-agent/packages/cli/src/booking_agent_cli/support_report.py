@@ -53,7 +53,7 @@ DEFAULT_SUPPORT_INGEST_URL = (
 # script's JSON reply is served. Only this exact host pair is ever followed.
 _APPS_SCRIPT_HOST = "script.google.com"
 _APPS_SCRIPT_ECHO_HOST = "script.googleusercontent.com"
-SKILL_VERSION = "0.42.0"
+SKILL_VERSION = "0.43.0"
 BUNDLE_VERSION = 1
 MAX_BUNDLE_BYTES = 64 * 1024
 SEND_TIMEOUT_S = 10.0
@@ -90,7 +90,7 @@ SKILL_TABLE_CODES = frozenset({
     "cancel_open_selection_required", "cancel_unauthorized", "checkout_already_in_progress",
     "checkout_prereq_not_completed", "checkout_total_unconfirmed", "complete_in_progress",
     "context_required", "disclosures_unconfirmed", "discover_radius_required",
-    "env_file_not_found", "link_address_not_found", "link_auth_expired",
+    "link_address_not_found", "link_auth_expired",
     "link_auth_gate_not_completed", "link_auth_timeout",
     "mandatory_acceptance_pending", "missing_network_id_for_spt", "payment_already_captured",
     "payment_authentication_unsupported", "payment_captured_booking_unconfirmed",
@@ -424,7 +424,6 @@ SESSION_RULES: Dict[str, FieldRule] = {
     "user_request": EXCLUDE,
     "schema_version": ("schema_version", _num),
     "flow_phase": ("flow_phase", _id),
-    "env_file": EXCLUDE,
     "business": ("business", _nested(BUSINESS_RULES)),
     "service_timezone": ("service_timezone", _tz),
     "buyer_timezone": ("buyer_timezone", _tz),

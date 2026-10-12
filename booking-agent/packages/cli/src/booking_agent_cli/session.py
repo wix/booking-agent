@@ -167,7 +167,6 @@ class Session:
     user_request: str = ""
     schema_version: int = SCHEMA_VERSION
     flow_phase: str = "INIT"
-    env_file: Optional[str] = None  # absolute path from init --env-file or BOOKING_AGENT_ENV_FILE
     business: Business = field(default_factory=Business)
     service_timezone: Optional[str] = None  # selected registry result's zone; business.timezone wins
     buyer_timezone: Optional[str] = None  # IANA zone of the buyer's default Link shipping address
@@ -282,8 +281,7 @@ def session_path() -> Path:
     Override with ``BOOKING_AGENT_SESSION_DIR`` env var (used in tests to isolate
     each test's store from the real ``~/.booking-agent`` directory).
     """
-    session_dir = os.environ.get("BOOKING_AGENT_SESSION_DIR")
-    base = Path(session_dir) if session_dir else Path.home() / ".booking-agent"
+    base = settings.booking_agent_home()
     ensure_private_dir(base)
     return base / SESSION_FILE_NAME
 
@@ -725,7 +723,6 @@ def _session_from_dict(raw: Dict[str, Any]) -> Session:
         user_request=raw.get("user_request", ""),
         schema_version=raw.get("schema_version", SCHEMA_VERSION),
         flow_phase=raw.get("flow_phase", "INIT"),
-        env_file=raw.get("env_file"),
         business=Business(**(raw.get("business") or {})),
         service_timezone=raw.get("service_timezone"),
         buyer_timezone=raw.get("buyer_timezone"),

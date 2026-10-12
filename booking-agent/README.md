@@ -4,8 +4,8 @@ This directory is the public source of the Booking Agent: a CLI and agent skill
 that book time-based services through the Universal Scheduling Protocol (USP),
 paying from a Link wallet.
 
-- `packages/usp-core` - `booking-agent-core`: USP/UCP models, discovery, REST client.
-- `packages/cli` - `booking-agent-cli`: the `booking-agent` command.
+- `packages/cli` - `booking-agent-cli`: the `booking-agent` command (`booking_agent_cli`)
+  and its USP/UCP protocol library (`booking_agent`: models, discovery, REST client).
 - `skills/booking-agent/SKILL.md` - the agent skill. Raw URL:
   https://raw.githubusercontent.com/wix/booking-agent/master/booking-agent/skills/booking-agent/SKILL.md
 
@@ -26,8 +26,8 @@ git clone https://github.com/wix/booking-agent.git
 cd booking-agent/booking-agent
 uv sync --all-packages --all-extras
 uv run pytest -q
-uv build --all-packages
-uv tool install ./packages/cli --with ./packages/usp-core
+uv build --package booking-agent-cli
+uv tool install ./packages/cli
 booking-agent --help
 ```
 

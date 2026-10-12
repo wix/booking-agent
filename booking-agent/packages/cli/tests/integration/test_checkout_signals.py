@@ -12,7 +12,6 @@ from booking_agent.signals import (
     AGENT_HOST_IP_KEY,
     BUYER_DEVICE_IP_ENV,
     BUYER_IP_KEY,
-    RUNS_ON_BUYER_DEVICE_ENV,
     USER_AGENT_KEY,
     SignalsConfigError,
 )
@@ -69,17 +68,6 @@ async def test_every_checkout_write_sends_user_agent_and_host_ip_but_no_buyer_ip
         assert body["signals"][USER_AGENT_KEY].startswith("booking-agent-")
         assert "/" in body["signals"][USER_AGENT_KEY]
         assert BUYER_IP_KEY not in body["signals"]
-
-
-@pytest.mark.asyncio
-async def test_buyer_device_declaration_sends_host_ip_as_buyer_ip(monkeypatch):
-    monkeypatch.setenv(RUNS_ON_BUYER_DEVICE_ENV, "1")
-    bodies = _capture(monkeypatch, _checkout())
-
-    await UcpCheckoutClient(CHECKOUT_BASE).create_checkout({"currency": "USD"})
-
-    assert bodies[0]["signals"][BUYER_IP_KEY] == HOST_IP
-    assert bodies[0]["signals"][AGENT_HOST_IP_KEY] == HOST_IP
 
 
 @pytest.mark.asyncio

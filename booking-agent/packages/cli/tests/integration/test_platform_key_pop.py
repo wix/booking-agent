@@ -70,7 +70,7 @@ async def test_live_backend_uses_credential_issuer_key_for_cross_binding_request
             raise AssertionError("must not create a USP-origin key for an issued credential")
 
     backend = object.__new__(LiveUSPBackend)
-    backend._cfg = SimpleNamespace(booking_agent_usp_merchant_bearer_token=None)
+    backend._cfg = SimpleNamespace()
     backend._agent_profile_url = AGENT_PROFILE
     backend._token_store = TokenStore()
     backend._posture = resolve_posture("required")
@@ -175,7 +175,7 @@ def test_vendored_cross_key_vector_matches_our_thumbprints():
     """
     from pathlib import Path
 
-    vectors = Path(__file__).resolve().parents[3] / "usp-core/tests/vectors/pop"
+    vectors = Path(__file__).resolve().parents[3] / "cli/tests/vectors/pop"
     vector = json.loads((vectors / "006-cross-key-replay.json").read_text())
 
     assert vector["expect"] == "reject"

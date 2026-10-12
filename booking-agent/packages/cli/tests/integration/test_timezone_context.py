@@ -18,8 +18,7 @@ _REAL_GEOCODE_HTTP = geo._geocode_http
 
 
 @pytest.fixture
-def lookup_on(monkeypatch):
-    monkeypatch.setenv(tc.LOOKUP_ENV, "on")
+def default_geocoder(monkeypatch):
     monkeypatch.delenv(geo.GEOCODER_URL_ENV, raising=False)
 
 
@@ -108,7 +107,7 @@ def test_slot_displays_single_and_dual():
     assert dual["buyer_end_display"] == "Tue, Oct 6, 2026, 8:00 AM MST (America/Phoenix)"
 
 
-def test_lookup_resolves_link_address_through_geocoder_and_timezonefinder(monkeypatch, lookup_on):
+def test_lookup_resolves_link_address_through_geocoder_and_timezonefinder(monkeypatch, default_geocoder):
     calls = []
     _geocoder_returning(monkeypatch, [{"lat": "32.6927", "lon": "-114.6277"}], calls)
     result = tc.lookup_buyer_timezone(lambda: dict(YUMA))
@@ -119,7 +118,7 @@ def test_lookup_resolves_link_address_through_geocoder_and_timezonefinder(monkey
     assert calls[0]["countrycodes"] == "us"
 
 
-def test_lookup_falls_back_to_coarse_query_when_street_misses(monkeypatch, lookup_on):
+def test_lookup_falls_back_to_coarse_query_when_street_misses(monkeypatch, default_geocoder):
     calls = []
     _geocoder_returning(
         monkeypatch,
@@ -141,30 +140,21 @@ def test_lookup_falls_back_to_coarse_query_when_street_misses(monkeypatch, looku
         (lambda: dict(YUMA), [], "geocoder_no_match"),
     ],
 )
-def test_lookup_failures_return_sanitized_codes(monkeypatch, lookup_on, fetch, rows, code):
+def test_lookup_failures_return_sanitized_codes(monkeypatch, default_geocoder, fetch, rows, code):
     _geocoder_returning(monkeypatch, rows)
     result = tc.lookup_buyer_timezone(fetch)
     assert result.timezone is None
     assert result.error == code
 
 
-def test_lookup_maps_link_cli_errors_to_their_code(lookup_on):
+def test_lookup_maps_link_cli_errors_to_their_code(default_geocoder):
     def failing():
         raise LinkCliShippingAddressError("link_cli_failed")
 
     assert tc.lookup_buyer_timezone(failing).error == "link_cli_failed"
 
 
-def test_lookup_disabled_never_reads_the_address(monkeypatch):
-    monkeypatch.setenv(tc.LOOKUP_ENV, "off")
-
-    def must_not_run():
-        raise AssertionError("address must not be read when lookup is disabled")
-
-    assert tc.lookup_buyer_timezone(must_not_run).error == "lookup_disabled"
-
-
-def test_lookup_never_uses_device_timezone(monkeypatch, lookup_on):
+def test_lookup_never_uses_device_timezone(monkeypatch, default_geocoder):
     """A failed lookup yields no zone, whatever the host clock says."""
     monkeypatch.setenv("TZ", "Asia/Tokyo")
     _geocoder_returning(monkeypatch, [])
@@ -173,7 +163,7 @@ def test_lookup_never_uses_device_timezone(monkeypatch, lookup_on):
     assert result.error == "geocoder_no_match"
 
 
-def test_geocoder_http_errors_are_sanitized(monkeypatch, lookup_on):
+def test_geocoder_http_errors_are_sanitized(monkeypatch, default_geocoder):
     monkeypatch.setattr(geo, "_geocode_http", _REAL_GEOCODE_HTTP)
     seen = {}
 
@@ -192,7 +182,7 @@ def test_geocoder_http_errors_are_sanitized(monkeypatch, lookup_on):
     assert seen["ua"] == geo.GEOCODER_USER_AGENT
 
 
-def test_geocoder_transport_failure_is_sanitized(monkeypatch, lookup_on):
+def test_geocoder_transport_failure_is_sanitized(monkeypatch, default_geocoder):
     monkeypatch.setattr(geo, "_geocode_http", _REAL_GEOCODE_HTTP)
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -207,7 +197,7 @@ def test_geocoder_transport_failure_is_sanitized(monkeypatch, lookup_on):
     assert err.value.code == "geocoder_unavailable"
 
 
-def test_geocoder_url_must_be_https(monkeypatch, lookup_on):
+def test_geocoder_url_must_be_https(monkeypatch, default_geocoder):
     monkeypatch.setattr(geo, "_geocode_http", _REAL_GEOCODE_HTTP)
     monkeypatch.setenv(geo.GEOCODER_URL_ENV, "http://geo.example/search")
     with pytest.raises(tc.BuyerTimezoneError) as err:
@@ -215,7 +205,7 @@ def test_geocoder_url_must_be_https(monkeypatch, lookup_on):
     assert err.value.code == "geocoder_url_invalid"
 
 
-def test_missing_timezonefinder_has_its_own_error_code(monkeypatch, lookup_on):
+def test_missing_timezonefinder_has_its_own_error_code(monkeypatch, default_geocoder):
     """A broken install must not look like a missing Link address."""
     def no_finder():
         raise tc.BuyerTimezoneError("timezone_lookup_dependency_missing")

@@ -371,11 +371,9 @@ async def fetch_and_resolve_business_profile(
         if cached is not None:
             return cached
 
-    headers = _profile_fetch_headers()
-
     async def _get() -> httpx.Response:
         async with traced_async_client(timeout=30.0, follow_redirects=True) as client:
-            return await client.get(profile_url, headers=headers or None)
+            return await client.get(profile_url)
 
     response = await with_http_retry(_get)
     response.raise_for_status()
@@ -394,19 +392,6 @@ async def fetch_and_resolve_business_profile(
     return profile, uctx
 
 
-def _profile_fetch_headers() -> Dict[str, str]:
-    """Optional ``Authorization`` for profile GET when the host requires it (GH-023)."""
-    import os
-
-    raw = os.environ.get("BOOKING_AGENT_PROFILE_FETCH_BEARER")
-    if not raw or not str(raw).strip():
-        return {}
-    token = str(raw).strip()
-    if token.lower().startswith("bearer "):
-        return {"Authorization": token}
-    return {"Authorization": f"Bearer {token}"}
-
-
 async def fetch_ucp_profile_document(profile_url: str) -> Dict[str, Any]:
     """GET *profile_url* and return parsed JSON (no path mutation)."""
     from booking_agent.http_retry import with_http_retry
@@ -414,7 +399,7 @@ async def fetch_ucp_profile_document(profile_url: str) -> Dict[str, Any]:
 
     async def _get() -> httpx.Response:
         async with traced_async_client(timeout=30.0, follow_redirects=True) as client:
-            resp = await client.get(profile_url, headers=_profile_fetch_headers() or None)
+            resp = await client.get(profile_url)
         return resp
 
     response = await with_http_retry(_get)

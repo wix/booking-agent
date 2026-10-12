@@ -18,7 +18,6 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from booking_agent_cli.geocode import GeocodeError, geocode_address
 
 BUYER_TIMEZONE_SOURCE = "link_shipping_address"
-LOOKUP_ENV = "BOOKING_AGENT_BUYER_TIMEZONE_LOOKUP"
 # Geocoder and timezone failures share one sanitized error type.
 BuyerTimezoneError = GeocodeError
 
@@ -210,12 +209,6 @@ def compact_clock_range(
     return f"{prefix}{_clock(a)} {a:%p} - {_clock(b)} {b:%p} {b.tzname()}"
 
 
-def lookup_enabled() -> bool:
-    from booking_agent import settings
-
-    return (settings.get(LOOKUP_ENV) or "").strip().lower() not in ("0", "off", "false", "no")
-
-
 @lru_cache(maxsize=1)
 def _finder():
     try:
@@ -307,8 +300,6 @@ def lookup_buyer_timezone(
     carrying a sanitized ``code``. Every failure becomes an error code; the
     address itself is never returned, stored, or logged.
     """
-    if not lookup_enabled():
-        return BuyerTimezoneResult(error="lookup_disabled")
     try:
         address = fetch_default_address()
         if not address:

@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import json
-import os
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
@@ -265,38 +264,28 @@ def test_forget_unfinished_never_drops_payment_in_progress(runner, backend):
     assert paying.id in ids and pending.id not in ids
 
 
-def test_each_session_gets_its_own_env_file(runner, backend, monkeypatch, tmp_path):
+def test_bulk_cancel_reads_the_user_env(runner, backend, monkeypatch):
     from booking_agent_cli import config_loader
 
     monkeypatch.delenv("USP_PLATFORM_NAME", raising=False)
     config_loader.user_env_path().write_text("USP_PLATFORM_NAME=From the user env\n")
-    env_file = tmp_path / "staging.env"
-    env_file.write_text("USP_PLATFORM_NAME=From the env file\n")
-    plain = _booked("b_plain")
-    scoped = _booked("b_scoped", env_file=str(env_file))
-    _seed(plain, scoped)
+    _seed(_booked("b_one"), _booked("b_two"))
 
     data = _invoke(runner, "--user-confirmed", "--all")["data"]
 
     assert data["summary"] == {"canceled": 2}
-    assert backend.env_seen["b_plain"] == "From the user env"
-    assert backend.env_seen["b_scoped"] == "From the env file"
-    assert "USP_PLATFORM_NAME" not in os.environ
+    assert backend.env_seen == {"b_one": "From the user env", "b_two": "From the user env"}
 
 
-def test_invalid_profile_url_fails_only_that_row(runner, backend, monkeypatch, tmp_path):
-    monkeypatch.delenv("USP_AGENT_PROFILE_URL", raising=False)
-    env_file = tmp_path / "bad.env"
-    env_file.write_text("USP_AGENT_PROFILE_URL=http://profile.example/profile.json\n")
-    good = _booked("b_good")
-    bad = _booked("b_bad", env_file=str(env_file))
-    _seed(good, bad)
+def test_invalid_profile_url_fails_each_row_without_canceling(runner, backend, monkeypatch):
+    monkeypatch.setenv("USP_AGENT_PROFILE_URL", "http://profile.example/profile.json")
+    _seed(_booked("b_one"), _booked("b_two"))
 
     data = _invoke(runner, "--user-confirmed", "--all")["data"]
 
-    by_booking = {r["booking_id"]: r for r in data["results"]}
-    assert by_booking["b_bad"]["error"]["code"] == "platform_profile_url_invalid"
-    assert by_booking["b_good"]["outcome"] == "canceled"
+    codes = {r["booking_id"]: r["error"]["code"] for r in data["results"]}
+    assert codes == {"b_one": "platform_profile_url_invalid", "b_two": "platform_profile_url_invalid"}
+    assert backend.cancelled == []
 
 
 def test_bulk_cancel_gives_each_paid_row_the_same_refund_steps(runner, backend, tmp_path, monkeypatch):

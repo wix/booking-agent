@@ -1,5 +1,5 @@
 ---
-version: 0.42.0
+version: 0.43.0
 name: booking-agent
 description: |
   Books time-based services via USP from a Link wallet. Use when the user wants to book, schedule, reserve, or pay for a service from a business (haircut, lesson, repair, class, appointment, consult). The `booking-agent` CLI owns the booking state machine and refuses to proceed when human gates are skipped. After `booking-agent flow business use`, follow `next_command` through `use-ucp-checkout-mode`; businesses without native checkout fail closed. Payment uses `booking-agent flow pay request` (default returns immediately with the approval URL), then start `booking-agent flow pay poll` in the background and post the approval URL to the user in the same turn; the poll finishes checkout once they approve. Confirm through `booking-agent flow book poll --wait`; never start an inbound webhook. Surface the approval URL exactly once. Personal identification (name, phone, email, address) must always come from the user's Link account via `link-cli`, never from chat or placeholders. Before any location-based search, the CLI proposes the Link shipping address and the user confirms it or gives another; online services skip this. Talk to the user in plain everyday language only; never expose CLI, UCP, auth, session, or other implementation details unless they explicitly ask.
@@ -932,8 +932,7 @@ booking-agent flow validate-skill-compliance
   Do not compute a percentage deposit yourself.
 - Unknown or changed payment timing is not bookable. Get a new quote if timing changed.
 - Businesses and the client fetch the document at `USP_AGENT_PROFILE_URL`; the
-  canonical URL is used by default. Optional `BOOKING_AGENT_UCP_MERCHANT_BEARER` supports merchant
-  auth.
+  canonical URL is used by default.
 - After payment, follow `next_command` to `booking-agent flow book poll --wait`. Confirmation is GET
   polling only. Never start or request an inbound booking webhook.
 
@@ -1067,7 +1066,6 @@ recover.
 | `service_address_unconfirmed` | Home visit with no confirmed street address | Run `next_command` and confirm the address with the user |
 | `search_area_not_user_confirmed` | `search-area confirm` without `--user-confirmed` | Ask the area question; pass `--user-confirmed` only after they agree |
 | `search_area_input_invalid` | `search-area set` got neither or both of `--address` and `--link-address-id` | Pass exactly one |
-| `env_file_not_found` | The env file passed to `flow init --env-file` (or `BOOKING_AGENT_ENV_FILE`) no longer exists | Ask the operator to restore the file, or run `next_command` (`flow init ... --force`) to start without it |
 | `link_address_not_found` | `--link-address-id` is not one of the user's saved addresses | Run `next_command` (`search-area propose`) |
 | `spend_request_replacement_required` | Link cannot resume this spend request (for example `three_d_secure_retry`) | Show `user_message`, then run `next_command` to create a new spend request |
 | `reschedule_not_actionable` | Session is not a confirmed upcoming booking from this device | Resume the right booking from `sessions list`; past or other-device appointments move only on the business's page |
@@ -1267,12 +1265,8 @@ Use `booking-agent flow sessions list` only to find unfinished flows or upcoming
 | `USP_REGISTRY_URL` | Optional registry `search_services` POST URL or API-base override. Live discovery defaults to the public Wix USP registry. |
 | `USP_AGENT_PROFILE_URL` | D2 platform identity URI used for both `USP-Agent` and `UCP-Agent`. Defaults to `https://profile.booking-agent.dev/platform-profile.json`; businesses and the client fetch this document over HTTP. A staging or loopback override uses this same variable. Loopback is non-conformant because production businesses must reject RFC 6890 special-use addresses and defend against DNS rebinding, so `init` refuses a non-`https` value (`platform_profile_url_invalid`) unless the host is a literal loopback address, which is for local development only. |
 | `BOOKING_AGENT_HTTP_TRACE` | Set to `1` to opt in to redacted HTTP trace logging under `~/.booking-agent/http_trace.log` (off by default in production). |
-| `BOOKING_AGENT_UCP_MERCHANT_BEARER` | Optional `Authorization` bearer on UCP checkout HTTP when the merchant requires it. |
-| `BOOKING_AGENT_RUNS_ON_BUYER_DEVICE` | Set to `1` only when the CLI runs on the buyer's own device. Checkout then sends this machine's public IP as `dev.ucp.buyer_ip`. Never set it on a cloud or sandbox host. |
 | `BOOKING_AGENT_BUYER_DEVICE_IP` | Set by a hosting surface that observed the buyer's device IP. Sent as `dev.ucp.buyer_ip`; an invalid address stops checkout. The user agent and `dev.usp-protocol.agent_host_ip` are always sent and cannot be turned off. |
-| `BOOKING_AGENT_USP_MERCHANT_BEARER` | Optional bearer on USP catalog or booking HTTP when the token store has no OAuth entry. |
-| `BOOKING_AGENT_PROFILE_FETCH_BEARER` | Optional bearer for `GET` profile document when the host requires auth. |
-| `BOOKING_AGENT_USP_AUTH_SCOPED_CREDENTIAL` | `required` \| `preferred` \| `disabled`. How strictly to enforce authentication on privileged operations. Default `required` (the conformant setting). See [Booking authorization](#booking-authorization) below. |
+| `BOOKING_AGENT_USP_AUTH_SCOPED_CREDENTIAL` | `required` \| `preferred`. How strictly to enforce authentication on privileged operations. Default `required` (the conformant setting). See [Booking authorization](#booking-authorization) below. |
 
 ## Further docs
 

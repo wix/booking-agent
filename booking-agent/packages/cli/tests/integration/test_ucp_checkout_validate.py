@@ -166,18 +166,6 @@ def test_extract_merchant_quote_omits_tax_when_absent():
     assert "tax_minor_units" not in quote
 
 
-def test_ucp_checkout_client_adds_bearer_header():
-    from booking_agent.ucp_checkout import UcpCheckoutClient
-
-    url = "https://merchant.example/ucp/v1/checkout-sessions"
-    c = UcpCheckoutClient("https://merchant.example/ucp/v1", bearer_token="secret")
-    h = c._headers(method="POST", url=url)
-    assert h["Authorization"] == "Bearer secret"
-
-    c2 = UcpCheckoutClient("https://merchant.example/ucp/v1", bearer_token="Bearer already")
-    assert c2._headers(method="POST", url=url)["Authorization"] == "Bearer already"
-
-
 def test_payment_handler_ids_from_profile_dict_shape():
     doc = {
         "ucp": {

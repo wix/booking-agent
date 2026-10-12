@@ -1127,14 +1127,12 @@ class UcpCheckoutClient:
         *,
         platform_profile_url: Optional[str] = None,
         ucp_version_header: Optional[str] = None,
-        bearer_token: Optional[str] = None,
         pop_key: Optional[PopKey] = None,
     ) -> None:
         self._base = base_url.rstrip("/")
         # platform_profile_url is sent in UCP-Agent and fetched for negotiation.
         self._platform_profile_url = platform_profile_url
         self._ucp_version = ucp_version_header
-        self._bearer_token = bearer_token
         #: Ed25519 key for ``platform_key_pop``.  Present means every checkout
         #: request carries a proof; see :func:`build_ucp_checkout_client`.
         self._pop_key = pop_key
@@ -1154,12 +1152,6 @@ class UcpCheckoutClient:
         credential: Optional[BookingScopedCredential] = None,
     ) -> Dict[str, str]:
         h: Dict[str, str] = {"Content-Type": "application/json"}
-        if self._bearer_token and credential is None:
-            h["Authorization"] = (
-                self._bearer_token
-                if self._bearer_token.lower().startswith("bearer ")
-                else f"Bearer {self._bearer_token}"
-            )
         if self._platform_profile_url:
             h["UCP-Agent"] = f'profile="{self._platform_profile_url}"'
         if self._ucp_version:
@@ -1347,7 +1339,6 @@ def build_ucp_checkout_client(
     *,
     platform_profile_url: Optional[str] = None,
     ucp_version_header: Optional[str] = None,
-    bearer_token: Optional[str] = None,
 ) -> UcpCheckoutClient:
     """Build a checkout client that proves possession of this agent's key.
 
@@ -1368,6 +1359,5 @@ def build_ucp_checkout_client(
         rest_base,
         platform_profile_url=platform_profile_url,
         ucp_version_header=ucp_version_header,
-        bearer_token=bearer_token,
         pop_key=pop_key,
     )

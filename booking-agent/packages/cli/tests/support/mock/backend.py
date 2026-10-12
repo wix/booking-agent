@@ -35,7 +35,6 @@ from booking_agent.models.wire import (
     HoldStatus,
     LineItem,
     PaymentContextMetadata,
-    PostPaymentReturnRequest,
     SlotReference,
     SlotResource,
     TimeSlot,
@@ -51,7 +50,6 @@ logger = logging.getLogger(__name__)
 MOCK_CHECKOUT_PORT = 8099
 
 BOOKINGS: Dict[str, Booking] = {}
-POST_PAYMENT_RETURN_REQUESTS: Dict[str, PostPaymentReturnRequest] = {}
 _PAID: set = set()
 
 
@@ -262,7 +260,6 @@ class MockUSPBackend(USPBackend):
         resource_id: Optional[str] = None,
         notes: Optional[str] = None,
         delivery_address: Optional[Dict[str, Any]] = None,
-        post_payment_return_request: Optional[PostPaymentReturnRequest] = None,
     ) -> Booking:
         service = SERVICE_BY_ID.get(service_id)
         if not service:
@@ -358,8 +355,6 @@ class MockUSPBackend(USPBackend):
             updated_at=now.isoformat(),
         )
         BOOKINGS[booking_id] = booking
-        if post_payment_return_request:
-            POST_PAYMENT_RETURN_REQUESTS[booking_id] = post_payment_return_request
         return booking
 
     async def get_booking(

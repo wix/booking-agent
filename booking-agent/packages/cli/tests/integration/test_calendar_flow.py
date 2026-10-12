@@ -273,16 +273,12 @@ def test_calendar_connect_oauth_not_configured(runner, tmp_path, monkeypatch):
 
 def test_calendar_status_reports_not_connected(runner, tmp_path, monkeypatch):
     # Drop a client id or token leaked by an earlier flow command. _seed_session
-    # then points the session dir and HOME at tmp_path, so ~/.booking-agent/.env is
-    # not the file _load_demo_env would copy back into the process.
+    # then points the session dir and HOME at tmp_path, so the real
+    # ~/.booking-agent/.env is not loaded back into the process.
     monkeypatch.delenv("GOOGLE_CALENDAR_CLIENT_ID", raising=False)
     monkeypatch.delenv("GOOGLE_CALENDAR_CLIENT_SECRET", raising=False)
     monkeypatch.delenv("GOOGLE_CALENDAR_REDIRECT_PORT", raising=False)
     monkeypatch.delenv("GOOGLE_CALENDAR_TOKEN_CACHE_DIR", raising=False)
-    monkeypatch.delenv("GOOGLE_CALENDAR_DOMAIN", raising=False)
-    monkeypatch.delenv("GOOGLE_CALENDAR_OAUTH_REDIRECT_BASE_URL", raising=False)
-    monkeypatch.delenv("GOOGLE_CALENDAR_SSL_CERTFILE", raising=False)
-    monkeypatch.delenv("GOOGLE_CALENDAR_SSL_KEYFILE", raising=False)
     monkeypatch.delenv("GOOGLECALENDAR_ACCESS_TOKEN", raising=False)
     _seed_session(tmp_path, monkeypatch)
     result = runner.invoke(app, ["flow", "calendar", "status"])

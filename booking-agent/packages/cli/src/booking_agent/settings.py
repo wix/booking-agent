@@ -1,7 +1,7 @@
-"""Configuration lookup: process environment first, then the shipped defaults files.
+"""Configuration lookup: process environment first, then the shipped defaults file.
 
-Each package ships a ``defaults.env`` next to its code listing every variable it reads.
-A commented ``# NAME=`` line documents a variable that has no default.
+``defaults.env`` next to this module lists every configuration variable the package
+reads. A commented ``# NAME=`` line documents a variable that has no default.
 """
 from __future__ import annotations
 
@@ -15,49 +15,34 @@ from typing import Dict, List, Optional, Tuple
 
 from dotenv import dotenv_values
 
-CORE_DEFAULTS = Path(__file__).with_name("defaults.env")
+DEFAULTS = Path(__file__).with_name("defaults.env")
 _PLACEHOLDER = re.compile(r"^#\s?([A-Z][A-Z0-9_]*)=(.*)$")
 _TRUTHY = frozenset({"1", "true", "yes", "on"})
 
-_files: List[Path] = [CORE_DEFAULTS]
+#: Values a host injects into one process. They are never configuration, so they are
+#: not in defaults.env and the env-file loader ignores them.
+RUNTIME_ONLY = frozenset({"GOOGLECALENDAR_ACCESS_TOKEN", "BOOKING_AGENT_BUYER_DEVICE_IP"})
 
 
 @dataclass(frozen=True)
 class Entry:
     name: str
     value: Optional[str]
-    file: Path
-
-
-def register_defaults(path: Path) -> None:
-    """Add another package's shipped defaults file (later files win on conflicts)."""
-    path = Path(path)
-    if path not in _files:
-        _files.append(path)
-        entries.cache_clear()
-        _defaults.cache_clear()
-
-
-def _parse(path: Path) -> List[Entry]:
-    text = path.read_text(encoding="utf-8")
-    out = [Entry(name, value, path) for name, value in dotenv_values(stream=io.StringIO(text)).items()]
-    for line in text.splitlines():
-        match = _PLACEHOLDER.match(line.strip())
-        if match:
-            out.append(Entry(match.group(1), None, path))
-    return out
 
 
 @lru_cache(maxsize=1)
 def entries() -> Tuple[Entry, ...]:
-    out: List[Entry] = []
-    for path in _files:
-        out.extend(_parse(path))
+    text = DEFAULTS.read_text(encoding="utf-8")
+    out = [Entry(name, value) for name, value in dotenv_values(stream=io.StringIO(text)).items()]
+    for line in text.splitlines():
+        match = _PLACEHOLDER.match(line.strip())
+        if match:
+            out.append(Entry(match.group(1), None))
     return tuple(out)
 
 
 def known_names() -> frozenset:
-    return frozenset(e.name for e in entries())
+    return frozenset(e.name for e in entries()) | RUNTIME_ONLY
 
 
 @lru_cache(maxsize=1)
@@ -103,9 +88,18 @@ def get_bool(name: str) -> bool:
 
 
 def booking_agent_home() -> Path:
-    """Folder for sessions, tokens, and traces: ``BOOKING_AGENT_SESSION_DIR`` or ~/.booking-agent."""
-    session_dir = get("BOOKING_AGENT_SESSION_DIR")
-    return Path(session_dir) if session_dir else Path.home() / ".booking-agent"
+    """Folder for sessions, tokens, and traces (``BOOKING_AGENT_SESSION_DIR``).
+
+    ``~`` expands to the user's home on every OS (``USERPROFILE`` on Windows).
+    """
+    raw = (get("BOOKING_AGENT_SESSION_DIR") or "").strip() or shipped_default("BOOKING_AGENT_SESSION_DIR")
+    path = Path(raw).expanduser()
+    if not path.is_absolute():
+        raise ValueError(
+            f"BOOKING_AGENT_SESSION_DIR resolves to {str(path)!r}, which is not an absolute "
+            "path. Set it to an absolute folder, or give this user a home directory."
+        )
+    return path
 
 
 def google_calendar_token_dir() -> Path:
