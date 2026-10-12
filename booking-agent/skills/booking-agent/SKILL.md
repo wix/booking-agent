@@ -6,6 +6,7 @@ description: |
 allowed-tools:
   - Bash(booking-agent:*)
   - Bash(link-cli:*)
+license: Complete terms at https://github.com/wix/booking-agent/blob/master/LICENSE
 metadata:
   author: booking-agent
   url: https://raw.githubusercontent.com/wix/booking-agent/master/booking-agent/skills/booking-agent/SKILL.md
