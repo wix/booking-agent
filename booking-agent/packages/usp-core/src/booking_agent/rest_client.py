@@ -78,8 +78,6 @@ logger = logging.getLogger(__name__)
 # servers to their nearest spec equivalent.  Entries here indicate a server-side
 # compliance bug that should be fixed in the emitting implementation.
 _NON_SPEC_STATUS_MAP: Dict[str, str] = {
-    # Wix Bookings platform returns "created" for auto-confirmed bookings
-    # instead of the spec-required "confirmed".
     "created": "confirmed",
 }
 
@@ -102,9 +100,9 @@ class BookingServerError(Exception):
 def _booking_from_response(data: Dict[str, Any]) -> Booking:
     """Parse ``booking`` from a USP JSON response.
 
-    Handles two non-compliance patterns seen in production:
-    - Non-spec ``status`` values (e.g. Wix returns ``"created"`` instead of
-      ``"confirmed"``) — remapped via ``_NON_SPEC_STATUS_MAP`` with a WARNING.
+    Handles two non-spec response shapes:
+    - Non-spec ``status`` values (for example ``"created"``), remapped via
+      ``_NON_SPEC_STATUS_MAP`` with a WARNING.
     - HTTP 200 error bodies (no ``booking`` field, ``messages`` array with
       ``type="error"``) — raised as ``BookingServerError`` so callers can
       distinguish "booking not found" from a parse failure.
