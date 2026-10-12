@@ -162,7 +162,6 @@ def test_pin_actionable_session_over_fifo_cap(runner, isolated_session):
             [
                 "flow", "init",
                 "--user-request", f"discovery {i}",
-                "--secrets-mode", "demo",
                 "--force",
             ],
         )
@@ -244,7 +243,7 @@ def _seed_upcoming_ac_booking(status=None):
 
 def _init_request(runner, request, *extra):
     return runner.invoke(
-        app, ["flow", "init", "--user-request", request, "--secrets-mode", "demo", *extra],
+        app, ["flow", "init", "--user-request", request, *extra],
     )
 
 

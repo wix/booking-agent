@@ -7,6 +7,7 @@ from booking_agent.observability import reset_event_sink, set_event_sink
 from booking_agent.ucp_checkout import UcpCheckoutHttpError, UcpProfileValidationError
 from booking_agent_cli.payment_helpers import complete_ucp_checkout_async
 from booking_agent_cli.session import BookingRef, Business, PaymentRef, Session
+from support.mock_link_cli import fake_shared_payment_token
 
 
 def _ucp_session() -> Session:
@@ -45,8 +46,7 @@ async def test_complete_checkout_decline_emits_payment_declined(monkeypatch):
         async def complete_checkout(self, checkout_id, body, *, idempotency_key=None):
             raise UcpCheckoutHttpError(402, "card declined")
 
-    monkeypatch.setattr("booking_agent_cli.payment_helpers.retrieve_spend_request_shared_payment_token", lambda _id: "spt_test")
-    monkeypatch.setattr("booking_agent_cli.payment_helpers.test_spt_from_env", lambda: None)
+    fake_shared_payment_token(monkeypatch, "spt_test")
     monkeypatch.setattr("booking_agent_cli.payment_helpers._fetch_json", lambda _url: {"ucp": {}})
     monkeypatch.setattr("booking_agent.ucp_checkout.UcpCheckoutClient", FakeClient)
     monkeypatch.setattr(
@@ -100,8 +100,7 @@ async def test_complete_checkout_unconfirmed_booking_emits_event(monkeypatch):
                 "totals": {"total": 5000},
             }
 
-    monkeypatch.setattr("booking_agent_cli.payment_helpers.retrieve_spend_request_shared_payment_token", lambda _id: "spt_test")
-    monkeypatch.setattr("booking_agent_cli.payment_helpers.test_spt_from_env", lambda: None)
+    fake_shared_payment_token(monkeypatch, "spt_test")
     monkeypatch.setattr("booking_agent_cli.payment_helpers._fetch_json", lambda _url: {"ucp": {}})
     monkeypatch.setattr("booking_agent.ucp_checkout.UcpCheckoutClient", FakeClient)
     monkeypatch.setattr(
@@ -174,11 +173,7 @@ def _install_deposit_complete(monkeypatch, completed: dict) -> None:
         async def complete_checkout(self, checkout_id, body, *, idempotency_key=None):
             return completed
 
-    monkeypatch.setattr(
-        "booking_agent_cli.payment_helpers.retrieve_spend_request_shared_payment_token",
-        lambda _id: "spt_test",
-    )
-    monkeypatch.setattr("booking_agent_cli.payment_helpers.test_spt_from_env", lambda: None)
+    fake_shared_payment_token(monkeypatch, "spt_test")
     monkeypatch.setattr("booking_agent.ucp_checkout.UcpCheckoutClient", FakeClient)
     monkeypatch.setattr(
         "booking_agent.ucp_checkout.resolve_handler_id_for_ucp_complete",

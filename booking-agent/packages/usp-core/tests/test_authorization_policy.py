@@ -16,7 +16,6 @@ from booking_agent.ucp_profile import UcpNativeContext, parse_ucp_native_context
 
 REQUIRED = ScopedCredentialPosture.REQUIRED
 PREFERRED = ScopedCredentialPosture.PREFERRED
-DISABLED = ScopedCredentialPosture.DISABLED
 
 
 def _policy(**overrides) -> AuthorizationPolicy:
@@ -165,12 +164,6 @@ def test_preferred_posture_warns_and_proceeds():
     assert decision.refused is False
 
 
-def test_disabled_posture_sends_nothing():
-    decision = evaluate(_policy(), posture=DISABLED)
-    assert decision.authenticate is False
-    assert decision.mechanism is None
-
-
 def test_policy_present_and_supported_selects_pop():
     decision = evaluate(_policy(), posture=REQUIRED)
     assert decision.authenticate is True
@@ -189,7 +182,8 @@ def test_the_default_posture_is_the_conformant_one(monkeypatch):
 def test_posture_precedence_is_explicit_then_env_then_default(monkeypatch):
     monkeypatch.setenv("BOOKING_AGENT_USP_AUTH_SCOPED_CREDENTIAL", "preferred")
     assert resolve_posture() is PREFERRED
-    assert resolve_posture("disabled") is DISABLED
+    assert resolve_posture("required") is REQUIRED
+    assert resolve_posture("disabled") is REQUIRED
 
     monkeypatch.setenv("BOOKING_AGENT_USP_AUTH_SCOPED_CREDENTIAL", "nonsense")
     assert resolve_posture() is REQUIRED

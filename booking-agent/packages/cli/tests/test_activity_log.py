@@ -87,3 +87,18 @@ def test_format_argv_joins_shell_words():
     assert format_argv(["booking-agent", "flow", "discover", "--query", "hair cut"]) == (
         "booking-agent flow discover --query 'hair cut'"
     )
+
+
+def test_activity_log_redacts_address_notes_and_context_values():
+    from booking_agent_cli.activity_log import format_argv
+
+    text = format_argv([
+        "booking-agent", "flow", "search-area", "set",
+        "--address", "3194 West Rome Street, Yuma AZ", "--purpose", "service_address",
+    ])
+    assert "Rome" not in text and "--address '<redacted>'" in text
+    assert "--purpose service_address" in text
+    text = format_argv(["booking-agent", "flow", "buyer", "resolve", "--notes=Gate code 4417"])
+    assert "4417" not in text and "'--notes=<redacted>'" in text
+    text = format_argv(["booking-agent", "flow", "pay", "request", "--context", "secret plan"])
+    assert "secret" not in text

@@ -2,16 +2,16 @@
 from __future__ import annotations
 
 import json
-import os
 import shutil
 import subprocess
-import tempfile
 import time
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Any, Dict, Optional
 
-LINK_CLI_BIN = os.environ.get("LINK_CLI_BIN", "link-cli")
+def default_link_cli_bin() -> str:
+    from booking_agent import settings
+
+    return settings.get("LINK_CLI_BIN") or "link-cli"
 
 _SPEND_TERMINAL = frozenset({"denied", "canceled", "cancelled", "expired", "failed"})
 # Spend requests that may include a shared_payment_token in retrieve JSON (link-cli).
@@ -32,7 +32,7 @@ class LinkCliUserInfoError(Exception):
 
 def retrieve_user_info(*, link_cli_bin: Optional[str] = None) -> Dict[str, Any]:
     """Run ``link-cli user-info retrieve --format json`` and return the object."""
-    bin_name = link_cli_bin or LINK_CLI_BIN
+    bin_name = link_cli_bin or default_link_cli_bin()
     if shutil.which(bin_name) is None:
         raise LinkCliUserInfoError(
             "link_cli_not_found",
@@ -74,7 +74,7 @@ class LinkCliShippingAddressError(Exception):
 
 def retrieve_shipping_addresses(*, link_cli_bin: Optional[str] = None) -> list[Dict[str, Any]]:
     """Run ``link-cli shipping-address list --format json`` and return the entries."""
-    bin_name = link_cli_bin or LINK_CLI_BIN
+    bin_name = link_cli_bin or default_link_cli_bin()
     if shutil.which(bin_name) is None:
         raise LinkCliShippingAddressError("link_cli_not_found")
     try:
@@ -189,7 +189,7 @@ class SpendActionRequired(Exception):
 
 
 def _link_cli_cmd(*args: str) -> list[str]:
-    bin_name = shutil.which(LINK_CLI_BIN) or LINK_CLI_BIN
+    bin_name = shutil.which(default_link_cli_bin()) or default_link_cli_bin()
     return [bin_name, *args]
 
 
@@ -316,42 +316,6 @@ def retrieve_spend_request(spend_request_id: str) -> SpendRequestStatus:
         approved_at=sr.get("approved_at") or sr.get("approvedAt"),
         next_action=parse_next_action(sr),
     )
-
-
-def retrieve_spend_request_card(spend_request_id: str) -> tuple[Dict[str, Any], Path]:
-    """Retrieve approved spend request with card written to a temp file (0600)."""
-    fd, path_str = tempfile.mkstemp(prefix="booking-agent-card-", suffix=".json")
-    os.close(fd)
-    card_path = Path(path_str)
-    card_path.chmod(0o600)
-    try:
-        completed = subprocess.run(
-            _link_cli_cmd(
-                "spend-request", "retrieve", spend_request_id,
-                "--include", "card",
-                "--output-file", str(card_path),
-                "--force",
-                "--format", "json",
-            ),
-            capture_output=True,
-            text=True,
-            timeout=60,
-            check=False,
-        )
-        if completed.returncode != 0:
-            raise RuntimeError(
-                completed.stderr.strip() or "link-cli card retrieve failed"
-            )
-        payload = _parse_link_cli_json(completed.stdout)
-        sr = payload[0] if isinstance(payload, list) else payload
-        if sr.get("status") != "approved":
-            raise RuntimeError(f"spend request not approved (status={sr.get('status')})")
-        card_data = json.loads(card_path.read_text())
-        return card_data, card_path
-    except Exception:
-        if card_path.exists():
-            card_path.unlink(missing_ok=True)
-        raise
 
 
 def wait_for_spend_approval(

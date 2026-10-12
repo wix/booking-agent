@@ -30,13 +30,14 @@ Placement differs by deployment mode:
 from __future__ import annotations
 
 import logging
-import os
 import re
 from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, ConfigDict, field_validator
+
+from . import settings
 
 logger = logging.getLogger(__name__)
 
@@ -305,12 +306,10 @@ class ScopedCredentialPosture(str, Enum):
 
     ``PREFERRED`` remains available for deployments that need to transact against
     a not-yet-conformant business: it warns and proceeds instead of refusing.
-    ``DISABLED`` is for the offline stack and mock-free local runs.
     """
 
     REQUIRED = "required"
     PREFERRED = "preferred"
-    DISABLED = "disabled"
 
 
 DEFAULT_POSTURE = ScopedCredentialPosture.REQUIRED
@@ -320,7 +319,7 @@ POSTURE_ENV_VAR = "BOOKING_AGENT_USP_AUTH_SCOPED_CREDENTIAL"
 
 
 def resolve_posture(explicit: Optional[str] = None) -> ScopedCredentialPosture:
-    raw = explicit or os.environ.get(POSTURE_ENV_VAR)
+    raw = explicit or settings.get(POSTURE_ENV_VAR)
     if not raw:
         return DEFAULT_POSTURE
     try:
@@ -390,10 +389,6 @@ def evaluate(
     client used for public operations too must defer, or browsing a business
     would fail for want of an authorization policy it does not need.
     """
-    if posture is ScopedCredentialPosture.DISABLED:
-        # Offline stacks and mock-free local runs only.
-        return AuthorizationDecision(mechanism=None, authenticate=False)
-
     if policy is None:
         if not exposes_privileged_capabilities:
             return AuthorizationDecision(mechanism=None, authenticate=False)

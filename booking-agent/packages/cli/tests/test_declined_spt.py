@@ -13,6 +13,7 @@ import pytest
 
 from booking_agent.observability import set_event_sink
 from booking_agent.ucp_checkout import UcpCheckoutHttpError
+from support.mock_link_cli import fake_shared_payment_token
 from test_flow_gates import (
     _approval_created,
     _invoke,
@@ -25,7 +26,7 @@ _HOSTED = "https://merchant.test/checkout/chk_test"
 _ACTION_URL = "https://app.link.com/3ds/charge-challenge"
 _ORDER_URL = "https://merchant.test/orders/ord_7"
 _OLD_SR = "lsrq_old"
-_NEW_CARD_CMD = "booking-agent flow pay request --payment-method-id <id> --context '<describe booking>'"
+_NEW_CARD_CMD = "booking-agent flow pay request --payment-method-id <id>"
 _SAME_SR_CMD = f"booking-agent flow pay ucp-complete --spend-request-id {_OLD_SR}"
 _3DS_TEXT = (
     "This card needs extra bank verification, which isn't supported for agent "
@@ -77,7 +78,6 @@ def events():
 def checkout(runner, isolated_session, monkeypatch):
     """PAYMENT_PENDING UCP session with an approved spend request and a scripted checkout."""
     import booking_agent_cli.commands.flow as flow
-    import booking_agent_cli.payment_helpers as payment_helpers
     from booking_agent_cli.session import load_session, save_session
 
     _ucp_payment_pending(runner)
@@ -128,10 +128,7 @@ def checkout(runner, isolated_session, monkeypatch):
     monkeypatch.setattr(
         "booking_agent.ucp_capabilities.validate_checkout_capabilities", lambda *_a, **_k: {},
     )
-    monkeypatch.setattr(
-        payment_helpers, "retrieve_spend_request_shared_payment_token", lambda _id: "spt_x",
-    )
-    monkeypatch.setattr(payment_helpers, "test_spt_from_env", lambda: None)
+    fake_shared_payment_token(monkeypatch, "spt_x")
     monkeypatch.setattr(flow, "_poll_spend_approval_or_exit", lambda *_a, **_k: None)
     monkeypatch.setattr(flow, "retrieve_spend_request", fake_retrieve)
     return state
@@ -765,14 +762,13 @@ def test_base_skill_keeps_every_discover_result_in_registry_order():
     assert "compute your own relevance score" in text
 
 
-def test_base_skill_forbids_repetition_fixed_waits_and_shell_expanded_context():
+def test_base_skill_forbids_repetition_fixed_waits_and_agent_written_context():
     text = _skill("booking-agent")
-    assert "Send the acknowledgment **once per booking**" in text
+    assert "Send the opening message **once per booking**" in text
     assert "report only its **final** outcome" in text
     assert "Never run `sleep`, a fixed wait" in text
-    assert "Always **single-quote** `--context`" in text
-    assert "--context-file - <<'EOF'" in text
-    assert '--context "<' not in text
+    assert "Never write or pass that note yourself" in text
+    assert "--context '" not in text and '--context "' not in text
     for gate in (
         "--less-direct", "--mismatch-confirmed", "--details-confirmed",
         "--timezone-confirmed", "--allow-duplicate",

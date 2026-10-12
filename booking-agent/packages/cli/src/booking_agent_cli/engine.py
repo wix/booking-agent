@@ -144,8 +144,7 @@ def recommend_next(session: Session) -> str | None:
         return "booking-agent flow use-ucp-checkout-mode"
     if phase == "BOOKED":
         return (
-            "booking-agent flow pay request --payment-method-id <id> "
-            "--context '<describe booking>'"
+            "booking-agent flow pay request --payment-method-id <id>"
         )
     if phase == "PAYMENT_PENDING":
         sr = session.payment.spend_request_id

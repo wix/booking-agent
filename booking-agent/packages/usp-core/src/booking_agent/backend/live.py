@@ -2,7 +2,7 @@
 
 Delegates registry search to a real USP registry, profile resolution to
 USPProfileResolver (live HTTP only), and all business-level operations to
-USPBusinessRestClient. No mock fixtures, no local booking cache.
+USPBusinessRestClient. No local booking cache.
 """
 import asyncio
 import logging

@@ -1,13 +1,13 @@
 """Per-host circuit breaker so a failing merchant or registry is not hammered."""
 from __future__ import annotations
 
-import os
 import time
 from dataclasses import dataclass
 from typing import Optional, Union
 
 import httpx
 
+from . import settings
 from booking_agent.observability import emit_event
 
 
@@ -57,21 +57,10 @@ class HostCircuitBreaker:
 
     @classmethod
     def from_env(cls) -> "HostCircuitBreaker":
-        raw_threshold = os.environ.get("BOOKING_AGENT_CIRCUIT_FAILURE_THRESHOLD", "5")
-        raw_cooldown = os.environ.get("BOOKING_AGENT_CIRCUIT_COOLDOWN_SECONDS", "30")
-        disabled = os.environ.get("BOOKING_AGENT_CIRCUIT_DISABLED", "").strip().lower()
-        try:
-            threshold = int(raw_threshold)
-        except ValueError:
-            threshold = 5
-        try:
-            cooldown = float(raw_cooldown)
-        except ValueError:
-            cooldown = 30.0
         return cls(
-            failure_threshold=threshold,
-            cooldown_seconds=cooldown,
-            disabled=disabled in {"1", "true", "yes"},
+            failure_threshold=settings.get_int("BOOKING_AGENT_CIRCUIT_FAILURE_THRESHOLD"),
+            cooldown_seconds=settings.get_float("BOOKING_AGENT_CIRCUIT_COOLDOWN_SECONDS"),
+            disabled=settings.get_bool("BOOKING_AGENT_CIRCUIT_DISABLED"),
         )
 
     def guard(self, url: Union[str, httpx.URL]) -> None:

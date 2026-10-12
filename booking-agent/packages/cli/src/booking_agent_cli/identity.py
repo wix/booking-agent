@@ -11,19 +11,14 @@ import shutil
 from pathlib import Path
 from typing import Any, Dict, List
 
-from booking_agent.config import load_config
 
 from .session import Session, load_store, save_store, get_active_session, is_actionable, save_session
 
 
 def google_calendar_token_cache_dir() -> Path:
-    cfg = load_config()
-    cache_dir = cfg.google_calendar_token_cache_dir or ".google-calendar-tokens"
-    if os.path.isabs(cache_dir):
-        return Path(cache_dir)
-    session_dir = os.environ.get("BOOKING_AGENT_SESSION_DIR")
-    base = Path(session_dir) if session_dir else Path.home() / ".booking-agent"
-    return base / cache_dir
+    from booking_agent.settings import google_calendar_token_dir
+
+    return google_calendar_token_dir()
 
 
 def clear_google_calendar_token_cache() -> List[str]:

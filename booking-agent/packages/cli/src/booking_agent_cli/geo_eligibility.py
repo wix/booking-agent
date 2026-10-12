@@ -109,7 +109,7 @@ def location_block_from_service(service: USPService) -> Dict[str, Any]:
         block["locations"] = locs
     channel = service.channel
     if channel is not None:
-        ch: Dict[str, Any] = {"type": str(channel.type)}
+        ch: Dict[str, Any] = {"type": str(getattr(channel.type, "value", channel.type))}
         if channel.service_area:
             ch["service_area"] = channel.service_area
         block["channel"] = ch

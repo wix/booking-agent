@@ -2,8 +2,9 @@
 
 Deterministic registry search (no LLM). All catalog, availability, and booking
 operations are served from the bundled fixtures and an in-memory booking store.
-``create_booking`` returns a ``continue_url`` string pointing at
-``MOCK_CHECKOUT_PORT``; no server is started — tests only assert on the string.
+``create_booking`` returns a payment action whose ``continue_url`` points at
+``MOCK_CHECKOUT_PORT``; no server is started. ``mark_booking_paid`` makes a later
+``get_booking`` report the booking as confirmed.
 """
 from __future__ import annotations
 
@@ -51,6 +52,19 @@ MOCK_CHECKOUT_PORT = 8099
 
 BOOKINGS: Dict[str, Booking] = {}
 POST_PAYMENT_RETURN_REQUESTS: Dict[str, PostPaymentReturnRequest] = {}
+_PAID: set = set()
+
+
+def mark_booking_paid(booking_id: str) -> None:
+    _PAID.add(booking_id)
+
+
+def is_booking_paid(booking_id: str) -> bool:
+    return booking_id in _PAID
+
+
+def reset_paid() -> None:
+    _PAID.clear()
 
 
 def _hostname(url: str) -> str:
@@ -359,12 +373,7 @@ class MockUSPBackend(USPBackend):
         booking = BOOKINGS.get(booking_id)
         if not booking:
             raise RuntimeError(f"Mock booking not found: {booking_id}")
-        try:
-            from .checkout_server import is_booking_paid
-            paid = is_booking_paid(booking_id)
-        except ImportError:
-            paid = False
-        if not paid:
+        if not is_booking_paid(booking_id):
             return booking
         return booking.model_copy(update={
             "status": BookingStatus.CONFIRMED,

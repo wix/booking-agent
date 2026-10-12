@@ -16,13 +16,9 @@ SIDECAR_NAME = ".calendar-events.json"
 
 
 def _token_cache_dir() -> str:
-    from booking_agent.config import load_config
+    from booking_agent.settings import google_calendar_token_dir
 
-    cfg = load_config()
-    cache_dir = cfg.google_calendar_token_cache_dir or ".google-calendar-tokens"
-    if os.path.isabs(cache_dir):
-        return cache_dir
-    return os.path.join(os.path.expanduser("~"), ".booking-agent", cache_dir)
+    return str(google_calendar_token_dir())
 
 
 def _user_cache_path(user_key: str) -> str:
@@ -139,15 +135,6 @@ def _service_display_name(session: Session) -> Optional[str]:
             if value:
                 return value
     return None
-
-
-_WHERE_BY_CHANNEL = {
-    "at_buyer_location": "Where: The business comes to you.",
-    "at_business_location": "Where: At the business.",
-    "virtual": "Where: Online.",
-    "phone": "Where: By phone.",
-    "hybrid": "Where: Partly at the business and partly another way.",
-}
 
 
 def _live_service(session: Session) -> Dict[str, Any]:
@@ -332,9 +319,10 @@ def _payment_line(session: Session) -> Optional[str]:
 
 
 def _where_line(session: Session) -> Optional[str]:
-    channel = _live_service(session).get("channel")
-    channel = channel if isinstance(channel, dict) else {}
-    return _WHERE_BY_CHANNEL.get(str(channel.get("type") or ""))
+    from .booking_summary import where_text
+
+    text = where_text(session)
+    return f"Where: {text}." if text else None
 
 
 def _http_url(value: Any) -> Optional[str]:
@@ -365,7 +353,6 @@ def _fallback_links(session: Session) -> list[tuple[str, str]]:
         seen.add(url)
         found.append((label, url))
 
-    add("Checkout page", _http_url(session.booking.continue_url))
     if session.business.profile_url:
         add("Business website", _http_url(public_business_url(session.business.profile_url)))
     for link in session.ucp_checkout_links or []:
@@ -410,6 +397,9 @@ def _event_description(session: Session) -> str:
     where = _where_line(session)
     if where:
         details.append(where)
+    note = (session.booking_notes or "").strip()
+    if note:
+        details.append(f"Your note to the business: {note}")
     payment = _payment_line(session)
     if payment:
         details.append(payment)
@@ -435,14 +425,24 @@ def build_event_body(session: Session) -> Tuple[Optional[Dict[str, Any]], Option
     service_name = _service_display_name(session)
     summary = f"{business_name} - {service_name}" if service_name else business_name
 
+    from .booking_summary import event_location
+    from .timezone_context import valid_iana_timezone
+
+    start: Dict[str, Any] = {"dateTime": slot["start"]}
+    end: Dict[str, Any] = {"dateTime": slot["end"]}
+    zone = valid_iana_timezone(session.business.timezone)
+    if zone:
+        start["timeZone"] = zone
+        end["timeZone"] = zone
     body: Dict[str, Any] = {
         "summary": summary,
         "description": _event_description(session),
-        "start": {"dateTime": slot["start"]},
-        "end": {"dateTime": slot["end"]},
+        "start": start,
+        "end": end,
     }
-    if business_name:
-        body["location"] = business_name
+    location = event_location(session)
+    if location:
+        body["location"] = location
     return body, None
 
 

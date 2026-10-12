@@ -1,13 +1,11 @@
-"""In-memory mock USP backend, mock calendar, checkout server, and fixtures for CLI tests."""
-from .backend import MOCK_CHECKOUT_PORT, BOOKINGS, MockUSPBackend
+"""In-memory mock USP backend, mock calendar, and fixtures for CLI tests."""
+from .backend import MOCK_CHECKOUT_PORT, BOOKINGS, MockUSPBackend, is_booking_paid, mark_booking_paid, reset_paid
 from .mock_calendar import MockCalendarService
-from .checkout_server import MockCheckoutServer, is_booking_paid, mark_booking_paid, reset_paid
 from .fixtures import MOCK_PROFILES, MOCK_SERVICES, SERVICE_BY_ID, mock_profile
 
 __all__ = [
     "MockUSPBackend",
     "MockCalendarService",
-    "MockCheckoutServer",
     "MOCK_PROFILES",
     "MOCK_SERVICES",
     "SERVICE_BY_ID",

@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import os
 import random
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
@@ -11,6 +10,7 @@ from typing import Awaitable, Callable, Optional, Set, TypeVar
 
 import httpx
 
+from . import settings
 from booking_agent.observability import emit_event
 
 logger = logging.getLogger(__name__)
@@ -46,27 +46,15 @@ class RateLimitedError(httpx.HTTPStatusError):
 
 
 def _max_attempts() -> int:
-    raw = os.environ.get("BOOKING_AGENT_HTTP_MAX_RETRIES", "4")
-    try:
-        return max(1, int(raw))
-    except ValueError:
-        return 4
+    return settings.get_int("BOOKING_AGENT_HTTP_MAX_RETRIES", minimum=1)
 
 
 def _base_delay() -> float:
-    raw = os.environ.get("BOOKING_AGENT_HTTP_BACKOFF_BASE", "1.0")
-    try:
-        return max(0.1, float(raw))
-    except ValueError:
-        return 1.0
+    return settings.get_float("BOOKING_AGENT_HTTP_BACKOFF_BASE", minimum=0.1)
 
 
 def _max_delay() -> float:
-    raw = os.environ.get("BOOKING_AGENT_HTTP_BACKOFF_MAX", "300.0")
-    try:
-        return max(1.0, float(raw))
-    except ValueError:
-        return 300.0
+    return settings.get_float("BOOKING_AGENT_HTTP_BACKOFF_MAX", minimum=1.0)
 
 
 def retry_after_seconds(response: httpx.Response) -> Optional[float]:

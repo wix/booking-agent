@@ -54,3 +54,24 @@ def mock_link_cli_user_info(
     monkeypatch.setattr("booking_agent_cli.commands.flow.shutil.which", lambda _name: "/usr/bin/link-cli")
     monkeypatch.setattr("booking_agent_cli.link_cli.subprocess.run", fake_run)
     monkeypatch.setattr("booking_agent_cli.link_cli.shutil.which", lambda _name: "/usr/bin/link-cli")
+
+
+class FakeSharedPaymentTokenSource:
+    """Hands out a fixed SPT and records which spend requests asked for one."""
+
+    def __init__(self, token: str = "spt_test") -> None:
+        self.token = token
+        self.spend_request_ids: list = []
+
+    def token_for(self, spend_request_id: str) -> str:
+        self.spend_request_ids.append(spend_request_id)
+        return self.token
+
+
+def fake_shared_payment_token(monkeypatch, token: str = "spt_test") -> FakeSharedPaymentTokenSource:
+    """Replace the Link SPT source for in-process CLI runs."""
+    source = FakeSharedPaymentTokenSource(token)
+    monkeypatch.setattr(
+        "booking_agent_cli.payment_helpers.shared_payment_token_source", lambda: source,
+    )
+    return source

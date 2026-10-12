@@ -47,7 +47,6 @@ def _seed_slot_selected(tmp_path) -> Session:
     session = Session(
         user_request="Book AC repair",
         flow_phase="SLOT_SELECTED",
-        secrets_mode="demo",
         calendar_gate_completed=True,
         checkout_prereq_completed=True,
         slot_id="slot-1",
@@ -139,7 +138,6 @@ def test_slots_select_points_at_link_auth_connect(runner, isolated_session, monk
     session = Session(
         user_request="Book AC repair",
         flow_phase="SLOTS_PRESENTED",
-        secrets_mode="demo",
         calendar_gate_completed=True,
         checkout_prereq_completed=True,
         slots_presented=[

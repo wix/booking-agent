@@ -1,8 +1,8 @@
 ---
-version: 0.39.0
+version: 0.42.0
 name: booking-agent
 description: |
-  Books time-based services via USP from a Link wallet. Use when the user wants to book, schedule, reserve, or pay for a service from a business (haircut, lesson, repair, class, appointment, consult). The `booking-agent` CLI owns the booking state machine and refuses to proceed when human gates are skipped. After `booking-agent flow business use`, follow `next_command` through `use-ucp-checkout-mode`; businesses without native checkout fail closed. Payment uses `booking-agent flow pay request` (default returns immediately with the approval URL), then start `booking-agent flow pay poll` in the background and post the approval URL to the user in the same turn; the poll finishes checkout once they approve. Confirm through `booking-agent flow book poll --wait`; never start an inbound webhook. Surface the approval URL exactly once. Personal identification (name, phone, email, address) must always come from the user's Link account via `link-cli`, never from chat or placeholders; use the shipping address as home when an address is required. Talk to the user in plain everyday language only; never expose CLI, UCP, auth, session, or other implementation details unless they explicitly ask.
+  Books time-based services via USP from a Link wallet. Use when the user wants to book, schedule, reserve, or pay for a service from a business (haircut, lesson, repair, class, appointment, consult). The `booking-agent` CLI owns the booking state machine and refuses to proceed when human gates are skipped. After `booking-agent flow business use`, follow `next_command` through `use-ucp-checkout-mode`; businesses without native checkout fail closed. Payment uses `booking-agent flow pay request` (default returns immediately with the approval URL), then start `booking-agent flow pay poll` in the background and post the approval URL to the user in the same turn; the poll finishes checkout once they approve. Confirm through `booking-agent flow book poll --wait`; never start an inbound webhook. Surface the approval URL exactly once. Personal identification (name, phone, email, address) must always come from the user's Link account via `link-cli`, never from chat or placeholders. Before any location-based search, the CLI proposes the Link shipping address and the user confirms it or gives another; online services skip this. Talk to the user in plain everyday language only; never expose CLI, UCP, auth, session, or other implementation details unless they explicitly ask.
 allowed-tools:
   - Bash(booking-agent:*)
   - Bash(link-cli:*)
@@ -46,23 +46,22 @@ or orchestrator.
 4. **Do not narrate setup or housekeeping.** Never mention reading skills, contracts, verifying
    CLI tools, symlink setup, re-auth, sessions, prerequisites, or checkout paths. Just do that
    work silently and tell the user only what matters to their booking. This includes the very
-   first message: never open with lines like "I'll read the booking skill first", "checking for
-   an earlier booking", or "using your Link address as the search area". The first thing the
-   user sees is the acknowledgment from rule 5.
-5. **One short opening line, then silence until the next required question or results.** When the user first asks to
-   book something, silently load their home area from Link (see [Search area (home
-   address)](#search-area-home-address)), then reply once with a brief acknowledgment that
-   mirrors their request **and names the search area** when the booking is location-based
-   (e.g. "Understood, looking for AC repair in your area (3194 West Rome St., Yuma AZ)...").
-   Run Step 1 setup (`sessions list`, `flow init`, `prereq check` when needed) in the same
-   turn without sending any other chat messages. Before Step 2, apply the required
-   time-preference gate. If time intent is unknown, ask when they want the service and stop.
-   Otherwise run `flow discover`, with `--location` when using the home area. Do not post progress updates like "checking the
-   environment", "tools are ready", or "no previous bookings". The next user-facing message
-   is the resume-or-fresh question (Step 1a), the time-preference question, or the service
-   options from discover (Step 2). Send the acknowledgment **once per booking**. If the user's
-   next reply only answers a question (for example the time preference), do not repeat or
-   rephrase the acknowledgment or the search area; go straight to the next result.
+   first message: never open with lines like "I'll read the booking skill first" or "checking
+   for an earlier booking". The first thing the user sees is the message from rule 5.
+5. **One short opening message, then silence until the next required question or results.**
+   When the user first asks to book something, run Step 1 setup (`sessions list`, `flow init`,
+   `prereq check` when needed) silently. When the service happens at a place (at home, at a
+   shop, in a named city), the opening message **asks the user to confirm the search area**
+   that `flow search-area propose` returned, for example "Should I look for AC repair
+   technicians near 3194 West Rome Street, Yuma AZ, or somewhere else?" Nothing is searched until
+   they confirm (see [Search area](#search-area)). Online or remote services skip the area
+   question; the opening line then just mirrors the request ("Understood, looking for an
+   online Spanish tutor..."). Before Step 2, apply the required time-preference gate: if time
+   intent is unknown, ask when they want the service in the same message and stop. Do not post
+   progress updates like "checking the environment", "tools are ready", or "no previous
+   bookings". Send the opening message **once per booking**. If the user's next reply only
+   answers a question (for example the area or the time), do not repeat or rephrase it; go
+   straight to the next question or result.
 6. **Never use markdown hyperlinks with labels** (`[text](https://...)`). Many chat clients
    (including WhatsApp) do not render them; the trailing `)` is included in the URL and breaks
    the link. **Always post the raw URL** (e.g. `https://app.link.com/...`). You may add
@@ -91,93 +90,81 @@ or orchestrator.
 | spend request / pay poll / approval URL | Narrate in plain terms, then post the raw approval URL from `user_message` (never `[label](url)`) |
 | buyer resolve / link-cli | "I pulled your name and contact info from your Link account" |
 
-### Search area (home address)
+### Search area
 
-When the user wants a service at or near their home, or does not name another location for an
-on-site visit (e.g. home repair, house call, "come to my place"), treat their **Link shipping
-address** as home and as the default search area:
+The CLI finds, matches, and remembers the search area. **Never** geocode an address yourself,
+never pass coordinates, and never invent or complete an address.
 
-```bash
-link-cli shipping-address list --format json
-```
+1. **Propose.** When the service happens at a place, run:
 
-Use the default entry (`is_default: true`), or the first entry if none is marked default. Format
-a short display label from `address.line1` (or `line_1`), `locality`/`city`, and
-`administrative_area`/`state` — e.g. `3194 West Rome St., Yuma AZ`. Omit postal code and
-country unless needed for disambiguation.
+   ```bash
+   booking-agent flow search-area propose
+   ```
 
-If the user names a different place (e.g. "in downtown Phoenix"), use that location in the
-opening line and for `--location` instead of home.
+   It reads the user's saved Link addresses, matches the default one on the map, and returns
+   `awaiting_user: search_area_confirmation` with `data.proposed_area.label` (and any other saved
+   addresses in `data.other_addresses`). Ask the question in `prompt` and **STOP**.
+2. **The user answers.**
+   - Yes: run `next_command` (`booking-agent flow search-area confirm --user-confirmed`).
+   - Another saved address: `booking-agent flow search-area set --link-address-id <id>`.
+   - A different address or place they type ("downtown Phoenix", a street address):
+     `booking-agent flow search-area set --address '<exactly what they typed>'`. The CLI shows
+     what the map matched (`data.proposed_area.matched`); show that match and ask whether it is
+     right. A typed address is never used until the user confirms the match.
+   - No saved address (`awaiting_user: search_area_input`): ask where to search, then run `set
+     --address` with their words.
+3. **Search.** After `confirm`, run `next_command` (`booking-agent flow discover --radius-km
+   <km>`) with the radius below. Discover searches the confirmed area; it refuses a place
+   search without one (`search_area_unconfirmed`).
 
-When you have coordinates for the chosen area (geocode the formatted address if needed), pass
-them to discover **with an explicit search radius**:
+Skip all of this when the service is not tied to a place (online lessons, remote consults,
+a specific named business with no area). Run plain `booking-agent flow discover`.
 
-```bash
-booking-agent flow discover --location lat,lng --radius-km <km>
-```
-
-**Radius (required on place-based search).** The CLI does not pick a hidden default. You must
-always pass `--radius-km` when you pass `--location`, except for the coordinates-only fallback
-below.
+**Radius (required on place-based search).** The CLI does not pick a hidden default. Always pass
+`--radius-km` once an area is confirmed, except for the area-only fallback below.
 
 1. **User stated a distance limit** (e.g. "within 10 miles"): convert to kilometres and use that.
 2. **Otherwise use this heuristic:**
    - Buyer travels to the business, salon, or a named city area: start at **25 km**.
    - Provider comes to the buyer (`at_buyer_location`, home visit): start at **40 km**.
    - User named a wide region only (e.g. "anywhere in Arizona"): do not guess a tight metro
-     radius; use a large cap they implied, or omit `--location` if the query is not place-based.
+     radius; use a large cap they implied.
 3. **Expand if too few results.** "Too few" means zero services, or fewer than three when the
    query was generic (not a named business). Retry with the next rung:
-   - Buyer-travel starts: 25 → 50 → 100 km (at most two expansions).
-   - Home-visit starts: 40 → 80 → 120 km.
+   - Buyer-travel starts: 25 -> 50 -> 100 km (at most two expansions).
+   - Home-visit starts: 40 -> 80 -> 120 km.
    Tell the user in plain language that you widened the search area. Do not mention CLI flags.
-4. **Coordinates-only fallback.** If the last expanded radius still returns zero services, retry
-   once with `--location lat,lng` and **no** `--radius-km`. Report distances when the CLI
-   provides them. Do not loop. This escape hatch is for registry quirks; cite issue #225 only
-   in agent reasoning, not in user-facing copy unless they ask.
+4. **Area-only fallback.** If the last expanded radius still returns zero services, retry
+   once with no `--radius-km`. Report distances when the CLI provides them. Do not loop. This
+   escape hatch is for registry quirks; cite issue #225 only in agent reasoning, not in
+   user-facing copy unless they ask.
 
 If a service is outside the radius you actually sent (including after expansion), the CLI
 refuses to offer it. Do not bypass with `business use`. Online or remote services with no
 coordinates stay offerable. Present `data.services` in registry order; never re-sort.
 
-Omit `--location` (and `--radius-km`) only when the user is not searching by place (e.g. a
-specific named business with no geographic filter).
-
-### Service type (vertical)
-
-By default discover searches every service type. Pass `--vertical` (repeatable) only when the
-user's request clearly names the kind of booking. A vertical is a hard filter: services of
-any other type are dropped, so a wrong guess hides the right answer.
-
-- `appointment`: one-to-one session (haircut, consultation, private lesson).
-- `group`: class, workshop or course with shared spots (yoga class, cooking workshop).
-- `reservation`: shared resource for a party (table, court, meeting room).
-- `rental`: exclusive use for a period (equipment, studio, vehicle).
-- `field_service`: provider works at the buyer's address (plumbing, cleaning, home repair).
-
-When unsure, or when the request could fit more than one (e.g. "tennis" may be a lesson or a
-court), omit `--vertical` or pass every type that fits. If a filtered search returns too few
-results, retry once without `--vertical` before widening the radius.
+**Never suggest or apply filters.** Discover is called with no service-type or category
+filter. Do not offer the user filters ("only home visits?", "only salons?") and do not narrow
+results yourself.
 
 ### Opening response (first booking request)
 
 When the user asks to book a service for the first time in the conversation:
 
-1. **Silent home lookup** - when the request is location-based or implies on-site service at
-   home, run `link-cli shipping-address list --format json` before your first chat message.
-   Do not narrate this step.
-2. **One acknowledgment only** - mirror their request in plain language and **state the search
-   area** when using home or another resolved location. Examples:
-   - User asks for home AC repair next Tuesday → "Understood, looking for AC repair in your
-     area (3194 West Rome St., Yuma AZ)..."
-   - User asks for a haircut in Austin → "Understood, looking for haircut options in Austin..."
-   - User names a specific business with no area context → mirror the service only (no area
-     phrase needed).
-3. **Silent setup** - run session check, init, and prereq without further chat. If the user
-   already stated a time preference, also run discover with its matching time flags plus
-   `--location` and `--radius-km` when you have coordinates for the search area.
-4. **Next message** - ask when they want the service if time intent is unknown, show service
-   options after discover, or ask whether to resume an incomplete booking.
+1. **Silent setup** - run session check, init, and prereq without chat.
+2. **Area, when the service happens at a place** - run `flow search-area propose` before your
+   first chat message. Do not narrate it.
+3. **One opening message** - mirror the request and ask what is still unknown in one message:
+   the area question from `propose`, plus the time question when time intent is unknown.
+   Examples:
+   - Home AC repair, no time given -> "Should I look for AC repair technicians near 3194 West
+     Rome Street, Yuma AZ, or somewhere else? And when would you like them to come?"
+   - Haircut in Austin -> run `search-area set --address 'Austin'` first, then "Should I look
+     for haircuts in Austin, TX?"
+   - Online tutoring next week -> "Understood, looking for online Spanish tutors next week..."
+     and run discover with no area.
+4. **Next message** - after they confirm the area (and the time is known), show the service
+   options from discover, or ask whether to resume an incomplete booking.
    Never explain what you did behind the scenes to get there.
 
 ### Narration pattern (every turn)
@@ -216,6 +203,13 @@ the skill, then try again.
 `link-cli` is required for buyer identity and spend-request create/approve — install via the
 [link-cli skill](https://github.com/stripe/link-cli/blob/main/skills/create-payment-credential/SKILL.md) or your harness's link-cli provisioner.
 
+Nothing needs configuring for a basic booking: every setting has a shipped default. A personal
+calendar needs either an operator Google OAuth app (`GOOGLE_CALENDAR_CLIENT_ID` and
+`GOOGLE_CALENDAR_CLIENT_SECRET`) or a token from the host's calendar connector; without either,
+the flow skips the calendar check. **Never** write tokens, keys, or personal details into any env
+file. `booking-agent config show` prints each effective setting and where it came from;
+`booking-agent config init` creates `~/.booking-agent/.env` for an operator to edit.
+
 ## Personal identification (always from Link)
 
 Whenever you need the user's **name**, **phone number**, **email**, or **address** — for
@@ -225,16 +219,12 @@ booking, checkout, forms, or any other step:
    `ada@example.com`, fake street addresses). Personal user details such as name, phone, and
    email **always** come from the user's Link account — never invented or requested as
    placeholders.
-2. **Never** ask the user for their home address. When a form or checkout step needs a home
-   address, use the user's **shipping address** from Link as their home address:
-
-   ```bash
-   link-cli shipping-address list --format json
-   ```
-
-   For services whose `channel.type` is `at_buyer_location` (provider comes to the buyer),
-   map that shipping address into USP `delivery_address` and pass it on `flow book` (see
-   [Step 6a](#step-6-book-and-pay)). **Never** put the address in `--notes`.
+2. **Never** invent an address and never type one into a command yourself. The CLI proposes
+   the user's Link shipping address and the user confirms it or gives another (see [Search
+   area](#search-area)); a typed address is used only after the CLI shows its map match and the
+   user confirms it. For home visits (`channel.type: at_buyer_location`) the confirmed street
+   address is sent to the business automatically on `flow book`. **Never** put the address in
+   `--notes`.
 
 3. **Always** derive personal details from the user's Link account using `link-cli`:
 
@@ -319,7 +309,7 @@ block on polling).
 `pay poll` acks that the URL was shown, polls Link until approved, completes checkout, runs
 `validate-skill-compliance`, and `calendar create-event` when applicable — then emits a final
 prompt to tell the user they are booked.
-`pay ucp-complete` and `pay checkout --wait-for-approval` refuse to run until `pay poll` (or
+`pay ucp-complete` refuses to run until `pay poll` (or
 `pay ack-surface`) has started — use `pay poll` instead of calling them directly. Never use
 `--then-complete` in interactive agent flows.
 
@@ -398,12 +388,6 @@ booking-agent flow init --user-request "<user's exact request>"
 - If `init` returns `phase == "PREREQ_OK"`, skip directly to Step 2 (discover services).
 - If `phase == "INIT"` (first session ever), run prereq check first:
 
-Omit `--secrets-mode` unless the operator told you otherwise. It defaults to `demo`, which
-fills unset configuration with baked-in demo values and uses the live interim registry.
-`--secrets-mode booking-agent` is the production mode: it applies none of those demo values and
-reads identity, registry, and backend from the operator environment. The two never mix, and
-a session keeps the mode it was created with. Never mention secrets modes to the user.
-
 ```bash
 booking-agent flow prereq check
 ```
@@ -453,11 +437,9 @@ query text, and rewording it changes which services appear first.
 Discovery uses that free-text query only. Do not add or infer a structured `categories[]`
 filter, including when the user's request appears to name a category.
 
-When the search area is the user's home (or another resolved place), geocode it to coordinates
-and pass `--location lat,lng --radius-km <km>` so registry results respect the search radius.
-See [Search area (home address)](#search-area-home-address) for how to choose the radius,
-when to expand, and when to fall back to coordinates-only. Omit `--location` only when the user
-is not searching by place (e.g. a specific named business with no geographic filter).
+For a place-based service, confirm the area first (see [Search area](#search-area)) and pass
+`--radius-km`. Discover uses the confirmed area; never pass coordinates. Without a place,
+run discover with no area.
 
 When presenting services, you may mention distance or service location **only when the CLI
 returns that data**. Do not invent location restrictions. If a business defined no locations or
@@ -465,8 +447,10 @@ service area (online course, remote mentoring), do not tell the user location is
 omit location from the recap.
 
 **STOP.** Show the returned services to the user and wait for them to choose one before
-continuing. Present `data.services` in the exact order returned by default (option 1 is the
-top registry hit). Never re-sort by price, distance, perceived fit, raw
+continuing. Show each row's `display_line` verbatim, one numbered line per row (it names the
+service, the business, price, duration, and where, for example "AC Repair by HVAC-Koby, $1.00,
+1 hr, comes to your address"). Never drop the business name. Present `data.services` in the
+exact order returned by default (option 1 is the top registry hit). Never re-sort by price, distance, perceived fit, raw
 `next_available_date`, hint age, or bitmap contents.
 
 **Less-direct results:** Never omit, filter, or reorder results, even when some look
@@ -519,6 +503,13 @@ booking-agent flow business use --profile-url <profile_url> --service-id <servic
 Pass the row's `business_name` as `--name` so the booking, payment request, and calendar event
 name the business the user picked. When omitted, the CLI falls back to the discovered name.
 
+**Home visits need a street address.** When the picked service comes to the user
+(`at_buyer_location`) and the confirmed area is not a full street address (a city, or no area
+at all), `business use` returns `awaiting_user: service_address_confirmation` (or
+`service_address_input` when Link has no saved address). Ask the question in `prompt`, then use
+the same `search-area set` / `confirm` commands with `--purpose service-address` as `prompt` shows.
+`confirm` resumes the business selection by itself.
+
 After `business use` succeeds, follow `next_command` exactly. It must be
 `booking-agent flow use-ucp-checkout-mode`; run it to validate native checkout. **Do not** tell the
 user about checkout modes or UCP.
@@ -531,7 +522,7 @@ they agree; otherwise offer the other results.
 
 If `business use` fails with `ucp_native_required`, or the checkout prerequisite fails, stop.
 Tell the user in plain language that this business cannot be booked here yet and offer another
-returned service. Never route to `use-redirect-checkout-mode` and never describe a fallback.
+returned service. Never describe a fallback.
 
 **STOP.** After `use-ucp-checkout-mode` succeeds, resolve the calendar gate:
 
@@ -638,20 +629,24 @@ Then ask which number or time works best.
 default shipping address on their Link account; **never** take it from this device, the agent
 host, a VPN, a browser, or a cloud region, and never guess it from chat.
 
-- Show each slot from `business_start_display` / `business_end_display` (never re-convert the raw
-  `start` / `end` yourself).
+- Show each slot from its `business_range_display` (for example "Tue, Oct 13, 10:00 - 11:00 AM
+  MST"). Never re-convert the raw `start` / `end` yourself.
 - When `data.timezone_notice` is present, the user's address is in a different timezone. Post
   the notice **once**, right above the list, then show each slot as the business time first with
-  the user's time in parentheses (`buyer_start_display`). Example:
+  the user's time in parentheses (`buyer_range_display`; the full `buyer_start_display` is there
+  too). Example:
 
   ```
   I'm detecting a timezone difference: this business books in Jerusalem time (Asia/Jerusalem)
   and your address is in Phoenix time (America/Phoenix), so please note that the times below are
   the business's local time, with your local time in parentheses.
 
-  1. Tue, Oct 6, 5:00 PM IDT (7:00 AM MST)
-  2. Tue, Oct 6, 5:30 PM IDT (7:30 AM MST)
+  1. Tue, Oct 6, 5:00 - 6:00 PM IDT (7:00 - 8:00 AM MST)
+  2. Tue, Oct 6, 5:30 - 6:30 PM IDT (7:30 - 8:30 AM MST)
   ```
+
+- When a slot has `calendar_display`, the user's Google Calendar uses yet another timezone. Add
+  it in parentheses as "(8:00 - 9:00 PM on your Google Calendar)".
 
 - There is no separate timezone question. Picking a slot from that list, plus the one booking
   confirmation in Step 5b, covers it. The only exception is the time confirmation below.
@@ -694,14 +689,22 @@ then blocks polling link-cli until the user approves in the Link app — same pa
 **Step 5b — Resolve buyer**
 
 ```bash
-booking-agent flow buyer resolve
+booking-agent flow buyer resolve --notes '<short note for the business>'
 ```
 
-**STOP.** Show the user what was retrieved from their Link wallet **and** recap the selected
-slot, business, and service, then ask **one combined confirmation**. Give the time as
-`data.selected_slot.business_display`. When `data.selected_slot.buyer_display` is present, add
-it in parentheses so the one "yes" also covers the timezone difference. When
-`data.timezone_notice` is present (the user's timezone was found only now), open with it.
+Draft `--notes` from the user's request: the problem, the item, what they need (for example
+"Window AC unit, completely unresponsive, brand unknown"). Leave it out when the request says
+nothing the business needs. Never put the address, name, or contact details in it.
+
+**STOP.** Show every line of `data.booking_recap_lines` verbatim, one per line, in order. The CLI
+builds them (service and business, when, where with the exact address, price, name, email,
+phone, and the note for the business), so never reword, merge, or drop a line. When
+`data.selected_slot.buyer_display` is present, the When line already has the user's time in
+parentheses, so one "yes" also covers the timezone difference. When `data.timezone_notice` is
+present (the user's timezone was found only now), open with it. Then ask **one combined
+confirmation**. If the user corrects the note, re-run `buyer resolve --notes '<corrected
+note>'`; if they correct the address, run `booking-agent flow search-area propose --purpose
+service-address`.
 
 Word the question for `data.payment_route` (`data.payment_summary` has the amounts). Never use
 raw `amount_minor_units`; quote `data.price_display`.
@@ -741,23 +744,10 @@ Never hand-enter buyer details. If `buyer resolve` fails with `link_cli_failed` 
 booking-agent flow book --service-id <id>
 ```
 
-When the selected service's `channel.type` is `at_buyer_location` (home visit, house call,
-field service, "come to my place"), you **MUST** pass a structured delivery address. Resolve
-it from Link (default shipping address, or the address the user confirmed for this visit),
-map fields, and pass JSON:
-
-```bash
-link-cli shipping-address list --format json
-# Map: line1/line_1 → line1, line2/line_2 → line2, locality/city → city,
-# administrative_area/state → region, postal_code → postal_code,
-# country_code/country → country (ISO 3166-1 alpha-2). Optional coordinates {lat, lng}.
-
-booking-agent flow book --service-id <id> --delivery-address '{"line1":"...","city":"...","region":"...","postal_code":"...","country":"US"}'
-```
-
-**Never** stuff the address into `--notes`. Use `--notes` only for free-text special requests
-(gate code, pets, etc.). Services with `channel.type: at_business_location` (buyer travels to
-the business) do not need `--delivery-address`.
+For home visits (`channel.type: at_buyer_location`), `flow book` sends the confirmed street
+address and the note from `buyer resolve` automatically. Never map or pass an address yourself.
+If it fails with `service_address_unconfirmed`, run its `next_command` and confirm the address
+with the user.
 
 `flow book` returns `data.merchant_quote` and `data.price_display` (always use these for the
 dollar total shown to the user). **Never** quote `amount_minor_units`, `price_minor_units`, or
@@ -810,20 +800,11 @@ Take the `id` of the default card. Pass it to `pay request` in Step 6c.
 **Step 6c-i — Create spend request (returns immediately)**
 
 ```bash
-booking-agent flow pay request \
-  --payment-method-id <id-from-6b> \
-  --context '<at least 100 chars describing this booking; the user reads this when approving in Link>'
+booking-agent flow pay request --payment-method-id <id-from-6b>
 ```
 
-Always **single-quote** `--context`. Inside double quotes the shell expands `$1`, `$(...)`, and
-backticks, so "$1.00 deposit" reaches Link as ".00 deposit". When the text itself contains a
-single quote, pass it on stdin instead:
-
-```bash
-booking-agent flow pay request --payment-method-id <id> --context-file - <<'EOF'
-<booking description>
-EOF
-```
+The CLI writes the note the user reads when approving in Link (service, business, time, where,
+and total). Never write or pass that note yourself.
 
 This command:
 
@@ -877,7 +858,7 @@ post it as is** (raw URLs, never markdown `[label](url)`) before running `next_c
 
 | `data.error.code` | Meaning | What you do |
 |---|---|---|
-| `payment_declined` (any severity, including `recoverable` before the charge) | The card was declined or needed verification the agent cannot complete. The spend request is used up. | Post `user_message` (the business's explanation plus the request to pick a different card). When the user picks a **different** Link card, run `next_command`: `booking-agent flow pay request --payment-method-id <id> --context '<describe booking>'` with that card's id from `link-cli payment-methods list`, then follow the normal approval steps. |
+| `payment_declined` (any severity, including `recoverable` before the charge) | The card was declined or needed verification the agent cannot complete. The spend request is used up. | Post `user_message` (the business's explanation plus the request to pick a different card). When the user picks a **different** Link card, run `next_command`: `booking-agent flow pay request --payment-method-id <id>` with that card's id from `link-cli payment-methods list`, then follow the normal approval steps. |
 | `payment_failed` with severity `recoverable`, or `payment_authentication_unsupported` / `payment_not_processed` | Same as `payment_declined` (newer business responses for bank verification and for a payment that could not be processed) | Same as `payment_declined` |
 | `payment_unrecoverable` | The business sent `payment_failed` with severity `unrecoverable`. This checkout can no longer be completed, and the session is `FAILED`. The response does not say whether a charge was made or whether another payment method would work. | Post `user_message`, then stop. There is no `next_command`. Do not retry this checkout. |
 | `complete_in_progress` / `checkout_already_in_progress` | The business is still finishing this checkout | Not a decline. Post `user_message`, then run `next_command` (same spend request, same checkout). Never create a new spend request or a new charge. |
@@ -952,10 +933,9 @@ booking-agent flow validate-skill-compliance
 - Unknown or changed payment timing is not bookable. Get a new quote if timing changed.
 - Businesses and the client fetch the document at `USP_AGENT_PROFILE_URL`; the
   canonical URL is used by default. Optional `BOOKING_AGENT_UCP_MERCHANT_BEARER` supports merchant
-  auth. CI may set `BOOKING_AGENT_ALLOW_TEST_BYPASSES=1` for automated tests only.
+  auth.
 - After payment, follow `next_command` to `booking-agent flow book poll --wait`. Confirmation is GET
-  polling only. Never pass `--wait-for-booking` to `pay ucp-complete` and never start or request
-  an inbound booking webhook.
+  polling only. Never start or request an inbound booking webhook.
 
 ### Step 7: Validate compliance
 
@@ -1008,9 +988,8 @@ booking-agent flow calendar create-event
   mode, symlink, polling, orchestrator, flow phase, etc.) unless they explicitly ask how
   something works. Always describe booking progress in everyday language.
 - **Never** substitute a different payment command than `next_command` after `pay request`.
-  The CLI returns `use_ucp_complete` if you run `pay checkout` on a UCP-native session.
 - **Never** re-surface the Link approval URL after `pay request` has emitted it once. Commands
-  like `flow status`, `pay ucp-complete`, and `pay checkout --wait-for-approval` poll silently.
+  like `flow status` and `pay ucp-complete` poll silently.
 - **Never** use `pay request --then-complete` in interactive agent flows — it blocks the shell
   until checkout finishes, so the agent cannot show the approval URL until after the user may
   have already approved via a mobile notification.
@@ -1031,10 +1010,9 @@ booking-agent flow calendar create-event
   booking through `booking-agent flow ...`.
 - **Never** use placeholder or chat-entered personal details (name, phone, email, address).
   Always derive them from Link via `link-cli` — see [Personal identification (always from Link)](#personal-identification-always-from-link).
-  During booking, use `booking-agent flow buyer resolve`. Never ask for a home address — use the
-  shipping address from `link-cli shipping-address list --format json`. For
-  `at_buyer_location` services, pass that address as `--delivery-address` on `flow book`;
-  never put it in `--notes`.
+  During booking, use `booking-agent flow buyer resolve`. Addresses come only from `flow
+  search-area` after the user confirms them; `flow book` sends the confirmed address for
+  `at_buyer_location` services. Never put it in `--notes`.
 - **Never** auto-pick a slot. `booking-agent flow slots select` requires `--user-confirmed` and
   refuses otherwise.
 - **Never** pass `--mismatch-confirmed`, `--details-confirmed`, `--timezone-confirmed`, or
@@ -1060,7 +1038,6 @@ recover.
 | `link_auth_timeout` | User did not complete Link sign-in in time | Re-run `booking-agent flow link-auth connect` in the background |
 | `checkout_prereq_not_completed` | Calendar step before native checkout validation | Run `next_command` from `business use` (`use-ucp-checkout-mode`) |
 | `ucp_native_required` | Business does not support the native v2 checkout path | Tell the user this business cannot be booked here yet and offer another result |
-| `redirect_checkout_not_supported` | Obsolete redirect command was invoked | Return to discovery and choose a business supported by this flow |
 | `disclosures_unconfirmed` | Deposit checkout returned terms or disclosures the user has not acknowledged | Show due now, due at the appointment, and every disclosure, then re-run `pay request` with `--disclosures-confirmed` |
 | `shared_payment_token_not_issued` | Link approved the spend request but returned no shared payment token, so nothing was charged | Post `user_message`, re-run `pay ucp-complete` once; if it fails again, tell the user this business cannot take a Link payment right now and do not ask them to approve again |
 | `checkout_total_unconfirmed` | Checkout total (tax, fees, discounts) differs from the quoted price and the user has not approved it | Show service price, tax, and total from `data.merchant_quote`, get approval, then re-run `pay request` with `--total-confirmed` |
@@ -1068,7 +1045,6 @@ recover.
 | `payment_timing_not_supported` | Live catalog declares another unsupported timing | Stop and explain that this service cannot be booked here yet |
 | `mandatory_acceptance_pending` | Merchant requires policy acceptance or another non-payment step before checkout | Show `continue_url` / policy links from the error; wait; retry `flow book` (or run `next_command` when it came from `pay ucp-complete`); never accept for the user |
 | `service_not_available_in_area` | Service coordinates are farther than the `--radius-km` you sent | Widen search or pick another result; do not bypass with direct profile URL |
-| `webhook_wait_not_supported` | `pay ucp-complete --wait-for-booking` was requested | Run `booking-agent flow book poll --wait` |
 | `slot_not_selected` | `book` called before slot selection | Run `booking-agent flow slots list`, ask user, then `slots select --user-confirmed` |
 | `buyer_not_from_link_cli` | Buyer details not sourced from Link wallet | Run `booking-agent flow buyer resolve` |
 | `buyer_email_invalid` | Placeholder or malformed email detected | Run `booking-agent flow buyer resolve` — never hand-enter |
@@ -1077,7 +1053,6 @@ recover.
 | `missing_network_id_for_spt` | UCP checkout lacked `com.stripe.payments` Link instrument `config.network_id` | `booking-agent flow pay rebook --service-id <id>` for a fresh checkout, or stop if the merchant omitted `link.config.network_id` |
 | `approval_not_surfaced_to_user` | `pay ucp-complete` ran before the approval URL was shown | Start `booking-agent flow pay poll` in the background and post `user_message` in the same turn |
 | `approval_timeout` | User did not approve within the wait window | Re-run `pay ucp-complete` with the same spend id, or run `pay request` again |
-| `link_cli_card_retrieve_failed` | `link-cli spend-request retrieve` failed | Check Link auth and spend request ID |
 | `payment_declined` / `payment_failed` (recoverable) / `payment_authentication_unsupported` / `payment_not_processed` | `pay ucp-complete` charge was declined; the spend request is used up | Post `user_message`, ask for a different Link card, run `next_command` (`booking-agent flow pay request ...`). Never show `continue_url` or a bank `action_url`. See Step 6c-iii |
 | `payment_unrecoverable` | `pay ucp-complete` got `payment_failed` with severity `unrecoverable`, so this checkout can no longer be completed and the session is `FAILED` | Post `user_message` and stop. Do not retry this checkout. See Step 6c-iii |
 | `complete_in_progress` / `checkout_already_in_progress` | Business is still completing the same checkout | Run `next_command` (same spend request); no new spend request |
@@ -1086,7 +1061,14 @@ recover.
 | `payment_already_captured` | A payment command ran after a capture without a confirmed booking | Do not charge again; run `next_command` (`booking-agent flow book poll --wait`) |
 | `service_details_changed` | The live catalog differs from the discover row the user picked (`data.changes`) | Tell the user what changed, ask, then run `next_command` (`--details-confirmed`) only if they agree |
 | `timezone_confirmation_required` | Slot time unverified: business timezone conflicts with the service location, or a home visit with unknown local time | Ask the user to confirm the exact time in the business's timezone, then run `next_command` (`--timezone-confirmed`) |
-| `context_required` | `pay request` got neither or both of `--context` and `--context-file` | Pass one: single-quoted `--context` or `--context-file -` |
+| `context_required` | `pay request` got both `--context` and `--context-file` | Run `pay request` with neither; the CLI writes the note |
+| `search_area_unconfirmed` | Place search (`--radius-km`) with no confirmed area | Run `next_command` (`flow search-area propose`) and confirm the area with the user |
+| `discover_radius_required` | Confirmed area but no `--radius-km` | Re-run discover with `--radius-km` (see [Search area](#search-area)) |
+| `service_address_unconfirmed` | Home visit with no confirmed street address | Run `next_command` and confirm the address with the user |
+| `search_area_not_user_confirmed` | `search-area confirm` without `--user-confirmed` | Ask the area question; pass `--user-confirmed` only after they agree |
+| `search_area_input_invalid` | `search-area set` got neither or both of `--address` and `--link-address-id` | Pass exactly one |
+| `env_file_not_found` | The env file passed to `flow init --env-file` (or `BOOKING_AGENT_ENV_FILE`) no longer exists | Ask the operator to restore the file, or run `next_command` (`flow init ... --force`) to start without it |
+| `link_address_not_found` | `--link-address-id` is not one of the user's saved addresses | Run `next_command` (`search-area propose`) |
 | `spend_request_replacement_required` | Link cannot resume this spend request (for example `three_d_secure_retry`) | Show `user_message`, then run `next_command` to create a new spend request |
 | `reschedule_not_actionable` | Session is not a confirmed upcoming booking from this device | Resume the right booking from `sessions list`; past or other-device appointments move only on the business's page |
 | `reschedule_not_allowed` | Business policy does not allow moving this booking | Show the raw `booking_url` and say they can change it with the business |
@@ -1283,7 +1265,7 @@ Use `booking-agent flow sessions list` only to find unfinished flows or upcoming
 | Variable | Role |
 |----------|------|
 | `USP_REGISTRY_URL` | Optional registry `search_services` POST URL or API-base override. Live discovery defaults to the public Wix USP registry. |
-| `USP_AGENT_PROFILE_URL` | D2 platform identity URI used for both `USP-Agent` and `UCP-Agent`. Defaults to `https://profile.booking-agent.dev/platform-profile.json`; businesses and the client fetch this document over HTTP. A staging or loopback override uses this same variable. Loopback is non-conformant because production businesses must reject RFC 6890 special-use addresses and defend against DNS rebinding, so `--secrets-mode booking-agent` refuses a non-`https` value at `init`. |
+| `USP_AGENT_PROFILE_URL` | D2 platform identity URI used for both `USP-Agent` and `UCP-Agent`. Defaults to `https://profile.booking-agent.dev/platform-profile.json`; businesses and the client fetch this document over HTTP. A staging or loopback override uses this same variable. Loopback is non-conformant because production businesses must reject RFC 6890 special-use addresses and defend against DNS rebinding, so `init` refuses a non-`https` value (`platform_profile_url_invalid`) unless the host is loopback, which is for local development only. |
 | `BOOKING_AGENT_HTTP_TRACE` | Set to `1` to opt in to redacted HTTP trace logging under `~/.booking-agent/http_trace.log` (off by default in production). |
 | `BOOKING_AGENT_UCP_MERCHANT_BEARER` | Optional `Authorization` bearer on UCP checkout HTTP when the merchant requires it. |
 | `BOOKING_AGENT_RUNS_ON_BUYER_DEVICE` | Set to `1` only when the CLI runs on the buyer's own device. Checkout then sends this machine's public IP as `dev.ucp.buyer_ip`. Never set it on a cloud or sandbox host. |
@@ -1296,3 +1278,7 @@ Use `booking-agent flow sessions list` only to find unfinished flows or upcoming
 
 - Stripe link-cli spend-request commands: https://github.com/stripe/link-cli
 - USP spec: https://usp-protocol.dev/specification
+
+## License
+
+This skill and the Booking Agent source are released under the Apache License 2.0, Copyright 2026 Wix.com. Complete terms: https://github.com/wix/booking-agent/blob/master/LICENSE

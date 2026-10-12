@@ -13,7 +13,7 @@ import time
 from typing import Any, Optional
 
 from .engine import transition
-from .secrets.demo import resolve_backend
+from .runtime import resolve_backend
 from .session import INACTIVE_BOOKING_STATUSES, Session, credential_for_session_resource
 
 from booking_agent.observability import emit_event, money_path_fields

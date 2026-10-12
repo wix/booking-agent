@@ -239,16 +239,6 @@ def test_build_client_without_a_checkout_base_stores_no_key(monkeypatch, tmp_pat
     assert not (tmp_path / "pop_keys.json").exists()
 
 
-def test_build_client_omits_the_proof_when_authentication_is_disabled(monkeypatch, tmp_path):
-    monkeypatch.setenv("BOOKING_AGENT_SESSION_DIR", str(tmp_path))
-
-    client = build_ucp_checkout_client(
-        CHECKOUT_BASE, platform_profile_url=PLATFORM_PROFILE, auth_posture="disabled",
-    )
-
-    assert client.pop_jkt is None
-
-
 def _scoped_credential(key: PopKey):
     from datetime import datetime, timedelta, timezone
 

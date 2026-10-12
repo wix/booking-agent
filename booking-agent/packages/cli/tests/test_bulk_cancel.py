@@ -77,7 +77,9 @@ class _Backend:
         return SimpleNamespace(rest_endpoint="https://biz.example/usp")
 
     async def cancel_booking(self, _profile, booking_id, **_kwargs):
-        self.env_seen[booking_id] = os.environ.get("USP_PLATFORM_NAME")
+        from booking_agent import settings
+
+        self.env_seen[booking_id] = settings.get("USP_PLATFORM_NAME")
         outcome = self.outcomes.get(booking_id)
         if isinstance(outcome, BaseException):
             raise outcome
@@ -263,32 +265,38 @@ def test_forget_unfinished_never_drops_payment_in_progress(runner, backend):
     assert paying.id in ids and pending.id not in ids
 
 
-def test_each_session_gets_its_own_secrets_mode(runner, backend, monkeypatch):
+def test_each_session_gets_its_own_env_file(runner, backend, monkeypatch, tmp_path):
+    from booking_agent_cli import config_loader
+
     monkeypatch.delenv("USP_PLATFORM_NAME", raising=False)
-    monkeypatch.setenv("USP_AGENT_PROFILE_URL", "https://booking-agent.test/agents/prod")
-    demo = _booked("b_demo")
-    prod = _booked("b_prod", secrets_mode="booking-agent")
-    _seed(demo, prod)
+    config_loader.user_env_path().write_text("USP_PLATFORM_NAME=From the user env\n")
+    env_file = tmp_path / "staging.env"
+    env_file.write_text("USP_PLATFORM_NAME=From the env file\n")
+    plain = _booked("b_plain")
+    scoped = _booked("b_scoped", env_file=str(env_file))
+    _seed(plain, scoped)
 
     data = _invoke(runner, "--user-confirmed", "--all")["data"]
 
     assert data["summary"] == {"canceled": 2}
-    assert backend.env_seen["b_demo"] == "USP Agent"
-    assert backend.env_seen["b_prod"] is None
+    assert backend.env_seen["b_plain"] == "From the user env"
+    assert backend.env_seen["b_scoped"] == "From the env file"
     assert "USP_PLATFORM_NAME" not in os.environ
 
 
-def test_invalid_production_config_fails_only_that_row(runner, backend, monkeypatch):
-    monkeypatch.setenv("USP_AGENT_PROFILE_URL", "http://localhost/profile.json")
-    demo = _booked("b_demo")
-    prod = _booked("b_prod", secrets_mode="booking-agent")
-    _seed(demo, prod)
+def test_invalid_profile_url_fails_only_that_row(runner, backend, monkeypatch, tmp_path):
+    monkeypatch.delenv("USP_AGENT_PROFILE_URL", raising=False)
+    env_file = tmp_path / "bad.env"
+    env_file.write_text("USP_AGENT_PROFILE_URL=http://profile.example/profile.json\n")
+    good = _booked("b_good")
+    bad = _booked("b_bad", env_file=str(env_file))
+    _seed(good, bad)
 
     data = _invoke(runner, "--user-confirmed", "--all")["data"]
 
     by_booking = {r["booking_id"]: r for r in data["results"]}
-    assert by_booking["b_prod"]["error"]["code"] == "production_secrets_invalid"
-    assert by_booking["b_demo"]["outcome"] == "canceled"
+    assert by_booking["b_bad"]["error"]["code"] == "platform_profile_url_invalid"
+    assert by_booking["b_good"]["outcome"] == "canceled"
 
 
 def test_bulk_cancel_gives_each_paid_row_the_same_refund_steps(runner, backend, tmp_path, monkeypatch):

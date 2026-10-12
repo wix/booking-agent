@@ -33,6 +33,7 @@ from booking_agent_cli.payment_helpers import (
     complete_ucp_checkout_async,
 )
 from booking_agent_cli.session import BookingRef, Business, Buyer, PaymentRef, Session, SlotRef
+from support.mock_link_cli import fake_shared_payment_token
 
 CHECKOUT_BASE = "https://checkout.example/ucp"
 BIZ_PROFILE = "https://biz.example/.well-known/ucp"
@@ -262,10 +263,7 @@ async def test_pay_sends_a_proof_on_complete_checkout(monkeypatch, tmp_path):
         return httpx.Response(200, json=_completed_checkout())
 
     requests = _stub_checkout_http(monkeypatch, _handler)
-    monkeypatch.setattr(
-        "booking_agent_cli.payment_helpers.retrieve_spend_request_shared_payment_token",
-        lambda _id: "spt_test",
-    )
+    fake_shared_payment_token(monkeypatch, "spt_test")
 
     session = _session()
     session.ucp_checkout_session_id = "cs_1"

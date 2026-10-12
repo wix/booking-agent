@@ -57,8 +57,8 @@ _PROFILE_URL = "https://kobym9.wixsite.com/hvac-koby/.well-known/usp"
 _SERVICE_ID = "e4d4b7a4-0e66-4104-891b-ba5bb4a04092"
 
 
-def _init(runner, *, user_request=_USER_REQUEST, secrets_mode="demo", force=False):
-    args = ["flow", "init", "--user-request", user_request, "--secrets-mode", secrets_mode]
+def _init(runner, *, user_request=_USER_REQUEST, force=False):
+    args = ["flow", "init", "--user-request", user_request]
     if force:
         args.append("--force")
     return _invoke(runner, *args)
@@ -99,7 +99,7 @@ def _satisfy_link_auth_gate() -> None:
 # Basic init / status
 # ---------------------------------------------------------------------------
 
-def test_init_creates_session_in_demo_mode(runner, isolated_session):
+def test_init_creates_session(runner, isolated_session):
     r = _init(runner)
     assert r.exit_code == 0, r.stdout + r.stderr
     body = _stdout_json(r)
@@ -107,86 +107,61 @@ def test_init_creates_session_in_demo_mode(runner, isolated_session):
     assert (isolated_session / ".usp-session.json").exists()
 
 
-def test_init_without_secrets_mode_defaults_to_demo(runner, isolated_session):
-    """`demo` stays the public default until the flip tracked by spec #132."""
-    from booking_agent_cli.session import load_session
-
-    r = _invoke(runner, "flow", "init", "--user-request", _USER_REQUEST)
-    assert r.exit_code == 0, r.stdout + r.stderr
-    assert _stdout_json(r)["data"]["secrets_mode"] == "demo"
-    assert load_session().secrets_mode == "demo"
-
-
-def test_init_booking_agent_mode_succeeds_and_persists_mode(runner, isolated_session):
-    from booking_agent_cli.session import load_session
-
-    r = _init(runner, secrets_mode="booking-agent")
-    assert r.exit_code == 0, r.stdout + r.stderr
-    assert _stdout_json(r)["data"]["secrets_mode"] == "booking-agent"
-    assert load_session().secrets_mode == "booking-agent"
-
-
-def test_init_booking_agent_mode_uses_hosted_profile_by_default(runner, isolated_session, monkeypatch):
+def test_init_uses_hosted_profile_by_default(runner, isolated_session, monkeypatch):
     from booking_agent.platform_profile import DEFAULT_PLATFORM_PROFILE_URL
 
     monkeypatch.delenv("USP_AGENT_PROFILE_URL", raising=False)
 
-    r = _init(runner, secrets_mode="booking-agent")
+    r = _init(runner)
     assert r.exit_code == 0, r.stdout + r.stderr
     assert _stdout_json(r)["data"]["agent_profile_url"] == DEFAULT_PLATFORM_PROFILE_URL
 
 
-def test_init_booking_agent_mode_honors_https_profile_override(runner, isolated_session, monkeypatch):
+def test_init_honors_https_profile_override(runner, isolated_session, monkeypatch):
     monkeypatch.setenv("USP_AGENT_PROFILE_URL", "https://staging.example/platform-profile.json")
 
-    r = _init(runner, secrets_mode="booking-agent")
+    r = _init(runner)
     assert r.exit_code == 0, r.stdout + r.stderr
     body = _stdout_json(r)
     assert body["data"]["agent_profile_url"] == "https://staging.example/platform-profile.json"
 
 
-def test_init_booking_agent_mode_rejects_non_https_profile_url(runner, isolated_session, monkeypatch):
-    """A loopback dev override must not be carried into production mode."""
-    monkeypatch.setenv("USP_AGENT_PROFILE_URL", "http://127.0.0.1:8097/platform-profile.json")
+def test_init_rejects_plain_http_profile_url(runner, isolated_session, monkeypatch):
+    """Businesses reject a non-https identity URI, so init refuses it up front."""
+    monkeypatch.setenv("USP_AGENT_PROFILE_URL", "http://profile.example/platform-profile.json")
 
-    r = _init(runner, secrets_mode="booking-agent")
+    r = _init(runner)
     assert r.exit_code == 1
-    assert _stdout_json(r)["data"]["error"]["code"] == "production_secrets_invalid"
+    assert _stdout_json(r)["data"]["error"]["code"] == "platform_profile_url_invalid"
 
 
-def test_init_booking_agent_mode_applies_no_demo_defaults(runner, isolated_session, monkeypatch):
-    """DEMO_DEFAULTS must not leak into production mode, at init or after it."""
-    import os
+@pytest.mark.parametrize("host", ["127.0.0.1:8097", "localhost:8097", "[::1]:8097"])
+def test_init_accepts_loopback_http_profile_url(runner, isolated_session, monkeypatch, host):
+    """Local development serves the profile from a loopback merchant over http."""
+    monkeypatch.setenv("USP_AGENT_PROFILE_URL", f"http://{host}/platform-profile.json")
 
-    from booking_agent_cli.secrets.demo import DEMO_DEFAULTS
-
-    for key in DEMO_DEFAULTS:
-        monkeypatch.delenv(key, raising=False)
-
-    r = _init(runner, secrets_mode="booking-agent")
+    r = _init(runner)
     assert r.exit_code == 0, r.stdout + r.stderr
-    assert [k for k in DEMO_DEFAULTS if k in os.environ] == []
-
-    # A later command in the same session must not inject them either.
-    r2 = _invoke(runner, "flow", "status")
-    assert r2.exit_code == 0, r2.stdout + r2.stderr
-    assert [k for k in DEMO_DEFAULTS if k in os.environ] == []
 
 
-def test_init_demo_mode_applies_demo_defaults(runner, isolated_session, monkeypatch):
-    """Contrast case: the same unset vars are filled in demo mode."""
-    import os
+def _user_env(text: str) -> None:
+    from booking_agent_cli import config_loader
 
+    config_loader.user_env_path().write_text(text)
+
+
+def test_init_reads_the_user_env(runner, isolated_session, monkeypatch):
+    from booking_agent import settings
     from booking_agent.registry_url import DEFAULT_REGISTRY_URL
-    from booking_agent_cli.secrets.demo import DEMO_DEFAULTS
 
-    for key in DEMO_DEFAULTS:
+    for key in ("USP_PLATFORM_NAME", "USP_REGISTRY_URL"):
         monkeypatch.delenv(key, raising=False)
+    _user_env("USP_PLATFORM_NAME=From the user env\n")
 
-    r = _init(runner, secrets_mode="demo")
+    r = _init(runner)
     assert r.exit_code == 0, r.stdout + r.stderr
-    assert {k: os.environ.get(k) for k in DEMO_DEFAULTS} == dict(DEMO_DEFAULTS)
-    assert DEMO_DEFAULTS["USP_REGISTRY_URL"] == DEFAULT_REGISTRY_URL
+    assert settings.get("USP_PLATFORM_NAME") == "From the user env"
+    assert settings.get("USP_REGISTRY_URL") == DEFAULT_REGISTRY_URL
 
 
 def test_second_init_starts_at_prereq_ok(runner, isolated_session):
@@ -968,7 +943,7 @@ def test_book_at_service_uses_direct_usp_booking(runner, isolated_session, monke
     body = _stdout_json(result)
     assert body["data"]["payment_due"] == "at_service"
     assert body["data"]["checkout_path"] == "none"
-    assert body["data"]["continue_url"] is None
+    assert "continue_url" not in body["data"]
     assert body["data"]["payment_path_summary"] == (
         "Pay at appointment; no digital payment required"
     )
@@ -1070,7 +1045,7 @@ def test_full_mock_flow_through_payment_pending(runner, isolated_session, monkey
     body = _stdout_json(r)
     assert body["phase"] == "PAYMENT_PENDING"
     assert body["data"]["checkout_path"] == "ucp"
-    assert body["data"].get("continue_url") is None
+    assert "continue_url" not in body["data"]
 
     r = _invoke(runner, "flow", "validate-skill-compliance")
     assert r.exit_code == 0, r.stdout
@@ -1241,7 +1216,6 @@ def test_session_store_rotation(runner, isolated_session):
         r = runner.invoke(app, [
             "flow", "init",
             "--user-request", f"booking {i}",
-            "--secrets-mode", "demo",
             "--force",
         ])
         assert r.exit_code == 0, r.stdout
@@ -1314,7 +1288,7 @@ def test_session_has_user_request_and_timestamps(runner, isolated_session):
 
 
 # ---------------------------------------------------------------------------
-# pay prepare expiry gate
+# payment-pending session helpers
 # ---------------------------------------------------------------------------
 
 def _advance_to_payment_pending(runner, isolated_session, monkeypatch):
@@ -1331,8 +1305,7 @@ def _advance_to_payment_pending(runner, isolated_session, monkeypatch):
     session.flow_phase = "PAYMENT_PENDING"
     session.booking = BookingRef(
         id="bkg_test123",
-        checkout_path="redirect",
-        continue_url="https://checkout.example.com/pay/bkg_test123",
+        checkout_path="ucp",
         payment_context={"amountDue": 100, "currency": "USD"},
         action_expires_at=None,  # will be overwritten per test
     )
@@ -1344,66 +1317,8 @@ def _advance_to_payment_pending(runner, isolated_session, monkeypatch):
     return session
 
 
-def test_pay_prepare_emits_continue_url_when_not_expired(runner, isolated_session, monkeypatch):
-    from datetime import datetime, timezone, timedelta
-    from booking_agent_cli.session import load_store, save_store, get_active_session
-
-    _advance_to_payment_pending(runner, isolated_session, monkeypatch)
-
-    # Set expires_at to the future
-    store = load_store()
-    session = get_active_session(store)
-    session.booking.action_expires_at = (
-        datetime.now(timezone.utc) + timedelta(minutes=20)
-    ).isoformat()
-    for i, s in enumerate(store.sessions):
-        if s.id == session.id:
-            store.sessions[i] = session
-    save_store(store)
-
-    r = runner.invoke(__import__("booking_agent_cli.main", fromlist=["app"]).app, ["flow", "pay", "prepare"])
-    assert r.exit_code == 0, r.stdout + r.stderr
-    body = json.loads(r.stdout)
-    assert "continue_url" in body["data"]
-
-
-def test_pay_prepare_fails_with_checkout_url_expired(runner, isolated_session, monkeypatch):
-    from datetime import datetime, timezone, timedelta
-    from booking_agent_cli.session import load_store, save_store, get_active_session
-
-    _advance_to_payment_pending(runner, isolated_session, monkeypatch)
-
-    # Set expires_at to the past
-    store = load_store()
-    session = get_active_session(store)
-    session.booking.action_expires_at = (
-        datetime.now(timezone.utc) - timedelta(minutes=5)
-    ).isoformat()
-    for i, s in enumerate(store.sessions):
-        if s.id == session.id:
-            store.sessions[i] = session
-    save_store(store)
-
-    r = runner.invoke(__import__("booking_agent_cli.main", fromlist=["app"]).app, ["flow", "pay", "prepare"])
-    assert r.exit_code == 1
-    body = json.loads(r.stdout)
-    assert body["data"]["error"]["code"] == "checkout_url_expired"
-    assert body["next_command"] == "booking-agent flow pay rebook --service-id <id>"
-
-
-def test_pay_prepare_proceeds_when_action_expires_at_absent(runner, isolated_session, monkeypatch):
-    """No action_expires_at stored → proceed without blocking (backwards-compatible)."""
-    _advance_to_payment_pending(runner, isolated_session, monkeypatch)
-    # action_expires_at is already None from _advance_to_payment_pending
-
-    r = runner.invoke(__import__("booking_agent_cli.main", fromlist=["app"]).app, ["flow", "pay", "prepare"])
-    assert r.exit_code == 0, r.stdout + r.stderr
-    body = json.loads(r.stdout)
-    assert "continue_url" in body["data"]
-
-
 # ---------------------------------------------------------------------------
-# prereq browser config
+# prereq
 # ---------------------------------------------------------------------------
 
 def test_prereq_check_registry_only(runner, isolated_session):
@@ -1425,7 +1340,7 @@ def test_prereq_check_uses_default_registry_without_env(
     monkeypatch.delenv("USP_REGISTRY_URL", raising=False)
     monkeypatch.setattr(flow, "_probe_registry", lambda url: url == DEFAULT_REGISTRY_URL)
 
-    _init(runner, secrets_mode="booking-agent")
+    _init(runner)
     r = _invoke(runner, "flow", "prereq", "check")
 
     assert r.exit_code == 0, r.stdout + r.stderr
@@ -1534,6 +1449,84 @@ def test_discover_rejects_invalid_time_preferences(
     assert _stdout_json(r)["data"]["error"]["code"] == (
         "discover_time_preference_invalid"
     )
+
+
+def _confirm_yuma_area(runner, monkeypatch):
+    import booking_agent_cli.geocode as geo
+    from support.mock_link_cli import YUMA_SHIPPING_ADDRESS
+
+    monkeypatch.setattr(
+        geo, "_geocode_http",
+        lambda _p: [{"lat": "32.6927", "lon": "-114.6277", "display_name": "Yuma"}],
+    )
+    mock_link_cli_user_info(
+        monkeypatch, {"name": "Ada Lovelace", "email": "ada@booking-agent.test"},
+        shipping_addresses=[YUMA_SHIPPING_ADDRESS],
+    )
+    _invoke(runner, "flow", "search-area", "propose")
+    r = _invoke(runner, "flow", "search-area", "confirm", "--user-confirmed")
+    assert r.exit_code == 0, r.stdout
+
+
+def test_discover_uses_the_confirmed_area(runner, isolated_session, monkeypatch):
+    from booking_agent_cli.session import load_store
+
+    _init(runner, user_request="Book AC repair in Yuma AZ")
+    _invoke(runner, "flow", "prereq", "check")
+    _confirm_yuma_area(runner, monkeypatch)
+    r = _invoke(runner, "flow", "discover", "--radius-km", "40")
+    assert r.exit_code == 0, r.stdout + r.stderr
+    body = _stdout_json(r)
+    assert body["data"]["discover_location"] == {"lat": 32.6927, "lng": -114.6277, "radius_km": 40.0}
+    assert body["data"]["search_area"] == "100 Test Street, Yuma AZ 85364"
+    location = load_store().sessions[0].discover_registry_request_body["location"]
+    assert location["radiusKm"] == 40.0
+
+
+def test_discover_with_confirmed_area_needs_a_radius(runner, isolated_session, monkeypatch):
+    _init(runner, user_request="Book AC repair in Yuma AZ")
+    _invoke(runner, "flow", "prereq", "check")
+    _confirm_yuma_area(runner, monkeypatch)
+    r = _invoke(runner, "flow", "discover")
+    assert r.exit_code == 1
+    assert _stdout_json(r)["data"]["error"]["code"] == "discover_radius_required"
+
+
+def test_place_search_without_a_confirmed_area_is_refused(runner, isolated_session):
+    _init(runner, user_request="Book AC repair in Yuma AZ")
+    _invoke(runner, "flow", "prereq", "check")
+    r = _invoke(runner, "flow", "discover", "--radius-km", "25")
+    assert r.exit_code == 1
+    body = _stdout_json(r)
+    assert body["data"]["error"]["code"] == "search_area_unconfirmed"
+    assert body["next_command"] == "booking-agent flow search-area propose"
+
+
+def test_discover_rows_carry_a_display_line_with_the_business(runner, isolated_session):
+    _init(runner, user_request="Book AC repair in Yuma AZ")
+    _invoke(runner, "flow", "prereq", "check")
+    body = _stdout_json(_invoke(runner, "flow", "discover"))
+    for row in body["data"]["services"]:
+        assert row["display_line"].startswith(f"{row['service_name']} by {row['business_name']}")
+    assert "display_line verbatim" in body["prompt"]
+
+
+def test_discover_display_line_parts():
+    from booking_agent_cli.catalog import discover_display_line, duration_display
+
+    assert duration_display("PT1H30M") == "1 hr 30 min"
+    assert duration_display("PT45M") == "45 min"
+    assert duration_display("P1D") is None
+    assert discover_display_line({
+        "service_name": "AC Repair", "business_name": "HVAC-Koby", "price_display": "$1.00",
+        "duration": "PT1H", "channel": {"type": "at_buyer_location"},
+    }) == "AC Repair by HVAC-Koby, $1.00, 1 hr, comes to your address"
+    assert discover_display_line({
+        "service_name": "Haircut", "business_name": "Salon", "duration": "PT30M",
+        "channel": {"type": "at_business_location"},
+        "locations": [{"address": "1 Main St, Yuma AZ"}],
+        "location_facts": {"distance_km": 3.2},
+    }) == "Haircut by Salon, 30 min, at the business, 1 Main St, Yuma AZ, 3.2 km away"
 
 
 def test_discover_optional_location(runner, isolated_session):
@@ -1733,33 +1726,7 @@ def test_discover_rejects_invalid_location(runner, isolated_session):
     assert body["data"]["error"]["code"] == "discover_location_invalid"
 
 
-def test_prereq_check_redirect_persists_browser_config(runner, isolated_session):
-    _init(runner)
-    r = _invoke(runner, "flow", "prereq", "check-redirect")
-    assert r.exit_code == 0, r.stdout
-    body = _stdout_json(r)
-    assert body["data"]["browser_channel"] in ("chromium", "chrome", "google-chrome")
-
-    from booking_agent_cli.session import load_store
-    store = load_store()
-    assert store.browser_config is not None
-    assert store.browser_config.channel in ("chromium", "chrome", "google-chrome")
-
-
-def test_second_init_inherits_browser_config(runner, isolated_session):
-    _init(runner)
-    _invoke(runner, "flow", "prereq", "check-redirect")
-    _invoke(runner, "flow", "reset")
-    r = _init(runner, user_request="second booking")
-    assert r.exit_code == 0
-    from booking_agent_cli.session import load_store, get_active_session
-    store = load_store()
-    session = get_active_session(store)
-    assert store.browser_config is not None
-    assert session.browser_channel == store.browser_config.channel
-
-
-def test_use_ucp_checkout_mode_fails_without_redirect_fallback(runner, isolated_session, monkeypatch):
+def test_use_ucp_checkout_mode_fails_closed(runner, isolated_session, monkeypatch):
     from booking_agent_cli.session import load_session, save_session, Business
 
     _init(runner)
@@ -1784,7 +1751,7 @@ def test_use_ucp_checkout_mode_fails_without_redirect_fallback(runner, isolated_
     assert r.exit_code == 1, r.stdout + r.stderr
     body = _stdout_json(r)
     assert body["data"]["error"]["code"] == "ucp_platform_profile_invalid"
-    assert "use-redirect-checkout-mode" not in (body.get("next_command") or "")
+    assert "redirect" not in (body.get("next_command") or "")
 
 
 def test_business_use_fails_closed_for_non_ucp_profile(
@@ -1818,27 +1785,7 @@ def test_business_use_fails_closed_for_non_ucp_profile(
     assert result.exit_code == 1, result.stdout + result.stderr
     body = _stdout_json(result)
     assert body["data"]["error"]["code"] == "ucp_native_required"
-    assert "use-redirect-checkout-mode" not in (body.get("next_command") or "")
-
-
-def test_direct_redirect_checkout_mode_fails_closed(runner, isolated_session):
-    from booking_agent_cli.session import Business, load_session, save_session
-
-    _init(runner)
-    session = load_session()
-    assert session is not None
-    session.business = Business(profile_url=_PROFILE_URL, name="HVAC Koby")
-    session.checkout_mode = "redirect"
-    session.supported_checkout_modes = ["redirect"]
-    session.flow_phase = "BUSINESS_SELECTED"
-    save_session(session)
-
-    result = _invoke(runner, "flow", "use-redirect-checkout-mode")
-
-    assert result.exit_code == 1, result.stdout + result.stderr
-    body = _stdout_json(result)
-    assert body["data"]["error"]["code"] == "redirect_checkout_not_supported"
-    assert body.get("next_command") is None
+    assert "redirect" not in (body.get("next_command") or "")
 
 
 def test_calendar_skip_requires_checkout_prereq(runner, isolated_session):
@@ -1849,7 +1796,7 @@ def test_calendar_skip_requires_checkout_prereq(runner, isolated_session):
     assert session is not None
     session.business = Business(profile_url=_PROFILE_URL, name="HVAC Koby")
     session.checkout_mode = "ucp_native"
-    session.supported_checkout_modes = ["ucp_native", "redirect"]
+    session.supported_checkout_modes = ["ucp_native"]
     session.flow_phase = "BUSINESS_SELECTED"
     session.checkout_prereq_completed = False
     save_session(session)
@@ -1859,75 +1806,6 @@ def test_calendar_skip_requires_checkout_prereq(runner, isolated_session):
     body = _stdout_json(r)
     assert body["data"]["error"]["code"] == "checkout_prereq_not_completed"
     assert body["next_command"] == "booking-agent flow use-ucp-checkout-mode"
-
-
-def test_pay_request_uses_registry_minor_units_for_link_cli(
-    runner, isolated_session, monkeypatch,
-):
-    import booking_agent_cli.commands.flow as flow
-    from booking_agent_cli.link_cli import SpendRequestCreateResult
-    from booking_agent_cli.session import BookingRef, load_session, save_session
-
-    _drive_to_payment_pending(runner)
-    session = load_session()
-    assert session is not None
-    session.checkout_mode = "redirect"
-    session.booking = BookingRef(
-        id=session.booking.id,
-        checkout_path="ucp",
-        continue_url=None,
-        payment_context=None,
-    )
-    session.discover_services = [
-        {
-            "service_id": _SERVICE_ID,
-            "price_display": "$1.00",
-            "currency": "USD",
-            "registry_search_result": {
-                "pricing": {
-                    "amountMinorUnits": 100,
-                    "currency": "USD",
-                    "display": "$1.00",
-                },
-            },
-        }
-    ]
-    session.live_service = {
-        "name": "AC Repair",
-        "pricing": {
-            "amount_minor_units": 10000,
-            "price_display": "$100.00",
-            "currency": "USD",
-        },
-    }
-    save_session(session)
-
-    captured = {}
-
-    def fake_create(**kwargs):
-        captured.update(kwargs)
-        return SpendRequestCreateResult(
-            id="lsrq_registry_price",
-            approval_url="https://link.test/approve",
-            raw={"id": "lsrq_registry_price"},
-            command_summary="link-cli spend-request create ...",
-        )
-
-    monkeypatch.setattr(flow, "create_spend_request", fake_create)
-    context = "x" * 100
-    r = _invoke(
-        runner,
-        "flow",
-        "pay",
-        "request",
-        "--payment-method-id",
-        "pm_test",
-        "--context",
-        context,
-        "--no-then-complete",
-    )
-    assert r.exit_code == 0, r.stdout + r.stderr
-    assert captured["amount"] == 100
 
 
 def test_pay_request_uses_live_catalog_on_ucp_native_when_registry_differs(
@@ -1944,7 +1822,6 @@ def test_pay_request_uses_live_catalog_on_ucp_native_when_registry_differs(
     session.booking = BookingRef(
         id=session.booking.id,
         checkout_path="ucp",
-        continue_url=None,
         payment_context=None,
     )
     session.discover_services = [
@@ -2312,39 +2189,6 @@ def test_pay_ucp_complete_blocked_without_ack_surface(
     assert "End the turn" not in message
 
 
-def test_pay_ucp_complete_rejects_webhook_wait_without_starting_server(
-    runner, isolated_session, monkeypatch,
-):
-    import booking_agent_cli.booking_webhook as booking_webhook
-
-    _drive_to_payment_pending(runner)
-    started = False
-
-    def fail_if_started(*args, **kwargs):
-        nonlocal started
-        started = True
-        raise AssertionError("inbound webhook server must not start")
-
-    monkeypatch.setattr(
-        booking_webhook,
-        "start_webhook_server",
-        fail_if_started,
-    )
-    result = _invoke(
-        runner,
-        "flow",
-        "pay",
-        "ucp-complete",
-        "--wait-for-booking",
-    )
-
-    assert result.exit_code == 1, result.stdout + result.stderr
-    body = _stdout_json(result)
-    assert body["data"]["error"]["code"] == "webhook_wait_not_supported"
-    assert body["next_command"] == "booking-agent flow book poll --wait"
-    assert started is False
-
-
 def test_pay_poll_completes_ucp_checkout(
     runner, isolated_session, monkeypatch,
 ):
@@ -2627,9 +2471,31 @@ def test_pay_request_reads_context_from_stdin_without_shell_expansion(
     assert "$1.00" in calls[0]["context"]
 
 
-def test_pay_request_needs_exactly_one_context_source(runner, isolated_session):
+def test_pay_request_writes_the_link_note_from_the_session(runner, isolated_session, monkeypatch):
+    import booking_agent_cli.commands.flow as flow
+
     _ucp_payment_pending(runner)
+    calls = []
+    monkeypatch.setattr(
+        flow, "create_spend_request",
+        lambda **kw: calls.append(kw) or _approval_created("lsrq_auto"),
+    )
     r = _invoke(runner, "flow", "pay", "request", "--payment-method-id", "pm_test")
+    assert r.exit_code == 0, r.stdout
+    note = calls[0]["context"]
+    assert len(note) >= 100
+    assert note.startswith("Booking ")
+    assert "Total $1.00" in note
+
+
+def test_pay_request_refuses_two_context_sources(runner, isolated_session):
+    _ucp_payment_pending(runner)
+    r = runner.invoke(
+        app,
+        ["flow", "pay", "request", "--payment-method-id", "pm_test",
+         "--context", "x" * 120, "--context-file", "-"],
+        input="y" * 120,
+    )
     assert r.exit_code == 1
     assert _stdout_json(r)["data"]["error"]["code"] == "context_required"
 
@@ -3115,31 +2981,8 @@ def test_pay_request_stale_total_confirmation_does_not_cover_a_new_total(
     assert calls == []
 
 # ---------------------------------------------------------------------------
-# pay checkout integration (mock server + mocked link-cli)
+# booking and payment integration (mock server + mocked link-cli)
 # ---------------------------------------------------------------------------
-
-def _inject_redirect_payment_pending(booking_id: str = "bkg_mock_ucp") -> None:
-    """Re-point a UCP-mocked PAYMENT_PENDING session at redirect checkout for legacy tests."""
-    from support.mock import MOCK_CHECKOUT_PORT
-    from booking_agent_cli.checkout_prereq import run_prereq_check_redirect
-    from booking_agent_cli.session import BookingRef, get_active_session, load_store, save_store
-
-    store = load_store()
-    session = get_active_session(store)
-    run_prereq_check_redirect(session)
-    session.flow_phase = "PAYMENT_PENDING"
-    session.checkout_mode = "redirect"
-    session.booking = BookingRef(
-        id=booking_id,
-        checkout_path="redirect",
-        continue_url=f"http://127.0.0.1:{MOCK_CHECKOUT_PORT}/session/{booking_id}",
-        payment_context={"amountDue": 100, "currency": "USD"},
-    )
-    for i, s in enumerate(store.sessions):
-        if s.id == session.id:
-            store.sessions[i] = session
-    save_store(store)
-
 
 def _drive_to_payment_pending(runner):
     _init(runner)
@@ -3157,37 +3000,7 @@ def _drive_to_payment_pending(runner):
     return _stdout_json(r)
 
 
-def _surface_and_ack_pay_approval(runner, monkeypatch, sr_id="lsrq_test"):
-    """Run pay request + ack-surface so redirect checkout can pass the trusted-UI gate."""
-    import booking_agent_cli.commands.flow as flow
-    from booking_agent_cli.link_cli import SpendRequestCreateResult
-
-    def fake_create(**kwargs):
-        return SpendRequestCreateResult(
-            id=sr_id,
-            approval_url="https://link.test/approve",
-            raw={"id": sr_id},
-            command_summary="link-cli spend-request create ...",
-        )
-
-    monkeypatch.setattr(flow, "create_spend_request", fake_create)
-    context = "x" * 100
-    r = _invoke(
-        runner,
-        "flow",
-        "pay",
-        "request",
-        "--payment-method-id",
-        "pm_test",
-        "--context",
-        context,
-    )
-    assert r.exit_code == 0, r.stdout + r.stderr
-    r_ack = _invoke(runner, "flow", "pay", "ack-surface")
-    assert r_ack.exit_code == 0, r_ack.stdout + r_ack.stderr
-
-
-def test_book_emits_price_display(runner, isolated_session, mock_checkout_server):
+def test_book_emits_price_display(runner, isolated_session):
     body = _drive_to_payment_pending(runner)
     assert body["data"]["price_display"] == "$1.00"
     assert body["data"]["amount_minor_units"] == 100
@@ -3249,64 +3062,13 @@ def test_book_blocks_mandatory_acceptance_pending(
     assert _stdout_json(r_pay)["data"]["error"]["code"] != "approval_not_surfaced_to_user"
 
 
-@pytest.mark.skip(reason="Redirect checkout is outside the v2 production path")
-def test_pay_checkout_e2e_mock(
-    runner, isolated_session, mock_checkout_server, monkeypatch, tmp_path,
-):
-    import booking_agent_cli.commands.flow as flow
-
-    book_body = _drive_to_payment_pending(runner)
-    booking_id = book_body["data"]["booking_id"]
-    _inject_redirect_payment_pending(booking_id)
-    _surface_and_ack_pay_approval(runner, monkeypatch)
-
-    card_file = tmp_path / "card.json"
-    card_file.write_text(json.dumps({
-        "card": {
-            "number": "4242424242424242",
-            "exp_month": 12,
-            "exp_year": 2030,
-            "cvc": "123",
-            "billing_address": {"name": "Ada Lovelace"},
-        }
-    }))
-
-    def fake_retrieve_card(sr_id):
-        return json.loads(card_file.read_text()), card_file
-
-    def fake_retrieve_status(sr_id):
-        from booking_agent_cli.link_cli import SpendRequestStatus
-        return SpendRequestStatus(id=sr_id, status="approved")
-
-    monkeypatch.setattr(flow, "retrieve_spend_request_card", fake_retrieve_card)
-    monkeypatch.setattr(flow, "retrieve_spend_request", fake_retrieve_status)
-
-    r = _invoke(
-        runner, "flow", "pay", "checkout",
-        "--spend-request-id", "lsrq_test",
-        "--headless",
-    )
-    assert r.exit_code == 0, r.stdout + r.stderr
-    body = _stdout_json(r)
-    assert body["next_command"] == "booking-agent flow book poll --wait"
-
-    from support.mock.checkout_server import is_booking_paid
-    assert is_booking_paid(booking_id)
-
-    r2 = _invoke(runner, "flow", "book", "poll")
-    assert r2.exit_code == 0, r2.stdout
-    poll = _stdout_json(r2)
-    assert poll["phase"] == "CONFIRMED"
-    assert poll["data"]["status"] == "confirmed"
-
-
 # ---------------------------------------------------------------------------
-# Fast booking wait (book poll --wait, pay checkout --wait-for-booking)
+# Fast booking wait (book poll --wait)
 # ---------------------------------------------------------------------------
 
-def test_book_poll_wait_confirmed(runner, isolated_session, mock_checkout_server):
+def test_book_poll_wait_confirmed(runner, isolated_session):
     """`book poll --wait` returns CONFIRMED in one invocation once the booking is paid."""
-    from support.mock.checkout_server import mark_booking_paid
+    from support.mock import mark_booking_paid
 
     book_body = _drive_to_payment_pending(runner)
     booking_id = book_body["data"]["booking_id"]
@@ -3322,7 +3084,7 @@ def test_book_poll_wait_confirmed(runner, isolated_session, mock_checkout_server
     assert body["data"]["status"] == "confirmed"
 
 
-def test_book_poll_wait_timeout(runner, isolated_session, mock_checkout_server):
+def test_book_poll_wait_timeout(runner, isolated_session):
     """`book poll --wait` exits with poll_timeout when the booking never confirms."""
     _drive_to_payment_pending(runner)  # booking created but left unpaid
 
@@ -3334,465 +3096,6 @@ def test_book_poll_wait_timeout(runner, isolated_session, mock_checkout_server):
     body = _stdout_json(r)
     assert body["data"]["error"]["code"] == "poll_timeout"
     assert body["next_command"] == "booking-agent flow book poll --wait"
-
-
-@pytest.mark.skip(reason="Redirect checkout is outside the v2 production path")
-def test_pay_checkout_wait_for_booking(
-    runner, isolated_session, mock_checkout_server, monkeypatch, tmp_path,
-):
-    """`pay checkout --wait-for-booking` confirms in one command (no separate poll)."""
-    import booking_agent_cli.commands.flow as flow
-
-    _drive_to_payment_pending(runner)
-    _inject_redirect_payment_pending()
-    _surface_and_ack_pay_approval(runner, monkeypatch)
-    card_file = tmp_path / "card.json"
-    card_file.write_text(json.dumps({
-        "card": {
-            "number": "4242424242424242",
-            "exp_month": 12,
-            "exp_year": 2030,
-            "cvc": "123",
-            "billing_address": {"name": "Ada Lovelace"},
-        }
-    }))
-
-    def fake_retrieve_status(sr_id):
-        from booking_agent_cli.link_cli import SpendRequestStatus
-        return SpendRequestStatus(id=sr_id, status="approved")
-
-    monkeypatch.setattr(
-        flow, "retrieve_spend_request_card",
-        lambda sr_id: (json.loads(card_file.read_text()), card_file),
-    )
-    monkeypatch.setattr(flow, "retrieve_spend_request", fake_retrieve_status)
-
-    r = _invoke(
-        runner, "flow", "pay", "checkout",
-        "--spend-request-id", "lsrq_test",
-        "--wait-for-booking",
-        "--poll-interval", "0.05",
-        "--booking-timeout", "10",
-        "--headless",
-    )
-    assert r.exit_code == 0, r.stdout + r.stderr
-    body = _stdout_json(r)
-    assert body["phase"] == "CONFIRMED"
-    assert body["data"]["status"] == "confirmed"
-    assert body["next_command"] == "booking-agent flow validate-skill-compliance"
-
-
-@pytest.mark.skip(reason="Redirect checkout is outside the v2 production path")
-def test_local_return_listener_e2e(
-    runner, isolated_session, mock_checkout_server, monkeypatch, tmp_path,
-):
-    """Merchant 302 to the loopback PPRR listener drives an immediate confirm."""
-    from support.mock.checkout_server import set_return_redirect
-    from booking_agent_cli.session import load_store, get_active_session
-    import booking_agent_cli.commands.flow as flow
-
-    # Drive to PAYMENT_PENDING with the local return listener enabled.
-    _init(runner)
-    _invoke(runner, "flow", "prereq", "check")
-    _complete_checkout_mode_setup(runner)
-    _invoke(runner, "flow", "calendar", "skip")
-    _invoke(runner, "flow", "availability", "--service-id", _SERVICE_ID)
-    slots = _stdout_json(_invoke(runner, "flow", "slots", "list"))
-    slot_id = slots["data"]["slots"][0]["slot_id"]
-    _invoke(runner, "flow", "slots", "select", "--slot-id", slot_id, "--user-confirmed")
-    _satisfy_link_auth_gate()
-    _invoke(runner, "flow", "buyer", "resolve")
-    r = _invoke(runner, "flow", "book", "--service-id", _SERVICE_ID, "--local-return-listener")
-    assert r.exit_code == 0, r.stdout
-
-    session = get_active_session(load_store())
-    assert session.local_return_listener is True
-    assert session.return_listener_url and session.return_listener_url.startswith("http://127.0.0.1:")
-
-    _inject_redirect_payment_pending(session.booking.id or "bkg_mock_ucp")
-
-    # Simulate a merchant that redirects to the PPRR loopback URL after payment.
-    set_return_redirect(session.return_listener_url, booking_session=session.id)
-
-    _surface_and_ack_pay_approval(runner, monkeypatch)
-
-    card_file = tmp_path / "card.json"
-    card_file.write_text(json.dumps({
-        "card": {
-            "number": "4242424242424242",
-            "exp_month": 12,
-            "exp_year": 2030,
-            "cvc": "123",
-            "billing_address": {"name": "Ada Lovelace"},
-        }
-    }))
-    monkeypatch.setattr(
-        flow, "retrieve_spend_request_card",
-        lambda sr_id: (json.loads(card_file.read_text()), card_file),
-    )
-
-    def fake_retrieve_status(sr_id):
-        from booking_agent_cli.link_cli import SpendRequestStatus
-        return SpendRequestStatus(id=sr_id, status="approved")
-
-    monkeypatch.setattr(flow, "retrieve_spend_request", fake_retrieve_status)
-
-    r2 = _invoke(
-        runner, "flow", "pay", "checkout",
-        "--spend-request-id", "lsrq_test",
-        "--wait-for-booking",
-        "--poll-interval", "0.05",
-        "--booking-timeout", "10",
-        "--headless",
-    )
-    assert r2.exit_code == 0, r2.stdout + r2.stderr
-    body = _stdout_json(r2)
-    assert body["phase"] == "CONFIRMED"
-
-    # The listener received the merchant redirect with our correlation id.
-    from booking_agent_cli.return_listener import get_active_listener
-    handle = get_active_listener(session.return_listener_url)
-    assert handle is not None
-    assert handle.event.is_set()
-    assert handle.params.get("booking_session") == session.id
-
-
-@pytest.mark.skip(reason="Redirect checkout is outside the v2 production path")
-def test_pay_checkout_wait_for_approval_polls(
-    runner, isolated_session, mock_checkout_server, monkeypatch, tmp_path,
-):
-    import booking_agent_cli.commands.flow as flow
-
-    _drive_to_payment_pending(runner)
-    _inject_redirect_payment_pending()
-    _surface_and_ack_pay_approval(runner, monkeypatch)
-    card_file = tmp_path / "card.json"
-    card_file.write_text(json.dumps({
-        "card": {
-            "number": "4242424242424242",
-            "exp_month": 12,
-            "exp_year": 2030,
-            "cvc": "123",
-            "billing_address": {"name": "Ada Lovelace"},
-        }
-    }))
-    calls = {"n": 0}
-
-    def fake_retrieve_status(sr_id):
-        from booking_agent_cli.link_cli import SpendRequestStatus
-        calls["n"] += 1
-        status = "pending_approval" if calls["n"] < 2 else "approved"
-        return SpendRequestStatus(id=sr_id, status=status, approval_url="https://app.link.com/x")
-
-    monkeypatch.setattr(flow, "retrieve_spend_request", fake_retrieve_status)
-    monkeypatch.setattr(
-        "booking_agent_cli.link_cli.retrieve_spend_request", fake_retrieve_status
-    )
-    monkeypatch.setattr(
-        flow, "retrieve_spend_request_card",
-        lambda sr_id: (json.loads(card_file.read_text()), card_file),
-    )
-
-    r = _invoke(
-        runner, "flow", "pay", "checkout",
-        "--spend-request-id", "lsrq_test",
-        "--wait-for-approval",
-        "--poll-interval", "0.01",
-        "--headless",
-    )
-    assert r.exit_code == 0, r.stdout
-    assert calls["n"] >= 2
-
-
-@pytest.mark.skip(reason="Redirect checkout is outside the v2 production path")
-def test_pay_checkout_refuses_when_expiring_soon(
-    runner, isolated_session, mock_checkout_server, monkeypatch, tmp_path,
-):
-    from datetime import datetime, timezone, timedelta
-    from booking_agent_cli.session import load_store, save_store, get_active_session
-    import booking_agent_cli.commands.flow as flow
-
-    _advance_to_payment_pending(runner, isolated_session, monkeypatch)
-    store = load_store()
-    session = get_active_session(store)
-    session.booking.action_expires_at = (
-        datetime.now(timezone.utc) + timedelta(seconds=60)
-    ).isoformat()
-    session.payment.spend_request_id = "lsrq_test"
-    session.payment.spend_approval_surfaced = True
-    session.payment.spend_approval_user_surfaced = True
-    for i, s in enumerate(store.sessions):
-        if s.id == session.id:
-            store.sessions[i] = session
-    save_store(store)
-
-    card_file = tmp_path / "card.json"
-    card_file.write_text(json.dumps({
-        "card": {
-            "number": "4242424242424242",
-            "exp_month": 12,
-            "exp_year": 2030,
-            "cvc": "123",
-            "billing_address": {"name": "Ada Lovelace"},
-        }
-    }))
-    monkeypatch.setattr(
-        flow, "retrieve_spend_request_card",
-        lambda sr_id: (json.loads(card_file.read_text()), card_file),
-    )
-    monkeypatch.setattr(
-        flow, "retrieve_spend_request",
-        lambda sr_id: __import__(
-            "booking_agent_cli.link_cli", fromlist=["SpendRequestStatus"]
-        ).SpendRequestStatus(id=sr_id, status="approved"),
-    )
-
-    r = _invoke(
-        runner, "flow", "pay", "checkout",
-        "--spend-request-id", "lsrq_test",
-        "--headless",
-    )
-    assert r.exit_code == 1
-    body = _stdout_json(r)
-    assert body["data"]["error"]["code"] == "checkout_url_expiring"
-
-
-@pytest.mark.skip(reason="Redirect checkout is outside the v2 production path")
-def test_auto_card_fast_fail_to_assist(
-    runner, isolated_session, mock_checkout_server, monkeypatch, tmp_path,
-):
-    import booking_agent_cli.checkout as checkout_mod
-    import booking_agent_cli.commands.flow as flow
-
-    _drive_to_payment_pending(runner)
-    _inject_redirect_payment_pending()
-    _surface_and_ack_pay_approval(runner, monkeypatch)
-
-    card_file = tmp_path / "card.json"
-    card_file.write_text(json.dumps({
-        "card": {
-            "number": "4242424242424242",
-            "exp_month": 12,
-            "exp_year": 2030,
-            "cvc": "123",
-            "billing_address": {"name": "Ada Lovelace"},
-        }
-    }))
-    handoff_calls = {"n": 0}
-
-    def fake_try_automated_card_fill(page, card, probe_ms):
-        return False
-
-    def fake_handoff(card, **kwargs):
-        handoff_calls["n"] += 1
-
-    def fake_wait(page, start_url, timeout_ms):
-        return True
-
-    monkeypatch.setattr(checkout_mod, "_try_automated_card_fill", fake_try_automated_card_fill)
-    monkeypatch.setattr(checkout_mod, "print_virtual_card_handoff", fake_handoff)
-    monkeypatch.setattr(checkout_mod, "_wait_for_user_card_entry", fake_wait)
-    monkeypatch.setattr(flow, "retrieve_spend_request_card", lambda sr_id: (
-        json.loads(card_file.read_text()), card_file,
-    ))
-    monkeypatch.setattr(
-        flow, "retrieve_spend_request",
-        lambda sr_id: __import__(
-            "booking_agent_cli.link_cli", fromlist=["SpendRequestStatus"]
-        ).SpendRequestStatus(id=sr_id, status="approved"),
-    )
-
-    r = _invoke(
-        runner, "flow", "pay", "checkout",
-        "--spend-request-id", "lsrq_test",
-        "--headless",
-    )
-    assert r.exit_code == 0, r.stdout + r.stderr
-    assert handoff_calls["n"] == 1
-
-
-def test_assist_timeout_capped_by_expires_at(monkeypatch):
-    from booking_agent_cli.payment_helpers import (
-        CHECKOUT_SAFETY_MARGIN_SEC,
-        compute_assist_timeout_ms,
-    )
-    from booking_agent_cli.session import BookingRef, Session
-
-    session = Session(id="s1", flow_phase="PAYMENT_PENDING")
-    session.booking = BookingRef(
-        id="bkg",
-        checkout_path="redirect",
-        continue_url="https://example.com/checkout",
-    )
-    monkeypatch.setattr(
-        "booking_agent_cli.payment_helpers.seconds_until_checkout_expires",
-        lambda _session: 120,
-    )
-    expected = (120 - CHECKOUT_SAFETY_MARGIN_SEC) * 1000
-    assert compute_assist_timeout_ms(session) == expected
-
-
-@pytest.mark.skip(reason="Redirect checkout is outside the v2 production path")
-def test_pay_checkout_assist_only_skips_auto(
-    runner, isolated_session, mock_checkout_server, monkeypatch, tmp_path,
-):
-    import booking_agent_cli.commands.flow as flow
-
-    _drive_to_payment_pending(runner)
-    _inject_redirect_payment_pending()
-    _surface_and_ack_pay_approval(runner, monkeypatch)
-    captured = {}
-
-    def fake_run(inp):
-        captured["auto_card"] = inp.auto_card
-        from booking_agent_cli.checkout import CheckoutResult
-        return CheckoutResult(final_url="http://x", submitted=True)
-
-    card_file = tmp_path / "card.json"
-    card_file.write_text(json.dumps({
-        "card": {
-            "number": "4242424242424242",
-            "exp_month": 12,
-            "exp_year": 2030,
-            "cvc": "123",
-            "billing_address": {"name": "Ada Lovelace"},
-        }
-    }))
-    monkeypatch.setattr(flow, "run_redirect_checkout", fake_run)
-    monkeypatch.setattr(flow, "retrieve_spend_request_card", lambda sr_id: (
-        json.loads(card_file.read_text()), card_file,
-    ))
-    monkeypatch.setattr(
-        flow, "retrieve_spend_request",
-        lambda sr_id: __import__(
-            "booking_agent_cli.link_cli", fromlist=["SpendRequestStatus"]
-        ).SpendRequestStatus(id=sr_id, status="approved"),
-    )
-
-    r = _invoke(
-        runner, "flow", "pay", "checkout",
-        "--spend-request-id", "lsrq_test",
-        "--assist-card",
-    )
-    assert r.exit_code == 0, r.stdout
-    assert captured["auto_card"] is False
-
-
-@pytest.mark.skip(reason="Redirect checkout is outside the v2 production path")
-def test_pay_checkout_blocked_without_surface_gate(
-    runner, isolated_session, mock_checkout_server, monkeypatch,
-):
-    import booking_agent_cli.commands.flow as flow
-    from booking_agent_cli.link_cli import SpendRequestCreateResult, SpendRequestStatus
-
-    _drive_to_payment_pending(runner)
-    _inject_redirect_payment_pending()
-
-    def fake_create(**kwargs):
-        return SpendRequestCreateResult(
-            id="lsrq_redirect_gate",
-            approval_url="https://link.test/approve",
-            raw={"id": "lsrq_redirect_gate"},
-            command_summary="link-cli spend-request create ...",
-        )
-
-    monkeypatch.setattr(flow, "create_spend_request", fake_create)
-    monkeypatch.setattr(
-        flow,
-        "resolve_spend_approval_url",
-        lambda _sr_id: "https://link.test/approve",
-    )
-    monkeypatch.setattr(
-        flow,
-        "retrieve_spend_request",
-        lambda sr_id: SpendRequestStatus(id=sr_id, status="approved"),
-    )
-
-    context = "x" * 100
-    r = _invoke(
-        runner,
-        "flow",
-        "pay",
-        "request",
-        "--payment-method-id",
-        "pm_test",
-        "--context",
-        context,
-    )
-    assert r.exit_code == 0, r.stdout + r.stderr
-
-    r2 = _invoke(
-        runner,
-        "flow",
-        "pay",
-        "checkout",
-        "--spend-request-id",
-        "lsrq_redirect_gate",
-        "--headless",
-    )
-    assert r2.exit_code == 1, r2.stdout + r2.stderr
-    assert r2.stdout.splitlines()[0] == "https://link.test/approve"
-    body = _stdout_json(r2)
-    assert body["data"]["error"]["code"] == "approval_not_surfaced_to_user"
-
-
-@pytest.mark.skip(reason="Redirect checkout is outside the v2 production path")
-def test_pay_checkout_blocked_without_continue_url(
-    runner, isolated_session, mock_checkout_server, monkeypatch,
-):
-    from booking_agent_cli.session import load_session, save_session
-
-    _drive_to_payment_pending(runner)
-    _inject_redirect_payment_pending()
-    _surface_and_ack_pay_approval(runner, monkeypatch)
-    session = load_session()
-    assert session is not None
-    session.booking.continue_url = None
-    save_session(session)
-
-    r = _invoke(
-        runner,
-        "flow",
-        "pay",
-        "checkout",
-        "--spend-request-id",
-        "lsrq_test",
-        "--headless",
-    )
-    assert r.exit_code == 1, r.stdout + r.stderr
-    body = _stdout_json(r)
-    assert body["data"]["error"]["code"] == "no_continue_url"
-
-
-@pytest.mark.skip(reason="Redirect checkout is outside the v2 production path")
-def test_pay_record_cannot_complete_without_surface_gate(
-    runner, isolated_session, mock_checkout_server, monkeypatch,
-):
-    _drive_to_payment_pending(runner)
-    _inject_redirect_payment_pending()
-
-    r = _invoke(
-        runner,
-        "flow",
-        "pay",
-        "record",
-        "--spend-request-id",
-        "lsrq_record",
-    )
-    assert r.exit_code == 0, r.stdout + r.stderr
-
-    r2 = _invoke(
-        runner,
-        "flow",
-        "pay",
-        "checkout",
-        "--spend-request-id",
-        "lsrq_record",
-        "--headless",
-    )
-    assert r2.exit_code == 1, r2.stdout + r2.stderr
-    body = _stdout_json(r2)
-    assert body["data"]["error"]["code"] == "approval_not_created"
 
 
 def test_pay_request_second_call_does_not_reemit_url(
@@ -3863,7 +3166,9 @@ def _geocoder(monkeypatch, coords):
             raise tc.BuyerTimezoneError("geocoder_unavailable")
         return [{"lat": str(coords[0]), "lon": str(coords[1])}]
 
-    monkeypatch.setattr(tc, "_geocode_http", fake)
+    import booking_agent_cli.geocode as geo
+
+    monkeypatch.setattr(geo, "_geocode_http", fake)
 
 
 def _link_address(monkeypatch, *, with_address=True):

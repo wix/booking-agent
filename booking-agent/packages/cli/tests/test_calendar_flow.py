@@ -487,9 +487,11 @@ def test_event_description_says_pay_when_receiving_the_service():
             "pricing": {"amount_minor_units": 4000, "currency": "USD"},
             "channel": {"type": "at_buyer_location"},
         },
+        service_address_label="3194 West Rome Street, Yuma AZ 85364",
     )
     assert "Service: Duct Cleaning" in text
-    assert "Where: The business comes to you." in text
+    assert "Where: At your address, 3194 West Rome Street, Yuma AZ 85364." in text
+    assert "comes to you" not in text
     assert "Payment: Pay $40.00 when you receive the service." in text
     assert "paid in full" not in text
     assert "deposit" not in text.lower()
@@ -591,22 +593,18 @@ def test_event_description_fallback_links_when_no_manage_page():
 
     text = _described(
         payment_route="free",
-        booking=BookingRef(
-            id="bk_2",
-            continue_url="https://hvackoby.com/checkout/cs_1",
-        ),
+        booking=BookingRef(id="bk_2"),
         ucp_checkout_links=[
             {"type": "terms_of_service", "url": "https://hvackoby.com/terms"},
             {"rel": "privacy_policy", "href": "https://hvackoby.com/privacy"},
-            {"type": "terms_of_service", "url": "https://hvackoby.com/checkout/cs_1"},
+            {"type": "terms_of_service", "url": "https://hvackoby.com/terms"},
         ],
     )
     assert "To cancel or reschedule this booking, use these links:" in text
-    assert "Checkout page: https://hvackoby.com/checkout/cs_1" in text
     assert "Business website: https://hvackoby.com" in text
     assert "Terms of service: https://hvackoby.com/terms" in text
     assert "Privacy policy: https://hvackoby.com/privacy" in text
-    assert text.count("https://hvackoby.com/checkout/cs_1") == 1
+    assert text.count("https://hvackoby.com/terms") == 1
     assert "manage booking page" not in text
 
 
@@ -844,3 +842,41 @@ def test_calendar_connect_timeout_asks_the_user_instead_of_relinking(runner, tmp
     assert "Would you like a new link" in result.stdout.split("\n{")[-2]
     assert [c["choice"] for c in body["data"]["choices"]] == ["new_link", "continue_without_calendar"]
     assert body["data"]["choices"][1]["command"] == "booking-agent flow calendar skip --session-only"
+
+
+def test_event_location_and_time_zone_for_a_home_visit():
+    from booking_agent_cli.calendar_event import build_event_body
+
+    body, _ = build_event_body(_titled_session(
+        business=Business(name="HVAC-Koby", timezone="America/Phoenix"),
+        live_service={"name": "AC Repair", "channel": {"type": "at_buyer_location"}},
+        service_address_label="3194 West Rome Street, Yuma AZ 85364",
+        booking_notes="Window unit, completely unresponsive",
+    ))
+    assert body["location"] == "3194 West Rome Street, Yuma AZ 85364"
+    assert body["start"] == {"dateTime": "2026-10-06T07:00:00Z", "timeZone": "America/Phoenix"}
+    assert body["end"]["timeZone"] == "America/Phoenix"
+    assert "Your note to the business: Window unit, completely unresponsive" in body["description"]
+
+
+def test_event_location_uses_the_business_address_when_published():
+    from booking_agent_cli.calendar_event import build_event_body
+
+    body, _ = build_event_body(_titled_session(live_service={
+        "name": "Haircut",
+        "channel": {"type": "at_business_location"},
+        "locations": [{"name": "Main salon", "address": "1 Main St, Yuma AZ 85364"}],
+    }))
+    assert body["location"] == "1 Main St, Yuma AZ 85364"
+    assert "Where: At the business, 1 Main St, Yuma AZ 85364." in body["description"]
+    assert "timeZone" not in body["start"]
+
+
+def test_event_location_falls_back_to_the_business_name():
+    from booking_agent_cli.calendar_event import build_event_body
+
+    body, _ = build_event_body(_titled_session(
+        live_service={"name": "AC Repair", "channel": {"type": "at_buyer_location"}},
+    ))
+    assert body["location"] == "HVAC-Koby"
+    assert "Where: At your address." in body["description"]
