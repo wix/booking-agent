@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import logging
-import os
 import re
 import sys
 import time
@@ -10,14 +9,16 @@ from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 from urllib.parse import urlparse
 
+from booking_agent import settings
+
 from .browser import BrowserLaunchSpec
 from .session import Buyer
 
 logger = logging.getLogger(__name__)
 
-CHECKOUT_TIMEOUT_MS = int(os.environ.get("BOOKING_AGENT_CHECKOUT_TIMEOUT", "90000"))
-CARD_AUTO_PROBE_MS = int(os.environ.get("BOOKING_AGENT_CARD_AUTO_PROBE_MS", "15000"))
-DEFAULT_ASSIST_TIMEOUT_MS = int(os.environ.get("BOOKING_AGENT_ASSIST_TIMEOUT_MS", "300000"))
+CHECKOUT_TIMEOUT_MS = settings.get_int("BOOKING_AGENT_CHECKOUT_TIMEOUT")
+CARD_AUTO_PROBE_MS = settings.get_int("BOOKING_AGENT_CARD_AUTO_PROBE_MS")
+DEFAULT_ASSIST_TIMEOUT_MS = settings.get_int("BOOKING_AGENT_ASSIST_TIMEOUT_MS")
 
 _CHECKOUT_PATH_MARKERS = ("/checkout", "/pay/", "/payment")
 _CARD_IFRAME_SELECTORS = [

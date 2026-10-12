@@ -33,6 +33,17 @@ def _reset_observability_context():
 
 
 @pytest.fixture(autouse=True)
+def _reset_loaded_config():
+    """Values an env file put into os.environ must not outlive the test that loaded it."""
+    from booking_agent import settings
+    from booking_agent_cli import config_loader
+
+    yield
+    config_loader.reset()
+    settings.set_demo(False)
+
+
+@pytest.fixture(autouse=True)
 def _reset_flow_process_globals():
     """Keep hermetic flow stubs and loopback HTTP tests order-independent."""
     import booking_agent.backend.cached_live as cached_live
@@ -72,13 +83,17 @@ def _reset_flow_process_globals():
 @pytest.fixture(autouse=True)
 def _no_buyer_timezone_network(monkeypatch):
     """Buyer-zone lookup is off by default and its geocoder never leaves the host."""
+    import booking_agent_cli.geocode as geocode
     import booking_agent_cli.timezone_context as timezone_context
 
     def _offline_geocoder(_params):
-        raise timezone_context.BuyerTimezoneError("geocoder_unavailable")
+        raise geocode.GeocodeError("geocoder_unavailable")
 
+    geocode.clear_cache()
     monkeypatch.setenv(timezone_context.LOOKUP_ENV, "off")
-    monkeypatch.setattr(timezone_context, "_geocode_http", _offline_geocoder)
+    monkeypatch.setattr(geocode, "_geocode_http", _offline_geocoder)
+    yield
+    geocode.clear_cache()
 
 
 @pytest.fixture

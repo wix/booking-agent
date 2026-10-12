@@ -5,6 +5,7 @@ import sys
 
 import typer
 
+from .commands.config import app as config_app
 from .commands.flow import app as flow_app
 from .commands.lowlevel import (
     availability_app,
@@ -19,6 +20,7 @@ app = typer.Typer(
     no_args_is_help=True,
 )
 app.add_typer(flow_app, name="flow")
+app.add_typer(config_app, name="config")
 app.add_typer(search_app, name="search")
 app.add_typer(profile_app, name="profile")
 app.add_typer(availability_app, name="availability")

@@ -4,6 +4,7 @@ from __future__ import annotations
 import httpx
 import pytest
 
+import booking_agent_cli.geocode as geo
 import booking_agent_cli.timezone_context as tc
 from booking_agent_cli.link_cli import (
     LinkCliShippingAddressError,
@@ -13,13 +14,13 @@ from booking_agent_cli.link_cli import (
 from support.mock_link_cli import YUMA_SHIPPING_ADDRESS, mock_link_cli_user_info
 
 YUMA = YUMA_SHIPPING_ADDRESS["address"]
-_REAL_GEOCODE_HTTP = tc._geocode_http
+_REAL_GEOCODE_HTTP = geo._geocode_http
 
 
 @pytest.fixture
 def lookup_on(monkeypatch):
     monkeypatch.setenv(tc.LOOKUP_ENV, "on")
-    monkeypatch.delenv(tc.GEOCODER_URL_ENV, raising=False)
+    monkeypatch.delenv(geo.GEOCODER_URL_ENV, raising=False)
 
 
 def _geocoder_returning(monkeypatch, rows, calls=None):
@@ -28,7 +29,7 @@ def _geocoder_returning(monkeypatch, rows, calls=None):
             calls.append(dict(params))
         return rows(params) if callable(rows) else rows
 
-    monkeypatch.setattr(tc, "_geocode_http", fake)
+    monkeypatch.setattr(geo, "_geocode_http", fake)
 
 
 def test_valid_iana_timezone():
@@ -173,7 +174,7 @@ def test_lookup_never_uses_device_timezone(monkeypatch, lookup_on):
 
 
 def test_geocoder_http_errors_are_sanitized(monkeypatch, lookup_on):
-    monkeypatch.setattr(tc, "_geocode_http", _REAL_GEOCODE_HTTP)
+    monkeypatch.setattr(geo, "_geocode_http", _REAL_GEOCODE_HTTP)
     seen = {}
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -181,36 +182,36 @@ def test_geocoder_http_errors_are_sanitized(monkeypatch, lookup_on):
         return httpx.Response(503, request=request)
 
     monkeypatch.setattr(
-        tc.httpx, "get",
+        geo.httpx, "get",
         lambda url, **kw: httpx.Client(transport=httpx.MockTransport(handler)).get(url, **kw),
     )
     with pytest.raises(tc.BuyerTimezoneError) as err:
-        tc._geocode_http({"city": "Yuma", "countrycodes": "us"})
+        geo._geocode_http({"city": "Yuma", "countrycodes": "us"})
     assert err.value.code == "geocoder_http_error"
     assert "Yuma" not in str(err.value) and "nominatim" not in str(err.value)
-    assert seen["ua"] == tc.GEOCODER_USER_AGENT
+    assert seen["ua"] == geo.GEOCODER_USER_AGENT
 
 
 def test_geocoder_transport_failure_is_sanitized(monkeypatch, lookup_on):
-    monkeypatch.setattr(tc, "_geocode_http", _REAL_GEOCODE_HTTP)
+    monkeypatch.setattr(geo, "_geocode_http", _REAL_GEOCODE_HTTP)
 
     def handler(request: httpx.Request) -> httpx.Response:
         raise httpx.ConnectError("boom", request=request)
 
     monkeypatch.setattr(
-        tc.httpx, "get",
+        geo.httpx, "get",
         lambda url, **kw: httpx.Client(transport=httpx.MockTransport(handler)).get(url, **kw),
     )
     with pytest.raises(tc.BuyerTimezoneError) as err:
-        tc._geocode_http({"city": "Yuma", "countrycodes": "us"})
+        geo._geocode_http({"city": "Yuma", "countrycodes": "us"})
     assert err.value.code == "geocoder_unavailable"
 
 
 def test_geocoder_url_must_be_https(monkeypatch, lookup_on):
-    monkeypatch.setattr(tc, "_geocode_http", _REAL_GEOCODE_HTTP)
-    monkeypatch.setenv(tc.GEOCODER_URL_ENV, "http://geo.example/search")
+    monkeypatch.setattr(geo, "_geocode_http", _REAL_GEOCODE_HTTP)
+    monkeypatch.setenv(geo.GEOCODER_URL_ENV, "http://geo.example/search")
     with pytest.raises(tc.BuyerTimezoneError) as err:
-        tc._geocode_http({"city": "Yuma", "countrycodes": "us"})
+        geo._geocode_http({"city": "Yuma", "countrycodes": "us"})
     assert err.value.code == "geocoder_url_invalid"
 
 
@@ -280,3 +281,55 @@ def test_retrieve_default_shipping_address_uses_link_cli(monkeypatch):
         monkeypatch, {"email": "ada@booking-agent.test"}, shipping_addresses=[YUMA_SHIPPING_ADDRESS],
     )
     assert retrieve_default_shipping_address() == YUMA
+
+
+def test_compact_range_display():
+    from datetime import datetime, timezone
+
+    now = datetime(2026, 10, 12, tzinfo=timezone.utc)
+    show = lambda a, b, z: tc.compact_range_display(a, b, z, now=now)  # noqa: E731
+    assert show("2026-10-13T17:00:00Z", "2026-10-13T18:00:00Z", "America/Phoenix") == (
+        "Tue, Oct 13, 10:00 - 11:00 AM MST"
+    )
+    assert show("2026-10-13T18:30:00Z", "2026-10-13T19:30:00Z", "America/Phoenix") == (
+        "Tue, Oct 13, 11:30 AM - 12:30 PM MST"
+    )
+    assert show("2027-01-05T17:00:00Z", "2027-01-05T18:00:00Z", "America/Phoenix") == (
+        "Tue, Jan 5, 2027, 10:00 - 11:00 AM MST"
+    )
+    assert show("2026-10-14T06:30:00Z", "2026-10-14T07:30:00Z", "America/Phoenix") == (
+        "Tue, Oct 13, 11:30 PM - Wed, Oct 14, 12:30 AM MST"
+    )
+    assert show("2026-10-13T17:00:00Z", "2026-10-13T18:00:00Z", None) is None
+
+
+def test_compact_clock_range_adds_the_weekday_when_the_day_differs():
+    start, end = "2026-10-13T17:00:00Z", "2026-10-13T18:00:00Z"
+    assert tc.compact_clock_range(start, end, "Asia/Jerusalem", reference_tz="America/Phoenix") == (
+        "8:00 - 9:00 PM IDT"
+    )
+    assert tc.compact_clock_range(
+        "2026-10-14T03:00:00Z", "2026-10-14T04:00:00Z", "Asia/Jerusalem",
+        reference_tz="America/Phoenix",
+    ) == "Wed 6:00 - 7:00 AM IDT"
+
+
+def test_slot_compact_displays_add_the_google_calendar_time_when_it_differs():
+    from booking_agent_cli.commands.flow import _compact_slot_displays
+    from booking_agent_cli.session import Business, Session, SlotRef
+
+    slot = SlotRef(slot_id="s", start="2026-10-13T17:00:00Z", end="2026-10-13T18:00:00Z")
+    session = Session(
+        business=Business(timezone="America/Phoenix"), calendar_timezone="Asia/Jerusalem",
+    )
+    out = _compact_slot_displays(session, slot, dual=False)
+    assert out["business_range_display"].endswith("10:00 - 11:00 AM MST")
+    assert out["calendar_display"] == "8:00 - 9:00 PM IDT"
+
+    session.calendar_timezone = "America/Phoenix"
+    assert "calendar_display" not in _compact_slot_displays(session, slot, dual=False)
+    session.calendar_timezone = "Asia/Jerusalem"
+    session.buyer_timezone = "Asia/Jerusalem"
+    dual = _compact_slot_displays(session, slot, dual=True)
+    assert dual["buyer_range_display"] == "8:00 - 9:00 PM IDT"
+    assert "calendar_display" not in dual

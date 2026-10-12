@@ -32,7 +32,6 @@ import base64
 import hashlib
 import json
 import logging
-import os
 import time
 import uuid
 from dataclasses import dataclass
@@ -47,6 +46,7 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import (
     Ed25519PublicKey,
 )
 
+from . import settings
 from .authorization import nonce_from_pop_error_body
 from .secure_file import ensure_private_dir, write_private_text
 
@@ -243,8 +243,7 @@ def nonce_challenge_from_401(response: httpx.Response) -> Optional[str]:
 
 
 def keystore_path() -> Path:
-    session_dir = os.environ.get("BOOKING_AGENT_SESSION_DIR")
-    base = Path(session_dir) if session_dir else Path.home() / ".booking-agent"
+    base = settings.booking_agent_home()
     ensure_private_dir(base)
     return base / _KEYSTORE_FILE_NAME
 

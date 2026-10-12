@@ -26,12 +26,13 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
+from booking_agent import settings
 from booking_agent.secure_file import ensure_private_dir, write_private_text
 
 if TYPE_CHECKING:
     from booking_agent.authorization import BookingScopedCredential
 
-SCHEMA_VERSION = 1           # per-Session object format version (unchanged)
+SCHEMA_VERSION = 2           # per-Session object format version
 STORE_SCHEMA_VERSION = 2     # SessionStore envelope version
 SESSION_FILE_NAME = ".usp-session.json"
 DEFAULT_MAX_SESSIONS = 30
@@ -176,6 +177,7 @@ class Session:
     schema_version: int = SCHEMA_VERSION
     flow_phase: str = "INIT"
     secrets_mode: str = "demo"
+    env_file: Optional[str] = None  # absolute path from init --env-file or BOOKING_AGENT_ENV_FILE
     business: Business = field(default_factory=Business)
     service_timezone: Optional[str] = None  # selected registry result's zone; business.timezone wins
     buyer_timezone: Optional[str] = None  # IANA zone of the buyer's default Link shipping address
@@ -258,6 +260,18 @@ class Session:
     support_report_bytes: Optional[str] = None
     support_report_recovery_command: Optional[str] = None
     support_report_send_failures: int = 0
+    # Area the user confirmed for a place-based search:
+    # {label, lat, lng, source, link_address_id, street_level, confirmed}.
+    search_area: Optional[Dict[str, Any]] = None
+    # Geocoded proposal shown to the user and not yet confirmed; ``purpose`` is
+    # ``search`` or ``service_address``.
+    pending_area: Optional[Dict[str, Any]] = None
+    # Confirmed street address (USP DeliveryAddress fields) for home visits.
+    service_address: Optional[Dict[str, Any]] = None
+    service_address_label: Optional[str] = None
+    area_resume_command: Optional[str] = None  # command to rerun after an address confirmation
+    booking_notes: Optional[str] = None  # note for the business, set at buyer resolve
+    calendar_timezone: Optional[str] = None  # primary Google Calendar zone (events mode only)
 
 
 @dataclass
@@ -295,7 +309,7 @@ def session_path() -> Path:
 def load_store() -> SessionStore:
     p = session_path()
     if not p.exists():
-        max_s = int(os.environ.get("BOOKING_AGENT_MAX_SESSIONS", DEFAULT_MAX_SESSIONS))
+        max_s = settings.get_int("BOOKING_AGENT_MAX_SESSIONS")
         return SessionStore(max_sessions=max_s)
     raw = json.loads(p.read_text())
     if "sessions" not in raw:
@@ -464,6 +478,11 @@ def archive_expired_session(session: Session, *, now: Optional[datetime] = None)
     clear_credential(session)
     session.buyer = Buyer()
     session.buyer_source = "none"
+    session.search_area = None
+    session.pending_area = None
+    session.service_address = None
+    session.service_address_label = None
+    session.booking_notes = None
     # Keep dispute join keys (#189): spend request id, order id, payment status, approval time.
     # Wipe only ephemeral approval-gate flags and anything secret-bearing.
     session.payment.spend_approval_surfaced = False
@@ -696,9 +715,10 @@ def _store_to_dict(store: SessionStore) -> Dict[str, Any]:
 
 
 def _store_from_dict(raw: Dict[str, Any]) -> SessionStore:
-    max_s = int(
-        os.environ.get("BOOKING_AGENT_MAX_SESSIONS", raw.get("max_sessions", DEFAULT_MAX_SESSIONS))
-    )
+    max_s = int(os.environ.get(
+        "BOOKING_AGENT_MAX_SESSIONS",
+        raw.get("max_sessions") or settings.get_int("BOOKING_AGENT_MAX_SESSIONS"),
+    ))
     return SessionStore(
         schema_version=raw.get("schema_version", STORE_SCHEMA_VERSION),
         max_sessions=max_s,
@@ -739,6 +759,7 @@ def _session_from_dict(raw: Dict[str, Any]) -> Session:
         schema_version=raw.get("schema_version", SCHEMA_VERSION),
         flow_phase=raw.get("flow_phase", "INIT"),
         secrets_mode=raw.get("secrets_mode", "demo"),
+        env_file=raw.get("env_file"),
         business=Business(**(raw.get("business") or {})),
         service_timezone=raw.get("service_timezone"),
         buyer_timezone=raw.get("buyer_timezone"),
@@ -813,13 +834,20 @@ def _session_from_dict(raw: Dict[str, Any]) -> Session:
         support_report_bytes=raw.get("support_report_bytes"),
         support_report_recovery_command=raw.get("support_report_recovery_command"),
         support_report_send_failures=int(raw.get("support_report_send_failures") or 0),
+        search_area=raw.get("search_area"),
+        pending_area=raw.get("pending_area"),
+        service_address=raw.get("service_address"),
+        service_address_label=raw.get("service_address_label"),
+        area_resume_command=raw.get("area_resume_command"),
+        booking_notes=raw.get("booking_notes"),
+        calendar_timezone=raw.get("calendar_timezone"),
     )
 
 
 def _migrate_v1(raw: Dict[str, Any]) -> SessionStore:
     """Wrap a schema-version-1 single-object file in a v2 store envelope."""
     session = _session_from_dict(raw)
-    max_s = int(os.environ.get("BOOKING_AGENT_MAX_SESSIONS", DEFAULT_MAX_SESSIONS))
+    max_s = settings.get_int("BOOKING_AGENT_MAX_SESSIONS")
     return SessionStore(
         schema_version=STORE_SCHEMA_VERSION,
         max_sessions=max_s,

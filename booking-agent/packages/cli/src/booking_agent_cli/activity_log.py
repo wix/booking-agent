@@ -8,11 +8,34 @@ from datetime import datetime, timezone
 from .session import ActivityEntry, LastError, Session
 
 MAX_ACTIVITY_LOG = 300
+# Flags whose values are the user's address or free text written for the business.
+PRIVATE_VALUE_FLAGS = frozenset({"--address", "--notes", "--context"})
+REDACTED = "<redacted>"
+
+
+def _redact_private_values(args: list[str]) -> list[str]:
+    out: list[str] = []
+    redact_next = False
+    for arg in args:
+        if redact_next:
+            out.append(REDACTED)
+            redact_next = False
+            continue
+        name, sep, _ = arg.partition("=")
+        if name in PRIVATE_VALUE_FLAGS:
+            if sep:
+                out.append(f"{name}={REDACTED}")
+            else:
+                out.append(arg)
+                redact_next = True
+            continue
+        out.append(arg)
+    return out
 
 
 def format_argv(argv: list[str] | None = None) -> str:
     args = argv if argv is not None else sys.argv
-    return shlex.join(args)
+    return shlex.join(_redact_private_values(list(args)))
 
 
 def _now_iso() -> str:

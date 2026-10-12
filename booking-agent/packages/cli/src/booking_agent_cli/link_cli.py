@@ -11,7 +11,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-LINK_CLI_BIN = os.environ.get("LINK_CLI_BIN", "link-cli")
+def default_link_cli_bin() -> str:
+    from booking_agent import settings
+
+    return settings.get("LINK_CLI_BIN") or "link-cli"
 
 _SPEND_TERMINAL = frozenset({"denied", "canceled", "cancelled", "expired", "failed"})
 # Spend requests that may include a shared_payment_token in retrieve JSON (link-cli).
@@ -32,7 +35,7 @@ class LinkCliUserInfoError(Exception):
 
 def retrieve_user_info(*, link_cli_bin: Optional[str] = None) -> Dict[str, Any]:
     """Run ``link-cli user-info retrieve --format json`` and return the object."""
-    bin_name = link_cli_bin or LINK_CLI_BIN
+    bin_name = link_cli_bin or default_link_cli_bin()
     if shutil.which(bin_name) is None:
         raise LinkCliUserInfoError(
             "link_cli_not_found",
@@ -74,7 +77,7 @@ class LinkCliShippingAddressError(Exception):
 
 def retrieve_shipping_addresses(*, link_cli_bin: Optional[str] = None) -> list[Dict[str, Any]]:
     """Run ``link-cli shipping-address list --format json`` and return the entries."""
-    bin_name = link_cli_bin or LINK_CLI_BIN
+    bin_name = link_cli_bin or default_link_cli_bin()
     if shutil.which(bin_name) is None:
         raise LinkCliShippingAddressError("link_cli_not_found")
     try:
@@ -189,7 +192,7 @@ class SpendActionRequired(Exception):
 
 
 def _link_cli_cmd(*args: str) -> list[str]:
-    bin_name = shutil.which(LINK_CLI_BIN) or LINK_CLI_BIN
+    bin_name = shutil.which(default_link_cli_bin()) or default_link_cli_bin()
     return [bin_name, *args]
 
 

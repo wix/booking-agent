@@ -154,39 +154,48 @@ def test_init_booking_agent_mode_rejects_non_https_profile_url(runner, isolated_
     assert _stdout_json(r)["data"]["error"]["code"] == "production_secrets_invalid"
 
 
+def _user_env(text: str) -> None:
+    from booking_agent_cli import config_loader
+
+    config_loader.user_env_path().write_text(text)
+
+
 def test_init_booking_agent_mode_applies_no_demo_defaults(runner, isolated_session, monkeypatch):
-    """DEMO_DEFAULTS must not leak into production mode, at init or after it."""
+    """Production reads only the non-demo shipped defaults, at init and after it."""
     import os
 
-    from booking_agent_cli.secrets.demo import DEMO_DEFAULTS
+    from booking_agent import settings
 
-    for key in DEMO_DEFAULTS:
+    for key in ("USP_BACKEND", "USP_PLATFORM_NAME"):
         monkeypatch.delenv(key, raising=False)
+    _user_env("USP_PLATFORM_NAME=From the user env\n")
 
     r = _init(runner, secrets_mode="booking-agent")
     assert r.exit_code == 0, r.stdout + r.stderr
-    assert [k for k in DEMO_DEFAULTS if k in os.environ] == []
+    assert settings.get("USP_BACKEND") == "live"
+    assert settings.get("USP_PLATFORM_NAME") == "USP Agent"
 
-    # A later command in the same session must not inject them either.
+    # A later command in the same session must not load demo values either.
     r2 = _invoke(runner, "flow", "status")
     assert r2.exit_code == 0, r2.stdout + r2.stderr
-    assert [k for k in DEMO_DEFAULTS if k in os.environ] == []
+    assert settings.get("USP_BACKEND") == "live"
+    assert "USP_PLATFORM_NAME" not in os.environ
 
 
 def test_init_demo_mode_applies_demo_defaults(runner, isolated_session, monkeypatch):
-    """Contrast case: the same unset vars are filled in demo mode."""
-    import os
-
+    """Contrast case: demo mode adds the demo section and the user's .env."""
+    from booking_agent import settings
     from booking_agent.registry_url import DEFAULT_REGISTRY_URL
-    from booking_agent_cli.secrets.demo import DEMO_DEFAULTS
 
-    for key in DEMO_DEFAULTS:
+    for key in ("USP_BACKEND", "USP_PLATFORM_NAME", "USP_REGISTRY_URL"):
         monkeypatch.delenv(key, raising=False)
+    _user_env("USP_PLATFORM_NAME=From the user env\n")
 
     r = _init(runner, secrets_mode="demo")
     assert r.exit_code == 0, r.stdout + r.stderr
-    assert {k: os.environ.get(k) for k in DEMO_DEFAULTS} == dict(DEMO_DEFAULTS)
-    assert DEMO_DEFAULTS["USP_REGISTRY_URL"] == DEFAULT_REGISTRY_URL
+    assert settings.get("USP_BACKEND") == "cached-live"
+    assert settings.get("USP_PLATFORM_NAME") == "From the user env"
+    assert settings.get("USP_REGISTRY_URL") == DEFAULT_REGISTRY_URL
 
 
 def test_second_init_starts_at_prereq_ok(runner, isolated_session):
@@ -1536,6 +1545,84 @@ def test_discover_rejects_invalid_time_preferences(
     )
 
 
+def _confirm_yuma_area(runner, monkeypatch):
+    import booking_agent_cli.geocode as geo
+    from support.mock_link_cli import YUMA_SHIPPING_ADDRESS
+
+    monkeypatch.setattr(
+        geo, "_geocode_http",
+        lambda _p: [{"lat": "32.6927", "lon": "-114.6277", "display_name": "Yuma"}],
+    )
+    mock_link_cli_user_info(
+        monkeypatch, {"name": "Ada Lovelace", "email": "ada@booking-agent.test"},
+        shipping_addresses=[YUMA_SHIPPING_ADDRESS],
+    )
+    _invoke(runner, "flow", "search-area", "propose")
+    r = _invoke(runner, "flow", "search-area", "confirm", "--user-confirmed")
+    assert r.exit_code == 0, r.stdout
+
+
+def test_discover_uses_the_confirmed_area(runner, isolated_session, monkeypatch):
+    from booking_agent_cli.session import load_store
+
+    _init(runner, user_request="Book AC repair in Yuma AZ")
+    _invoke(runner, "flow", "prereq", "check")
+    _confirm_yuma_area(runner, monkeypatch)
+    r = _invoke(runner, "flow", "discover", "--radius-km", "40")
+    assert r.exit_code == 0, r.stdout + r.stderr
+    body = _stdout_json(r)
+    assert body["data"]["discover_location"] == {"lat": 32.6927, "lng": -114.6277, "radius_km": 40.0}
+    assert body["data"]["search_area"] == "100 Test Street, Yuma AZ 85364"
+    location = load_store().sessions[0].discover_registry_request_body["location"]
+    assert location["radiusKm"] == 40.0
+
+
+def test_discover_with_confirmed_area_needs_a_radius(runner, isolated_session, monkeypatch):
+    _init(runner, user_request="Book AC repair in Yuma AZ")
+    _invoke(runner, "flow", "prereq", "check")
+    _confirm_yuma_area(runner, monkeypatch)
+    r = _invoke(runner, "flow", "discover")
+    assert r.exit_code == 1
+    assert _stdout_json(r)["data"]["error"]["code"] == "discover_radius_required"
+
+
+def test_place_search_without_a_confirmed_area_is_refused(runner, isolated_session):
+    _init(runner, user_request="Book AC repair in Yuma AZ")
+    _invoke(runner, "flow", "prereq", "check")
+    r = _invoke(runner, "flow", "discover", "--radius-km", "25")
+    assert r.exit_code == 1
+    body = _stdout_json(r)
+    assert body["data"]["error"]["code"] == "search_area_unconfirmed"
+    assert body["next_command"] == "booking-agent flow search-area propose"
+
+
+def test_discover_rows_carry_a_display_line_with_the_business(runner, isolated_session):
+    _init(runner, user_request="Book AC repair in Yuma AZ")
+    _invoke(runner, "flow", "prereq", "check")
+    body = _stdout_json(_invoke(runner, "flow", "discover"))
+    for row in body["data"]["services"]:
+        assert row["display_line"].startswith(f"{row['service_name']} by {row['business_name']}")
+    assert "display_line verbatim" in body["prompt"]
+
+
+def test_discover_display_line_parts():
+    from booking_agent_cli.catalog import discover_display_line, duration_display
+
+    assert duration_display("PT1H30M") == "1 hr 30 min"
+    assert duration_display("PT45M") == "45 min"
+    assert duration_display("P1D") is None
+    assert discover_display_line({
+        "service_name": "AC Repair", "business_name": "HVAC-Koby", "price_display": "$1.00",
+        "duration": "PT1H", "channel": {"type": "at_buyer_location"},
+    }) == "AC Repair by HVAC-Koby, $1.00, 1 hr, comes to your address"
+    assert discover_display_line({
+        "service_name": "Haircut", "business_name": "Salon", "duration": "PT30M",
+        "channel": {"type": "at_business_location"},
+        "locations": [{"address": "1 Main St, Yuma AZ"}],
+        "location_facts": {"distance_km": 3.2},
+    }) == "Haircut by Salon, 30 min, at the business, 1 Main St, Yuma AZ, 3.2 km away"
+
+
 def test_discover_optional_location(runner, isolated_session):
     from booking_agent_cli.session import load_store
 
@@ -2627,9 +2714,31 @@ def test_pay_request_reads_context_from_stdin_without_shell_expansion(
     assert "$1.00" in calls[0]["context"]
 
 
-def test_pay_request_needs_exactly_one_context_source(runner, isolated_session):
+def test_pay_request_writes_the_link_note_from_the_session(runner, isolated_session, monkeypatch):
+    import booking_agent_cli.commands.flow as flow
+
     _ucp_payment_pending(runner)
+    calls = []
+    monkeypatch.setattr(
+        flow, "create_spend_request",
+        lambda **kw: calls.append(kw) or _approval_created("lsrq_auto"),
+    )
     r = _invoke(runner, "flow", "pay", "request", "--payment-method-id", "pm_test")
+    assert r.exit_code == 0, r.stdout
+    note = calls[0]["context"]
+    assert len(note) >= 100
+    assert note.startswith("Booking ")
+    assert "Total $1.00" in note
+
+
+def test_pay_request_refuses_two_context_sources(runner, isolated_session):
+    _ucp_payment_pending(runner)
+    r = runner.invoke(
+        app,
+        ["flow", "pay", "request", "--payment-method-id", "pm_test",
+         "--context", "x" * 120, "--context-file", "-"],
+        input="y" * 120,
+    )
     assert r.exit_code == 1
     assert _stdout_json(r)["data"]["error"]["code"] == "context_required"
 
@@ -3863,7 +3972,9 @@ def _geocoder(monkeypatch, coords):
             raise tc.BuyerTimezoneError("geocoder_unavailable")
         return [{"lat": str(coords[0]), "lon": str(coords[1])}]
 
-    monkeypatch.setattr(tc, "_geocode_http", fake)
+    import booking_agent_cli.geocode as geo
+
+    monkeypatch.setattr(geo, "_geocode_http", fake)
 
 
 def _link_address(monkeypatch, *, with_address=True):

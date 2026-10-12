@@ -39,6 +39,7 @@ _ADDRESS_SENTINELS = {
     "postal_code": "SENTINEL-POSTAL-7731",
     "country": "SENTINEL-COUNTRY-7731",
 }
+_NOTES_SENTINEL = "SENTINEL-NOTES-7731"
 _COOKIE_SENTINELS = (
     "SENTINEL-XSRF-7731",
     "SENTINEL-RECENT-WRITES-7731",
@@ -118,6 +119,7 @@ async def test_trace_redacts_buyer_address_and_cookies_but_keeps_join_ids(
             "service_id": "svc_join_7731",
             "slot": {"id": "slot_join_7731"},
             "delivery_address": _sentinel_address(),
+            "notes": "Gate code " + _NOTES_SENTINEL,
         },
     }
 
@@ -136,14 +138,16 @@ async def test_trace_redacts_buyer_address_and_cookies_but_keeps_join_ids(
                     + '", "city": "raw-' + _ADDRESS_SENTINELS["city"]
                     + '", "postal_code": "raw-' + _ADDRESS_SENTINELS["postal_code"]
                     + '", "country": "raw-' + _ADDRESS_SENTINELS["country"]
-                    + '"}, "id": "bkg_join_7731",'
+                    + '"}, "notes": "raw-' + _NOTES_SENTINEL
+                    + '", "id": "bkg_join_7731",'
                 ),
             )
     finally:
         observability.reset(token)
 
     written = trace_path().read_text()
-    leaked = [s for s in (*_ADDRESS_SENTINELS.values(), *_COOKIE_SENTINELS) if s in written]
+    leaked = [s for s in (*_ADDRESS_SENTINELS.values(), *_COOKIE_SENTINELS, _NOTES_SENTINEL)
+              if s in written]
     assert leaked == []
     assert "32.0853771" not in written
     for join_id in _JOIN_IDS:

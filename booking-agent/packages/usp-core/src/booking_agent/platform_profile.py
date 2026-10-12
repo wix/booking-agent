@@ -1,7 +1,6 @@
 """Canonical USP/UCP platform profile (embedded SoT for hosting + negotiation)."""
 from __future__ import annotations
 
-import os
 from typing import Any, Dict
 
 # Canonical publish URL: https://profile.booking-agent.dev/platform-profile.json
@@ -15,8 +14,9 @@ def platform_profile_url() -> str:
     loopback, but that is not conformant with the RFC 6890 and DNS-rebinding
     checks required of production businesses.
     """
-    override = os.environ.get("USP_AGENT_PROFILE_URL", "").strip()
-    return override or DEFAULT_PLATFORM_PROFILE_URL
+    from . import settings
+
+    return (settings.get("USP_AGENT_PROFILE_URL") or "").strip() or DEFAULT_PLATFORM_PROFILE_URL
 
 
 def platform_profile_doc() -> Dict[str, Any]:

@@ -2,13 +2,13 @@
 from __future__ import annotations
 
 import asyncio
-import os
 from datetime import datetime, timezone
 from types import SimpleNamespace
 from typing import Any, Dict, Optional, Tuple
 
 import httpx
 
+from booking_agent import settings
 from booking_agent.http_retry import with_http_retry
 from booking_agent.http_trace import traced_async_client
 
@@ -117,7 +117,7 @@ def approval_poll_deadline(session: Session, approval_timeout: int) -> float:
 
 def compute_assist_timeout_ms(session: Session) -> int:
     """Cap assist wait by checkout expiry minus safety margin."""
-    cap = int(os.environ.get("BOOKING_AGENT_ASSIST_TIMEOUT_MS", "300000"))
+    cap = settings.get_int("BOOKING_AGENT_ASSIST_TIMEOUT_MS")
     remaining = seconds_until_checkout_expires(session)
     if remaining is None:
         return cap
@@ -518,9 +518,7 @@ async def create_booking_async(
     if session.local_return_listener and session.return_listener_url:
         return_url = f"{session.return_listener_url}/usp/return"
     else:
-        return_url = os.environ.get(
-            "USP_PLATFORM_RETURN_URL", "http://localhost:3000/usp/return"
-        )
+        return_url = settings.get("USP_PLATFORM_RETURN_URL")
 
     profile = await backend.resolve_profile(session.business.profile_url)
     buyer = {

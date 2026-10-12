@@ -13,7 +13,8 @@ from typing import List, Optional
 
 import typer
 
-from ..secrets.demo import load_env_file, resolve_backend
+from .. import config_loader
+from ..secrets.demo import resolve_backend
 
 # search ---------------------------------------------------------------------
 
@@ -50,8 +51,7 @@ def search(
 ) -> None:
     if ctx.invoked_subcommand is not None:
         return
-    if env_file:
-        load_env_file(env_file)
+    config_loader.load(env_file=env_file)
     backend = resolve_backend()
 
     async def _go():
@@ -116,8 +116,7 @@ def profile_resolve(
     profile_url: str = typer.Option(..., "--profile-url"),
     env_file: Optional[str] = typer.Option(None, "--env-file"),
 ) -> None:
-    if env_file:
-        load_env_file(env_file)
+    config_loader.load(env_file=env_file)
     backend = resolve_backend()
 
     async def _go():
@@ -147,8 +146,7 @@ def availability_query(
     end: Optional[str] = typer.Option(None, "--to"),
     env_file: Optional[str] = typer.Option(None, "--env-file"),
 ) -> None:
-    if env_file:
-        load_env_file(env_file)
+    config_loader.load(env_file=env_file)
     now = datetime.now(timezone.utc)
     window_from = start or (now + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
     window_to = end or (now + timedelta(days=14)).replace(hour=23, minute=59, second=59, microsecond=0).isoformat()
@@ -188,8 +186,7 @@ def booking_create(
     ),
     env_file: Optional[str] = typer.Option(None, "--env-file"),
 ) -> None:
-    if env_file:
-        load_env_file(env_file)
+    config_loader.load(env_file=env_file)
     try:
         buyer = json.loads(buyer_json)
     except json.JSONDecodeError as e:

@@ -9,7 +9,7 @@ Tests inject an in-memory MockCalendarService from the CLI test support tree
 (packages/cli/tests/support/mock). Selection is independent of the USP backend.
 """
 from abc import ABC, abstractmethod
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 
 class CustomerCalendarService(ABC):
@@ -38,3 +38,7 @@ class CustomerCalendarService(ABC):
     async def get_busy_times(
         self, session_id: str, time_min: str, time_max: str
     ) -> List[Dict[str, str]]: ...
+
+    async def get_calendar_timezone(self, session_id: str) -> Optional[str]:
+        """IANA zone of the user's primary calendar, when the connection can read it."""
+        return None

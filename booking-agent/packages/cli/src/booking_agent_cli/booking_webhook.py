@@ -9,12 +9,13 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import os
 import threading
 import time
 import uuid
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from typing import Any, Dict, Optional, Tuple
+
+from booking_agent import settings
 
 logger = logging.getLogger(__name__)
 
@@ -43,7 +44,7 @@ class _Handler(BaseHTTPRequestHandler):
             return
         length = int(self.headers.get("Content-Length", "0"))
         raw = self.rfile.read(length) if length else b""
-        if os.environ.get("BOOKING_AGENT_WEBHOOK_VERIFY") == "1":
+        if settings.get_bool("BOOKING_AGENT_WEBHOOK_VERIFY"):
             # Stub: real verification is RFC 9421 over the raw body and signing keys from
             # the merchant profile. Until wired, require a non-empty Signature header.
             sig = (self.headers.get("Signature") or self.headers.get("signature") or "").strip()

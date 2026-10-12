@@ -383,6 +383,79 @@ def _discovery_mismatches(
     return mismatches
 
 
+def duration_display(iso: Any) -> Optional[str]:
+    """``PT1H30M`` -> ``1 hr 30 min``. None for anything that is not a simple time duration."""
+    import re
+
+    if not isinstance(iso, str):
+        return None
+    match = re.fullmatch(r"PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?", iso.strip())
+    if not match or not any(match.groups()):
+        return None
+    hours, minutes, seconds = (int(g or 0) for g in match.groups())
+    minutes += (hours * 60) + (1 if seconds >= 30 else 0)
+    hours, minutes = divmod(minutes, 60)
+    parts = []
+    if hours:
+        parts.append(f"{hours} hr")
+    if minutes:
+        parts.append(f"{minutes} min")
+    return " ".join(parts) or None
+
+
+def channel_type(service_data: Optional[Dict[str, Any]]) -> Optional[str]:
+    channel = (service_data or {}).get("channel")
+    value = channel.get("type") if isinstance(channel, dict) else None
+    return str(getattr(value, "value", value)) if value else None
+
+
+def business_location_address(service_data: Optional[Dict[str, Any]]) -> Optional[str]:
+    """First catalog location's postal address, falling back to its name."""
+    for loc in (service_data or {}).get("locations") or []:
+        if not isinstance(loc, dict):
+            continue
+        text = loc.get("address") or loc.get("name")
+        if isinstance(text, str) and text.strip():
+            return " ".join(text.split())
+    return None
+
+
+def where_text(service_data: Optional[Dict[str, Any]]) -> Optional[str]:
+    """Where the service happens, in plain words, for search rows."""
+    kind = channel_type(service_data)
+    facts = (service_data or {}).get("location_facts") or {}
+    distance = facts.get("distance_km") if isinstance(facts, dict) else None
+    if kind == "at_buyer_location":
+        return "comes to your address"
+    if kind in ("virtual", "phone"):
+        return "online" if kind == "virtual" else "by phone"
+    if kind == "hybrid":
+        return "at the business or online"
+    if kind == "at_business_location" or (service_data or {}).get("locations"):
+        place = business_location_address(service_data)
+        text = f"at the business, {place}" if place else "at the business"
+        if distance is not None:
+            text += f", {distance:g} km away"
+        return text
+    return None
+
+
+def discover_display_line(summary: Dict[str, Any]) -> str:
+    """One line per search result: service, business, price, duration, and where."""
+    service = summary.get("service_name") or "Service"
+    business = summary.get("business_name")
+    head = f"{service} by {business}" if business else service
+    parts = [head]
+    for value in (
+        summary.get("price_display"),
+        duration_display(summary.get("duration")),
+        where_text(summary),
+    ):
+        if value:
+            parts.append(value)
+    return ", ".join(parts)
+
+
 def discover_summary_from_service(service: USPService) -> Dict[str, Any]:
     """Serialize one discover/search result row for agents and the demo dashboard.
 
