@@ -375,9 +375,11 @@ def _change_instructions(session: Session) -> list[str]:
         return [
             "To cancel or reschedule this booking, contact the business directly.",
         ]
-    lines = [
-        "To cancel or reschedule this booking, use these links:",
-    ]
+    lead = "To cancel or reschedule this booking, check the links in the confirmation email"
+    if len(fallbacks) == 1:
+        label, url = fallbacks[0]
+        return [f"{lead} or via the {label.lower()} link: {url}"]
+    lines = [f"{lead} or via these links:"]
     lines.extend(f"{label}: {url}" for label, url in fallbacks)
     return lines
 
