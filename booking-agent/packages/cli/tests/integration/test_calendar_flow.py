@@ -466,8 +466,11 @@ def test_event_description_says_the_service_is_free():
     )
     assert "Payment: This service is free." in text
     assert "manage booking page" not in text
-    assert "To cancel or reschedule this booking, use these links:" in text
-    assert "Business website: https://hvackoby.com" in text
+    assert (
+        "To cancel or reschedule this booking, check the links in the confirmation email "
+        "or via the business website link: https://hvackoby.com"
+    ) in text
+    assert "these links" not in text
 
 
 def test_event_description_says_pay_when_receiving_the_service():
@@ -528,7 +531,7 @@ def test_event_description_says_deposit_paid_and_how_much_remains():
     assert "Order reference: ord_9" in text
     assert "To cancel or reschedule this booking, open the manage booking page:" in text
     assert "https://hvackoby.com/bookings/bk_1" in text
-    assert "use these links" not in text
+    assert "these links" not in text
     assert "paid in full" not in text
 
 
@@ -596,7 +599,10 @@ def test_event_description_fallback_links_when_no_manage_page():
             {"type": "terms_of_service", "url": "https://hvackoby.com/terms"},
         ],
     )
-    assert "To cancel or reschedule this booking, use these links:" in text
+    assert (
+        "To cancel or reschedule this booking, check the links in the confirmation email "
+        "or via these links:"
+    ) in text
     assert "Business website: https://hvackoby.com" in text
     assert "Terms of service: https://hvackoby.com/terms" in text
     assert "Privacy policy: https://hvackoby.com/privacy" in text
