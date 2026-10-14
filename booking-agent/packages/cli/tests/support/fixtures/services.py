@@ -205,3 +205,22 @@ MOCK_SERVICES: List[USPService] = [
 ]
 
 SERVICE_BY_ID: Dict[str, USPService] = {s.id: s for s in MOCK_SERVICES}
+
+
+def set_zero_price_free_service(monkeypatch, service_id: str) -> None:
+    """Make the mock business serve and book ``service_id`` as free (amount 0, no payment).
+
+    Patching the shared catalog entry, not just ``get_service``, keeps
+    ``create_booking`` consistent so the booking is confirmed without a payment action.
+    """
+    service = SERVICE_BY_ID[service_id]
+    policies = service.policies.model_copy(
+        update={"requires_payment": False, "payment_timing": None},
+    )
+    pricing = service.pricing.model_copy(
+        update={"amount": 0, "price_range": None, "deposit": None},
+    )
+    monkeypatch.setitem(
+        SERVICE_BY_ID, service_id,
+        service.model_copy(update={"policies": policies, "pricing": pricing}),
+    )

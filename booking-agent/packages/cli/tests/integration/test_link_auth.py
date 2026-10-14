@@ -12,6 +12,7 @@ from booking_agent_cli.link_cli import (
     poll_auth_until_authenticated,
 )
 from booking_agent_cli.main import app
+from booking_agent_cli.output import LINK_AUTH_POLL_BACKGROUND_INSTRUCTION
 from booking_agent_cli.session import Session, SessionStore, add_session, load_store, save_store
 
 
@@ -85,37 +86,147 @@ def test_link_auth_connect_already_authenticated(runner, isolated_session, monke
     assert store.sessions[0].link_auth_gate_completed is True
 
 
-def test_link_auth_connect_emits_url_then_polls(runner, isolated_session, monkeypatch):
+URL = "https://app.link.com/device/setup?code=test-code"
+
+
+def _signed_out(monkeypatch, *, pending: bool = False):
     import booking_agent_cli.commands.flow as flow
 
-    _seed_slot_selected(isolated_session)
     monkeypatch.setattr(flow.shutil, "which", lambda _: "/usr/bin/link-cli")
     monkeypatch.setattr(
         flow,
         "get_auth_status",
-        lambda: AuthStatus(authenticated=False),
+        lambda: AuthStatus(authenticated=False, verification_url=URL if pending else None),
     )
     monkeypatch.setattr(
         flow,
         "initiate_auth_login",
-        lambda **_: AuthStatus(
-            authenticated=False,
-            verification_url="https://app.link.com/device/setup?code=test-code",
-            phrase="test-phrase",
-        ),
+        lambda **_: AuthStatus(authenticated=False, verification_url=URL, phrase="test-phrase"),
     )
-    monkeypatch.setattr(flow, "poll_auth_until_authenticated", lambda **_k: AuthStatus(authenticated=True))
+    return flow
+
+
+def test_link_auth_connect_returns_url_without_polling(runner, isolated_session, monkeypatch):
+    _seed_slot_selected(isolated_session)
+    flow = _signed_out(monkeypatch)
+
+    def _must_not_poll(**_k):
+        raise AssertionError("connect must not block on approval")
+
+    monkeypatch.setattr(flow, "poll_auth_until_authenticated", _must_not_poll)
 
     r = _invoke(runner, "flow", "link-auth", "connect")
     assert r.exit_code == 0, r.stdout + r.stderr
-    lines = r.stdout.strip().splitlines()
-    assert lines[0] == "https://app.link.com/device/setup?code=test-code"
-    first = _stdout_json(r, index=0)
+    assert r.stdout.strip().splitlines()[0] == URL
+    body = _stdout_json(r)
+    assert body["awaiting_user"] == "link_auth_approval"
+    assert body["user_message"] == URL
+    assert body["next_command"] == "booking-agent flow link-auth poll"
+    assert LINK_AUTH_POLL_BACKGROUND_INSTRUCTION in body["prompt"]
+    assert load_store().sessions[0].link_auth_gate_completed is False
+
+
+def test_link_auth_connect_wait_blocks_until_approved(runner, isolated_session, monkeypatch):
+    _seed_slot_selected(isolated_session)
+    flow = _signed_out(monkeypatch)
+    monkeypatch.setattr(flow, "poll_auth_until_authenticated", lambda **_k: AuthStatus(authenticated=True))
+
+    r = _invoke(runner, "flow", "link-auth", "connect", "--wait")
+    assert r.exit_code == 0, r.stdout + r.stderr
+    assert _stdout_json(r, index=0)["user_message"] == URL
     final = _stdout_json(r, index=-1)
-    assert first["awaiting_user"] == "link_auth_approval"
-    assert first["user_message"] == "https://app.link.com/device/setup?code=test-code"
     assert final["data"]["authenticated"] is True
     assert final["next_command"] == "booking-agent flow buyer resolve"
+
+
+def test_link_auth_poll_waits_then_continues_flow(runner, isolated_session, monkeypatch):
+    _seed_slot_selected(isolated_session)
+    flow = _signed_out(monkeypatch, pending=True)
+    monkeypatch.setattr(flow, "poll_auth_until_authenticated", lambda **_k: AuthStatus(authenticated=True))
+
+    r = _invoke(runner, "flow", "link-auth", "poll")
+    assert r.exit_code == 0, r.stdout + r.stderr
+    body = _stdout_json(r)
+    assert body["data"]["authenticated"] is True
+    assert body["next_command"] == "booking-agent flow buyer resolve"
+    assert "user_message" not in body or not body["user_message"]
+    assert load_store().sessions[0].link_auth_gate_completed is True
+
+
+def test_link_auth_poll_timeout_keeps_same_link(runner, isolated_session, monkeypatch):
+    _seed_slot_selected(isolated_session)
+    flow = _signed_out(monkeypatch, pending=True)
+
+    def _timeout(**_k):
+        raise TimeoutError("link_auth_timeout")
+
+    monkeypatch.setattr(flow, "poll_auth_until_authenticated", _timeout)
+
+    r = _invoke(runner, "flow", "link-auth", "poll")
+    assert r.exit_code == 1
+    body = _stdout_json(r)
+    assert body["data"]["error"]["code"] == "link_auth_timeout"
+    assert body["next_command"] == "booking-agent flow link-auth poll"
+    assert not body.get("user_message")
+
+
+def test_link_auth_poll_without_pending_sign_in(runner, isolated_session, monkeypatch):
+    _seed_slot_selected(isolated_session)
+    _signed_out(monkeypatch)
+
+    r = _invoke(runner, "flow", "link-auth", "poll")
+    assert r.exit_code == 1
+    body = _stdout_json(r)
+    assert body["data"]["error"]["code"] == "link_auth_not_started"
+    assert body["next_command"] == "booking-agent flow link-auth connect"
+
+
+def test_link_auth_works_without_a_session(runner, isolated_session, monkeypatch):
+    flow = _signed_out(monkeypatch)
+    r = _invoke(runner, "flow", "link-auth", "connect")
+    assert r.exit_code == 0, r.stdout + r.stderr
+    assert _stdout_json(r)["user_message"] == URL
+
+    monkeypatch.setattr(flow, "get_auth_status", lambda: AuthStatus(authenticated=False, verification_url=URL))
+    monkeypatch.setattr(flow, "poll_auth_until_authenticated", lambda **_k: AuthStatus(authenticated=True))
+    r = _invoke(runner, "flow", "link-auth", "poll")
+    assert r.exit_code == 0, r.stdout + r.stderr
+    body = _stdout_json(r)
+    assert body["data"]["authenticated"] is True
+    assert body["next_command"] is None
+    assert load_store().sessions == []
+
+
+def test_init_signed_out_starts_with_link_sign_in(runner, isolated_session, monkeypatch):
+    import booking_agent_cli.commands.flow as flow
+
+    monkeypatch.setattr(flow, "get_auth_status", lambda: AuthStatus(authenticated=False))
+    monkeypatch.setattr(flow, "require_fetchable_profile_url", lambda: "https://example.test/p.json")
+
+    r = _invoke(runner, "flow", "init", "--user-request", "Fix my AC next Tuesday")
+    assert r.exit_code == 0, r.stdout + r.stderr
+    assert _stdout_json(r)["next_command"] == "booking-agent flow link-auth connect"
+
+
+def test_search_area_propose_signed_out_asks_for_sign_in(runner, isolated_session, monkeypatch):
+    import booking_agent_cli.commands.flow as flow
+    from booking_agent_cli import link_cli as lc
+
+    store = SessionStore()
+    add_session(store, Session(user_request="Fix my AC", flow_phase="PREREQ_OK"))
+    save_store(store)
+
+    def _fail(**_k):
+        raise lc.LinkCliShippingAddressError("link_cli_failed")
+
+    monkeypatch.setattr(lc, "retrieve_shipping_addresses", _fail)
+    monkeypatch.setattr(flow, "get_auth_status", lambda: AuthStatus(authenticated=False))
+
+    r = _invoke(runner, "flow", "search-area", "propose")
+    assert r.exit_code == 1
+    body = _stdout_json(r)
+    assert body["data"]["error"]["code"] == "link_auth_gate_not_completed"
+    assert body["next_command"] == "booking-agent flow link-auth connect"
 
 
 def test_buyer_resolve_requires_link_auth_gate(runner, isolated_session, monkeypatch):

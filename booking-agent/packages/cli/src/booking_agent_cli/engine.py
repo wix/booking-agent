@@ -62,8 +62,8 @@ def require_link_auth_gate(session: Session) -> None:
         raise GateError(
             "link_auth_gate_not_completed",
             "Link wallet authentication not completed. Run "
-            "`booking-agent flow link-auth connect` (in the background when a sign-in "
-            "link is shown).",
+            "`booking-agent flow link-auth connect`, post the sign-in link, and start "
+            "`booking-agent flow link-auth poll` in the background in the same turn.",
             next_command="booking-agent flow link-auth connect",
         )
 
@@ -134,6 +134,9 @@ def transition(session: Session, *, to: str) -> None:
 def recommend_next(session: Session) -> str | None:
     """Best-effort suggestion for the agent's next command."""
     phase = session.flow_phase
+    pending = session.pending_booking_attempt
+    if isinstance(pending, dict) and isinstance(pending.get("retry_command"), str):
+        return pending["retry_command"]
     if phase == "CONFIRMED" and session.reschedule_original_slot_id is not None:
         if session.reschedule_slot_id:
             return "booking-agent flow reschedule apply --user-confirmed"
