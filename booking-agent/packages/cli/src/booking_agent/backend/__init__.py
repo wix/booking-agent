@@ -146,6 +146,7 @@ class USPBackend(ABC):
         resource_id: Optional[str] = None,
         notes: Optional[str] = None,
         delivery_address: Optional[Dict[str, Any]] = None,
+        idempotency_key: Optional[str] = None,
     ) -> Booking: ...
 
     @abstractmethod

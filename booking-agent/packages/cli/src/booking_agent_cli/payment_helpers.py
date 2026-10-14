@@ -2,6 +2,9 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import json
+import uuid
 from datetime import datetime, timezone
 from types import SimpleNamespace
 from typing import Any, Dict, Optional, Tuple
@@ -10,6 +13,7 @@ import httpx
 
 from booking_agent.http_retry import with_http_retry
 from booking_agent.http_trace import traced_async_client
+from booking_agent.rest_client import BookingRequestError
 
 from .link_cli import retrieve_spend_request
 from .output import write_spend_approval_notice
@@ -426,13 +430,51 @@ async def _finalize_ucp_checkout_create(
     return SimpleNamespace(id=booking_id, booking_url=None), ref, "ucp"
 
 
+PROFILE_UNRESOLVABLE_CODE = "invalid_profile_url"
+
+
+def booking_attempt_fingerprint(
+    service_id: str,
+    slot_id: Optional[str],
+    buyer: Dict[str, Any],
+    delivery_address: Optional[Dict[str, Any]],
+    notes: Optional[str],
+) -> str:
+    """A digest of what a direct ``POST /bookings`` would book, for key reuse."""
+    material = json.dumps(
+        [service_id, slot_id, buyer, delivery_address, notes],
+        sort_keys=True,
+        separators=(",", ":"),
+        default=str,
+    )
+    return hashlib.sha256(material.encode("utf-8")).hexdigest()
+
+
+def _booking_idempotency_key(session: Session, fingerprint: str) -> str:
+    pending = session.pending_booking_attempt
+    if (
+        isinstance(pending, dict)
+        and pending.get("fingerprint") == fingerprint
+        and isinstance(pending.get("idempotency_key"), str)
+        and pending["idempotency_key"]
+    ):
+        return pending["idempotency_key"]
+    return str(uuid.uuid4())
+
+
 async def create_booking_async(
     session: Session,
     service_id: str,
     notes: Optional[str] = None,
     delivery_address: Optional[Dict[str, Any]] = None,
+    retry_command: Optional[str] = None,
 ) -> Tuple[Any, BookingRef, str]:
-    """Create booking and return (booking_obj, booking_ref, checkout_path)."""
+    """Create booking and return (booking_obj, booking_ref, checkout_path).
+
+    A direct booking the business refuses as ``invalid_profile_url`` leaves
+    ``session.pending_booking_attempt`` set, so rerunning ``retry_command`` for the
+    same booking replays the same ``Idempotency-Key``. Callers save the session.
+    """
     if session.checkout_mode == "ucp_native" and session.ucp_checkout_rest_base:
         if getattr(session, "payment_route", None) in ("free", "at_service"):
             pass
@@ -451,15 +493,36 @@ async def create_booking_async(
     }
     if session.buyer.phone:
         buyer["phone_number"] = session.buyer.phone
-    booking_obj = await backend.create_booking(
-        profile=profile,
-        service_id=service_id,
-        slot_id=session.slot_id,  # type: ignore[arg-type]
-        buyer=buyer,
-        party_size=1,
-        notes=notes,
-        delivery_address=delivery_address,
+    fingerprint = booking_attempt_fingerprint(
+        service_id, session.slot_id, buyer, delivery_address, notes
     )
+    idempotency_key = _booking_idempotency_key(session, fingerprint)
+    try:
+        booking_obj = await backend.create_booking(
+            profile=profile,
+            service_id=service_id,
+            slot_id=session.slot_id,  # type: ignore[arg-type]
+            buyer=buyer,
+            party_size=1,
+            notes=notes,
+            delivery_address=delivery_address,
+            idempotency_key=idempotency_key,
+        )
+    except BookingRequestError as e:
+        session.pending_booking_attempt = (
+            {
+                "idempotency_key": idempotency_key,
+                "fingerprint": fingerprint,
+                "retry_command": retry_command,
+            }
+            if e.business_code == PROFILE_UNRESOLVABLE_CODE
+            else None
+        )
+        raise
+    except BaseException:
+        session.pending_booking_attempt = None
+        raise
+    session.pending_booking_attempt = None
 
     checkout_path = "none"
     ref = BookingRef(
@@ -742,10 +805,12 @@ def create_booking_sync(
     service_id: str,
     notes: Optional[str] = None,
     delivery_address: Optional[Dict[str, Any]] = None,
+    retry_command: Optional[str] = None,
 ) -> Tuple[Any, BookingRef, str]:
     return asyncio.run(
         create_booking_async(
-            session, service_id, notes, delivery_address=delivery_address
+            session, service_id, notes, delivery_address=delivery_address,
+            retry_command=retry_command,
         )
     )
 

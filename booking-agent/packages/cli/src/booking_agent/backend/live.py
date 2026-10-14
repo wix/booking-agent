@@ -411,6 +411,7 @@ class LiveUSPBackend(USPBackend):
         resource_id: Optional[str] = None,
         notes: Optional[str] = None,
         delivery_address: Optional[Dict[str, Any]] = None,
+        idempotency_key: Optional[str] = None,
     ) -> Booking:
         client = await self._client(profile)
         booking = await client.create_booking(
@@ -421,6 +422,7 @@ class LiveUSPBackend(USPBackend):
             resource_id=resource_id,
             notes=notes,
             delivery_address=delivery_address,
+            idempotency_key=idempotency_key,
         )
         # The only point at which a credential is issued.  The caller that owns
         # session state persists it against (endpoint, booking id).

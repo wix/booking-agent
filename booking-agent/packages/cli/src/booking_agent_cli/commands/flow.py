@@ -63,6 +63,7 @@ from ..link_cli import (
     wait_for_spend_approval,
 )
 from ..payment_helpers import (
+    PROFILE_UNRESOLVABLE_CODE,
     apply_booking_to_session,
     approval_poll_deadline,
     cancel_ucp_checkout_async,
@@ -109,6 +110,7 @@ from ..engine import (
 from ..output import (
     AWAITING_LINK_AUTH_APPROVAL,
     AWAITING_LINK_SPEND_APPROVAL,
+    LINK_AUTH_POLL_BACKGROUND_INSTRUCTION,
     PAY_POLL_BACKGROUND_INSTRUCTION,
     AgentOutput,
     emit,
@@ -251,6 +253,50 @@ def _emit_flow_http_error(
     return typer.Exit(code=1)
 
 
+AGENT_PROFILE_UNRESOLVABLE_USER_MESSAGE = (
+    "The business couldn't verify the booking assistant just now, so nothing was "
+    "booked. It's safe to try again."
+)
+
+
+def _emit_booking_create_error(
+    phase: str,
+    exc: BaseException,
+    *,
+    default_code: str,
+    retry_command: str,
+) -> "typer.Exit":
+    """Report a failed booking creation from ``flow book`` or ``flow pay rebook``."""
+    from booking_agent.rest_client import BookingRequestError
+
+    if not isinstance(exc, BookingRequestError):
+        emit_error(phase, code=default_code, message=str(exc))
+        return typer.Exit(code=1)
+    business_error = {"http_status": exc.http_status, "business_code": exc.business_code}
+    if exc.business_code == PROFILE_UNRESOLVABLE_CODE:
+        emit_error(
+            phase,
+            code="agent_profile_unresolvable",
+            message=(
+                f"The business could not fetch the agent platform profile "
+                f"(HTTP {exc.http_status}, code {exc.business_code}), so nothing was booked. "
+                f"Run `{retry_command}` again; it resends the same Idempotency-Key, so the "
+                "retry cannot create a second booking."
+            ),
+            next_command=retry_command,
+            user_message=AGENT_PROFILE_UNRESOLVABLE_USER_MESSAGE,
+            data={"business_error": business_error},
+        )
+    else:
+        emit_error(
+            phase,
+            code=default_code,
+            message=str(exc),
+            data={"business_error": business_error},
+        )
+    return typer.Exit(code=1)
+
+
 # ---------------------------------------------------------------------------
 # init / status
 # ---------------------------------------------------------------------------
@@ -332,6 +378,15 @@ def init(
     record_command(session)
     save_session(session)
 
+    if not session.link_auth_gate_completed:
+        prompt = (
+            "Session initialized. The user is not signed in to Link: run next_command now, "
+            "before any question or search, without asking the user first."
+        )
+        emit(_agent_out(
+            session, prompt=prompt, next_command=LINK_AUTH_CONNECT, data=init_data,
+        ))
+        return
     if is_first_session:
         prompt = "Session initialized. Run `booking-agent flow prereq check` next."
     else:
@@ -1332,6 +1387,14 @@ def _emit_area_proposal(
     ))
 
 
+def _link_signed_out() -> bool:
+    """True only when link-cli positively reports no sign-in."""
+    try:
+        return not get_auth_status().authenticated
+    except Exception:
+        return False
+
+
 def _propose_area(session: Session, purpose: str, *, link_cli_bin: Optional[str] = None) -> None:
     """Geocode the default Link address and ask the user to confirm it (or ask for one)."""
     from ..geocode import GeocodeError
@@ -1340,7 +1403,21 @@ def _propose_area(session: Session, purpose: str, *, link_cli_bin: Optional[str]
 
     try:
         entries = retrieve_shipping_addresses(link_cli_bin=link_cli_bin)
-    except LinkCliShippingAddressError:
+    except LinkCliShippingAddressError as err:
+        if err.code == "link_cli_failed" and _link_signed_out():
+            session.link_auth_gate_completed = False
+            save_session(session)
+            emit_error(
+                session.flow_phase,
+                code="link_auth_gate_not_completed",
+                message=(
+                    "The user is not signed in to Link, so their saved addresses cannot be "
+                    "read. Run next_command now without asking the user, then re-run "
+                    "search-area propose."
+                ),
+                next_command=LINK_AUTH_CONNECT,
+            )
+            raise typer.Exit(code=1)
         entries = []
     options = link_address_options(entries)
     chosen = next((e for e in entries if e.get("is_default") is True), None)
@@ -2201,8 +2278,63 @@ def use_ucp_checkout_mode() -> None:
 # ---------------------------------------------------------------------------
 
 
-link_auth_app = typer.Typer(help="Link wallet authentication (required before buyer resolve).")
+link_auth_app = typer.Typer(
+    help="Link wallet sign-in (first step of every booking; also works with no session)."
+)
 app.add_typer(link_auth_app, name="link-auth")
+
+LINK_AUTH_CONNECT = "booking-agent flow link-auth connect"
+LINK_AUTH_POLL = "booking-agent flow link-auth poll"
+
+
+def _link_auth_session() -> Optional[Session]:
+    """Active non-terminal session, or None (sign-in still runs, nothing is recorded)."""
+    session = load_session()
+    if session is None or session.flow_phase in TERMINAL_PHASES:
+        return None
+    return session
+
+
+def _link_auth_phase(session: Optional[Session]) -> str:
+    return session.flow_phase if session is not None else "STORE"
+
+
+def _link_auth_record(session: Optional[Session], completed: bool) -> None:
+    if session is not None:
+        session.link_auth_gate_completed = completed
+        save_session(session)
+
+
+def _require_link_cli(session: Optional[Session], retry: str) -> None:
+    if shutil.which(default_link_cli_bin()) is None:
+        emit_error(
+            _link_auth_phase(session),
+            code="link_cli_not_found",
+            message=(
+                f"`{default_link_cli_bin()}` not found on PATH. Install link-cli "
+                "(https://github.com/stripe/link-cli) first."
+            ),
+            next_command=retry,
+        )
+        raise typer.Exit(code=1)
+
+
+def _emit_link_authenticated(session: Optional[Session]) -> None:
+    _link_auth_record(session, True)
+    out = AgentOutput(
+        phase="STORE",
+        prompt="Link wallet authenticated. No booking in progress.",
+        next_command=None,
+        data={"authenticated": True},
+    )
+    if session is not None:
+        out = _agent_out(
+            session,
+            prompt="Link wallet authenticated. Continue the booking flow without asking the user.",
+            next_command=_link_auth_next_command(session),
+            data={"authenticated": True},
+        )
+    emit(out)
 
 
 def _link_auth_next_command(session: Session) -> str:
@@ -2233,57 +2365,38 @@ def link_auth_connect(
         "--client-name",
         help="Name shown in the Link app when the user approves device access.",
     ),
+    wait: bool = typer.Option(
+        False, "--wait",
+        help=(
+            "Scripts/CI only: also block until the user approves. Interactive agents run "
+            "link-auth poll in the background instead."
+        ),
+    ),
     poll_interval: float = typer.Option(
-        2.0, "--poll-interval", help="Seconds between auth status polls while waiting."
+        2.0, "--poll-interval", help="Seconds between auth status polls with --wait."
     ),
     timeout: int = typer.Option(
-        300, "--timeout", help="Max seconds to wait for the user to approve sign-in."
+        300, "--timeout", help="Max seconds to wait for approval with --wait."
     ),
 ) -> None:
-    """Ensure the Link wallet is authenticated (device flow, blocks like calendar connect)."""
-    session = must_load()
-    if session.flow_phase in TERMINAL_PHASES:
-        emit_error(
-            session.flow_phase,
-            code="wrong_phase",
-            message="link-auth connect cannot run on a terminal session.",
-            next_command="booking-agent flow status",
-        )
-        raise typer.Exit(code=1)
-
-    if shutil.which(default_link_cli_bin()) is None:
-        emit_error(
-            session.flow_phase,
-            code="link_cli_not_found",
-            message=(
-                f"`{default_link_cli_bin()}` not found on PATH. Install link-cli "
-                "(https://github.com/stripe/link-cli) first."
-            ),
-            next_command="booking-agent flow link-auth connect",
-        )
-        raise typer.Exit(code=1)
+    """Start Link sign-in and return the sign-in URL at once (then run link-auth poll)."""
+    session = _link_auth_session()
+    phase = _link_auth_phase(session)
+    _require_link_cli(session, LINK_AUTH_CONNECT)
 
     try:
         status = get_auth_status()
     except Exception as e:
         emit_error(
-            session.flow_phase,
+            phase,
             code="link_auth_status_failed",
             message=str(e),
-            next_command="booking-agent flow link-auth connect",
+            next_command=LINK_AUTH_CONNECT,
         )
         raise typer.Exit(code=1)
 
     if status.authenticated:
-        session.link_auth_gate_completed = True
-        save_session(session)
-        next_cmd = _link_auth_next_command(session)
-        emit(_agent_out(
-            session,
-            prompt="Link wallet authenticated. Continue the booking flow.",
-            next_command=next_cmd,
-            data={"authenticated": True},
-        ))
+        _emit_link_authenticated(session)
         return
 
     verification_url = status.verification_url
@@ -2293,86 +2406,119 @@ def link_auth_connect(
             login_status = initiate_auth_login(client_name=client_name)
         except Exception as e:
             emit_error(
-                session.flow_phase,
+                phase,
                 code="link_auth_login_failed",
                 message=str(e),
-                next_command="booking-agent flow link-auth connect",
+                next_command=LINK_AUTH_CONNECT,
             )
             raise typer.Exit(code=1)
         if login_status.authenticated:
-            session.link_auth_gate_completed = True
-            save_session(session)
-            next_cmd = _link_auth_next_command(session)
-            emit(_agent_out(
-                session,
-                prompt="Link wallet authenticated. Continue the booking flow.",
-                next_command=next_cmd,
-                data={"authenticated": True},
-            ))
+            _emit_link_authenticated(session)
             return
         verification_url = login_status.verification_url
         phrase = login_status.phrase
 
     if not verification_url:
         emit_error(
-            session.flow_phase,
+            phase,
             code="link_auth_no_verification_url",
             message="link-cli did not return a sign-in URL.",
-            next_command="booking-agent flow link-auth connect",
+            next_command=LINK_AUTH_CONNECT,
         )
         raise typer.Exit(code=1)
 
-    emit(_agent_out(
-        session,
-        awaiting_user=AWAITING_LINK_AUTH_APPROVAL,
-        user_message=verification_url,
-        prompt=(
-            "Present user_message to the user as the raw URL (never markdown [label](url)) and "
-            "ask them to sign in "
-            "to Link and approve device access. This command is now polling for approval — "
-            "do not wait for a chat reply. Run in the background (run_in_background) so the "
-            "process stays alive until sign-in completes."
-        ),
-        next_command="booking-agent flow link-auth connect",
-        data={"verification_url": verification_url, "phrase": phrase},
-    ))
+    _link_auth_record(session, False)
+    out = AgentOutput(phase=phase)
+    if session is not None:
+        out = _agent_out(session)
+    out.awaiting_user = AWAITING_LINK_AUTH_APPROVAL
+    out.user_message = verification_url
+    out.prompt = (
+        "Show user_message (the Link sign-in URL) to the user as the raw URL (never markdown "
+        f"[label](url)) and ask them to sign in to Link. {LINK_AUTH_POLL_BACKGROUND_INSTRUCTION}"
+    )
+    out.next_command = LINK_AUTH_POLL
+    out.data = {**out.data, "verification_url": verification_url, "phrase": phrase}
+    emit(out)
 
+    if wait:
+        _poll_link_auth(session, poll_interval=poll_interval, timeout=timeout)
+
+
+def _poll_link_auth(session: Optional[Session], *, poll_interval: float, timeout: int) -> None:
+    phase = _link_auth_phase(session)
     try:
         poll_auth_until_authenticated(poll_interval=poll_interval, timeout=timeout)
     except TimeoutError:
-        session.link_auth_gate_completed = False
-        save_session(session)
+        _link_auth_record(session, False)
+        try:
+            still_pending = bool(get_auth_status().verification_url)
+        except Exception:
+            still_pending = False
         emit_error(
-            session.flow_phase,
+            phase,
             code="link_auth_timeout",
             message=(
-                "Link sign-in not received in time. Re-run link-auth connect in the "
-                "background to get a fresh link."
+                "Link sign-in not received yet. The same sign-in link still works: start "
+                "link-auth poll again in the background without re-posting the link."
+                if still_pending else
+                "Link sign-in not received in time and the link expired. Run link-auth "
+                "connect for a fresh link, post it once, and start link-auth poll in the "
+                "background."
             ),
-            user_message=verification_url,
-            next_command="booking-agent flow link-auth connect",
+            next_command=LINK_AUTH_POLL if still_pending else LINK_AUTH_CONNECT,
         )
         raise typer.Exit(code=1)
     except Exception as e:
-        session.link_auth_gate_completed = False
-        save_session(session)
+        _link_auth_record(session, False)
         emit_error(
-            session.flow_phase,
+            phase,
             code="link_auth_poll_failed",
             message=str(e),
-            next_command="booking-agent flow link-auth connect",
+            next_command=LINK_AUTH_CONNECT,
+        )
+        raise typer.Exit(code=1)
+    _emit_link_authenticated(session)
+
+
+@link_auth_app.command("poll")
+def link_auth_poll(
+    poll_interval: float = typer.Option(
+        2.0, "--poll-interval", help="Seconds between auth status polls."
+    ),
+    timeout: int = typer.Option(
+        300, "--timeout", help="Max seconds to wait for the user to approve sign-in."
+    ),
+) -> None:
+    """Block until the user approves the Link sign-in started by link-auth connect."""
+    session = _link_auth_session()
+    phase = _link_auth_phase(session)
+    _require_link_cli(session, LINK_AUTH_POLL)
+
+    try:
+        status = get_auth_status()
+    except Exception as e:
+        emit_error(
+            phase,
+            code="link_auth_status_failed",
+            message=str(e),
+            next_command=LINK_AUTH_POLL,
         )
         raise typer.Exit(code=1)
 
-    session.link_auth_gate_completed = True
-    save_session(session)
-    next_cmd = _link_auth_next_command(session)
-    emit(_agent_out(
-        session,
-        prompt="Link wallet authenticated. Continue the booking flow.",
-        next_command=next_cmd,
-        data={"authenticated": True},
-    ))
+    if status.authenticated:
+        _emit_link_authenticated(session)
+        return
+    if not status.verification_url:
+        emit_error(
+            phase,
+            code="link_auth_not_started",
+            message="No Link sign-in is waiting for approval. Run link-auth connect first.",
+            next_command=LINK_AUTH_CONNECT,
+        )
+        raise typer.Exit(code=1)
+
+    _poll_link_auth(session, poll_interval=poll_interval, timeout=timeout)
 
 
 # ---------------------------------------------------------------------------
@@ -3934,12 +4080,14 @@ def book(
         ))
         return
 
+    retry_command = f"booking-agent flow book --service-id {shlex.quote(service_id)}"
     try:
         from booking_agent.step_timing import timed_step_sync
 
         with timed_step_sync("checkout_create"):
             booking_obj, booking_ref, checkout_path = create_booking_sync(
-                session, service_id, notes=notes, delivery_address=delivery_addr
+                session, service_id, notes=notes, delivery_address=delivery_addr,
+                retry_command=retry_command,
             )
     except Exception as e:
         from booking_agent.ucp_checkout import MandatoryAcceptancePending
@@ -3966,8 +4114,10 @@ def book(
         session.last_error = None
         transition(session, to="FAILED")
         save_session(session)
-        emit_error(session.flow_phase, code="create_booking_failed", message=str(e))
-        raise typer.Exit(code=1)
+        raise _emit_booking_create_error(
+            session.flow_phase, e,
+            default_code="create_booking_failed", retry_command=retry_command,
+        )
 
     from ..flow_timings import apply_pending_timings
 
@@ -4296,8 +4446,8 @@ def pay_request(
                 session.flow_phase,
                 code="link_auth_expired",
                 message=(
-                    "Link wallet session expired. Run link-auth connect in the background "
-                    "to sign in again."
+                    "Link wallet session expired. Run link-auth connect, post the sign-in "
+                    "link, and start link-auth poll in the background in the same turn."
                 ),
                 next_command="booking-agent flow link-auth connect",
             )
@@ -4663,9 +4813,9 @@ def pay_rebook(
         raise _handle_gate(session, e)
 
     prior_spend = session.payment.spend_request_id
+    retry_command = f"booking-agent flow pay rebook --service-id {shlex.quote(service_id)}"
     delivery_addr = _confirmed_delivery_address(
-        session, session.live_service,
-        resume_command=f"booking-agent flow pay rebook --service-id {shlex.quote(service_id)}",
+        session, session.live_service, resume_command=retry_command,
     )
     notes = session.booking_notes
     try:
@@ -4673,11 +4823,14 @@ def pay_rebook(
 
         with timed_step_sync("checkout_create"):
             booking_obj, booking_ref, checkout_path = create_booking_sync(
-                session, service_id, notes=notes, delivery_address=delivery_addr
+                session, service_id, notes=notes, delivery_address=delivery_addr,
+                retry_command=retry_command,
             )
     except Exception as e:
-        emit_error(session.flow_phase, code="rebook_failed", message=str(e))
-        raise typer.Exit(code=1)
+        save_session(session)
+        raise _emit_booking_create_error(
+            session.flow_phase, e, default_code="rebook_failed", retry_command=retry_command,
+        )
 
     from ..flow_timings import apply_pending_timings
 

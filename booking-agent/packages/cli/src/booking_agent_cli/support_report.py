@@ -53,7 +53,11 @@ DEFAULT_SUPPORT_INGEST_URL = (
 # script's JSON reply is served. Only this exact host pair is ever followed.
 _APPS_SCRIPT_HOST = "script.google.com"
 _APPS_SCRIPT_ECHO_HOST = "script.googleusercontent.com"
-SKILL_VERSION = "0.43.0"
+# The fixed refusal reasons ingest/apps-script/Code.gs replies with.
+INGEST_REJECTION_REASONS = frozenset({
+    "no_body", "media_type", "too_large", "invalid_json", "schema", "rate_limited", "internal",
+})
+SKILL_VERSION = "0.45.0"
 BUNDLE_VERSION = 1
 MAX_BUNDLE_BYTES = 64 * 1024
 SEND_TIMEOUT_S = 10.0
@@ -84,14 +88,14 @@ SEND_FAILED_MESSAGE = (
 # already explain, plus codes its prose documents. Kept equal to the skill by
 # test_support_report.py.
 SKILL_TABLE_CODES = frozenset({
-    "approval_not_surfaced_to_user", "approval_timeout", "booking_canceled_after_payment",
+    "agent_profile_unresolvable", "approval_not_surfaced_to_user", "approval_timeout", "booking_canceled_after_payment",
     "buyer_email_invalid", "buyer_not_from_link_cli", "calendar_gate_not_completed",
     "cancel_failed", "cancel_forbidden", "cancel_open_selection_conflict",
     "cancel_open_selection_required", "cancel_unauthorized", "checkout_already_in_progress",
     "checkout_prereq_not_completed", "checkout_total_unconfirmed", "complete_in_progress",
     "context_required", "disclosures_unconfirmed", "discover_radius_required",
     "link_address_not_found", "link_auth_expired",
-    "link_auth_gate_not_completed", "link_auth_timeout",
+    "link_auth_gate_not_completed", "link_auth_not_started", "link_auth_timeout",
     "mandatory_acceptance_pending", "missing_network_id_for_spt", "payment_already_captured",
     "payment_authentication_unsupported", "payment_captured_booking_unconfirmed",
     "payment_declined", "payment_failed", "payment_not_processed", "payment_timing_changed",
@@ -113,7 +117,7 @@ SKILL_PROSE_CODES = frozenset({
 EXPECTED_CODES = SKILL_TABLE_CODES | SKILL_PROSE_CODES
 # The business is still working; seeing these again is progress, not a failed step.
 STILL_WORKING_CODES = frozenset({"complete_in_progress", "checkout_already_in_progress"})
-POLL_COMMANDS = frozenset({"book poll", "pay poll"})
+POLL_COMMANDS = frozenset({"book poll", "pay poll", "link-auth poll"})
 NEVER_OFFER_CODES = frozenset({
     "no_support_report",
     "support_report_not_confirmed",
@@ -453,6 +457,7 @@ SESSION_RULES: Dict[str, FieldRule] = {
     "total_confirmed_amount_minor": ("total_confirmed_amount_minor", _num),
     "accepted_term": ("accepted_term", _terms),
     "complete_checkout_idempotency_key": EXCLUDE,
+    "pending_booking_attempt": EXCLUDE,
     "checkout_mode": ("checkout_mode", _id),
     "supported_checkout_modes": ("supported_checkout_modes", lambda v: _list(v, _id, 10)),
     "checkout_prereq_completed": ("checkout_prereq_completed", _bool),
@@ -1067,21 +1072,37 @@ def _apps_script_echo_url(url: str, response: httpx.Response) -> Optional[str]:
     return None
 
 
-def _post_report(url: str, body: bytes, *, transport: Optional[httpx.BaseTransport] = None) -> int:
-    """POST the note; returns an HTTP-like status where 2xx means delivered."""
+def _http_failure(status: int) -> Optional[str]:
+    return None if 200 <= status < 300 else f"http_{status}"
+
+
+def _post_report(
+    url: str, body: bytes, *, transport: Optional[httpx.BaseTransport] = None,
+) -> Optional[str]:
+    """POST the note; returns None when delivered, else a short failure label.
+
+    The label is ``http_<status>`` for a real HTTP failure, the ingest's own
+    rejection reason when it is one of ``INGEST_REJECTION_REASONS``, and
+    ``rejected`` for any other refusal or an unreadable reply.
+    """
     with httpx.Client(timeout=SEND_TIMEOUT_S, follow_redirects=False, transport=transport) as client:
         response = client.post(url, content=body, headers={"content-type": "application/json"})
         echo = _apps_script_echo_url(url, response)
         if echo is None:
-            return response.status_code
+            return _http_failure(response.status_code)
         reply = client.get(echo)
         if reply.status_code != 200:
-            return reply.status_code
+            return f"http_{reply.status_code}"
         try:
-            accepted = reply.json().get("accepted") is True
-        except (ValueError, AttributeError):
-            accepted = False
-        return 200 if accepted else 422
+            parsed = reply.json()
+        except ValueError:
+            return "rejected"
+        if not isinstance(parsed, dict):
+            return "rejected"
+        if parsed.get("accepted") is True:
+            return None
+        reason = parsed.get("reason")
+        return reason if reason in INGEST_REJECTION_REASONS else "rejected"
 
 
 support_app = typer.Typer(
@@ -1132,8 +1153,7 @@ def support_report_send(
         raise _emit_unavailable(session)
     body = session.support_report_bytes.encode("utf-8")
     try:
-        status = _post_report(DEFAULT_SUPPORT_INGEST_URL, body)
-        failure = None if 200 <= status < 300 else f"http_{status}"
+        failure = _post_report(DEFAULT_SUPPORT_INGEST_URL, body)
     except Exception as e:  # noqa: BLE001
         failure = type(e).__name__
     if failure is None:

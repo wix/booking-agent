@@ -1,8 +1,8 @@
 ---
-version: 0.43.0
+version: 0.45.0
 name: booking-agent
 description: |
-  Books time-based services via USP from a Link wallet. Use when the user wants to book, schedule, reserve, or pay for a service from a business (haircut, lesson, repair, class, appointment, consult). The `booking-agent` CLI owns the booking state machine and refuses to proceed when human gates are skipped. After `booking-agent flow business use`, follow `next_command` through `use-ucp-checkout-mode`; businesses without native checkout fail closed. Payment uses `booking-agent flow pay request` (default returns immediately with the approval URL), then start `booking-agent flow pay poll` in the background and post the approval URL to the user in the same turn; the poll finishes checkout once they approve. Confirm through `booking-agent flow book poll --wait`; never start an inbound webhook. Surface the approval URL exactly once. Personal identification (name, phone, email, address) must always come from the user's Link account via `link-cli`, never from chat or placeholders. Before any location-based search, the CLI proposes the Link shipping address and the user confirms it or gives another; online services skip this. Talk to the user in plain everyday language only; never expose CLI, UCP, auth, session, or other implementation details unless they explicitly ask.
+  Books time-based services via USP from a Link wallet. Use when the user wants to book, schedule, reserve, or pay for a service from a business (haircut, lesson, repair, class, appointment, consult). The `booking-agent` CLI owns the booking state machine and refuses to proceed when human gates are skipped. Sign the user in to Link on your own, right after install and at the start of every booking (`booking-agent flow link-auth connect`, then start `booking-agent flow link-auth poll` in the background and post the sign-in URL in the same turn, exactly like `pay poll`); never wait for the user to ask to sign in or to say they approved. After `booking-agent flow business use`, follow `next_command` through `use-ucp-checkout-mode`; businesses without native checkout fail closed. Payment uses `booking-agent flow pay request` (default returns immediately with the approval URL), then start `booking-agent flow pay poll` in the background and post the approval URL to the user in the same turn; the poll finishes checkout once they approve. Confirm through `booking-agent flow book poll --wait`; never start an inbound webhook. Surface the approval URL exactly once. Personal identification (name, phone, email, address) must always come from the user's Link account via `link-cli`, never from chat or placeholders. Before any location-based search, the CLI proposes the Link shipping address and the user confirms it or gives another; online services skip this. Talk to the user in plain everyday language only; never expose CLI, UCP, auth, session, or other implementation details unless they explicitly ask.
 allowed-tools:
   - Bash(booking-agent:*)
   - Bash(link-cli:*)
@@ -50,7 +50,9 @@ or orchestrator.
    for an earlier booking". The first thing the user sees is the message from rule 5.
 5. **One short opening message, then silence until the next required question or results.**
    When the user first asks to book something, run Step 1 setup (`sessions list`, `flow init`,
-   `prereq check` when needed) silently. When the service happens at a place (at home, at a
+   `prereq check` when needed) silently. If they are not signed in to Link, the only thing
+   you send before that is the sign-in link (see [Link sign-in](#link-sign-in-automatic));
+   when the background sign-in poll exits, carry on without waiting for a reply. When the service happens at a place (at home, at a
    shop, in a named city), the opening message **asks the user to confirm the search area**
    that `flow search-area propose` returned, for example "Should I look for AC repair
    technicians near 3194 West Rome Street, Yuma AZ, or somewhere else?" Nothing is searched until
@@ -103,7 +105,10 @@ never pass coordinates, and never invent or complete an address.
 
    It reads the user's saved Link addresses, matches the default one on the map, and returns
    `awaiting_user: search_area_confirmation` with `data.proposed_area.label` (and any other saved
-   addresses in `data.other_addresses`). Ask the question in `prompt` and **STOP**.
+   addresses in `data.other_addresses`). Ask the question in `prompt` and **STOP**. If it fails
+   with `link_auth_gate_not_completed`, the user is signed out: sign them in (see [Link
+   sign-in](#link-sign-in-automatic)) and run `propose` again. Never ask for an address
+   because of a sign-in problem.
 2. **The user answers.**
    - Yes: run `next_command` (`booking-agent flow search-area confirm --user-confirmed`).
    - Another saved address: `booking-agent flow search-area set --link-address-id <id>`.
@@ -151,7 +156,10 @@ results yourself.
 
 When the user asks to book a service for the first time in the conversation:
 
-1. **Silent setup** - run session check, init, and prereq without chat.
+1. **Silent setup** - run session check, init, and prereq without chat. When `init` returns
+   `next_command: booking-agent flow link-auth connect`, sign the user in first (see [Link
+   sign-in](#link-sign-in-automatic)). The sign-in link is the only message before the opening
+   message, and you never ask whether they want to sign in.
 2. **Area, when the service happens at a place** - run `flow search-area propose` before your
    first chat message. Do not narrate it.
 3. **One opening message** - mirror the request and ask what is still unknown in one message:
@@ -210,6 +218,53 @@ the flow skips the calendar check. **Never** write tokens, keys, or personal det
 file. `booking-agent config show` prints each effective setting and where it came from;
 `booking-agent config init` creates `~/.booking-agent/.env` for an operator to edit.
 
+**Right after installing, sign the user in to Link** as described in [Link
+sign-in](#link-sign-in-automatic). It works with no booking in progress. Do not wait for the
+user to offer to sign in.
+
+## Link sign-in (automatic)
+
+Every booking needs the user signed in to their Link account, because their name, contact
+details, saved addresses, and payment all come from it. **You start the sign-in yourself.**
+The user never has to ask for it, and you never ask them to tell you when they have approved.
+
+Sign the user in:
+
+- right after installing this skill,
+- at the start of every booking, when `flow init` returns `next_command: booking-agent flow
+  link-auth connect` (it does whenever the user is signed out), before any question or search,
+- whenever any command returns `next_command: booking-agent flow link-auth connect` (for
+  example `link_auth_gate_not_completed` or `link_auth_expired`).
+
+Do it in **one turn**:
+
+1. Run `booking-agent flow link-auth connect`. It returns at once.
+   - Already signed in (`data.authenticated: true`): say nothing, run `next_command`.
+   - Otherwise it returns `awaiting_user: link_auth_approval` and the sign-in URL in
+     `user_message`.
+2. In the same turn, start `booking-agent flow link-auth poll` **in the background**
+   (`run_in_background`), the same way as `pay poll`. It waits until the user approves in Link
+   and exits with `data.authenticated: true` the moment they do.
+3. Post the raw URL to the user with one short sentence, for example: "Please sign in to your
+   Link account here so I can use your saved details: https://app.link.com/device/setup?code=...
+   I'll continue as soon as you approve." Then end the turn so the message is delivered.
+   **Never** run the first `poll` in the foreground: the turn would block until approval and
+   clients that deliver text only when the turn ends would never show the link.
+4. When the background `poll` exits, run its `next_command` right away and carry on with the
+   booking (for example, propose the search area and send the opening question). Do not wait
+   for a chat reply and do not repeat the link. **Never** ask the user to tell you they signed
+   in.
+5. If `poll` ends with `link_auth_timeout`:
+   - `next_command` is `link-auth poll`: the same link still works. Start `poll` again in the
+     background without posting the link again.
+   - `next_command` is `link-auth connect`: the link expired. Run `connect`, post the new link
+     once, and start `poll` in the background.
+6. If the user says they signed in while no `poll` is running (the link was already shown),
+   run `link-auth poll` in the foreground. It returns at once when they are signed in.
+
+Never call `link-cli auth login` directly, and never use `link-auth connect --wait` (scripts
+only): like `pay request --then-complete`, it blocks before the link reaches the user.
+
 ## Personal identification (always from Link)
 
 Whenever you need the user's **name**, **phone number**, **email**, or **address** — for
@@ -236,9 +291,8 @@ booking, checkout, forms, or any other step:
 4. During the booking flow, run **`booking-agent flow buyer resolve`** instead of calling
    `user-info retrieve` yourself — it invokes link-cli, stores buyer identity in the session,
    and satisfies compliance gates.
-5. If retrieval fails, run `booking-agent flow link-auth connect` **in the background** (same pattern
-   as calendar connect) — do **not** call `link-cli auth login` directly. Tell the user simply:
-   "I need you to sign in to your Link account" and share the sign-in link from `user_message`.
+5. If retrieval fails because the user is signed out, sign them in as described in [Link
+   sign-in](#link-sign-in-automatic). Do **not** call `link-cli auth login` directly.
 
 Show retrieved values to the user for confirmation before submitting them anywhere.
 
@@ -274,11 +328,11 @@ current state at any time: `booking-agent flow status`.
      checkout, validates skill compliance, and creates a calendar event when needed. When it
      exits, tell the user they are booked. Do not wait for a chat reply. The user approves in
      the Link app, not in chat.
-   - **`link_auth_approval`:** post `user_message` to the user as the raw URL **first**
-     (never markdown `[label](url)`).
-     The `link-auth connect` command is already polling in-process — run it **in the background**
-     (`run_in_background`) in the **same turn** so the process stays alive until sign-in
-     completes. Do not wait for a chat reply.
+   - **`link_auth_approval`:** start `booking-agent flow link-auth poll` **in the background**
+     (`run_in_background`) and, in the **same turn**, post `user_message` to the user as the
+     raw URL (never markdown `[label](url)`). Never run the first poll in the foreground. When
+     it exits, run its `next_command` without waiting for a chat reply. See [Link
+     sign-in](#link-sign-in-automatic).
    - **`support_report_consent`:** show `user_message` to the user word for word (when it is
      set) and **STOP**. On yes, run `next_command` exactly as printed. On no, run
      `booking-agent flow support-report decline`. See
@@ -385,6 +439,9 @@ booking-agent flow init --user-request "<user's exact request>"
   `slot_start_display`) and ask whether they want an **additional** booking, then **STOP**.
   Run `next_command` (it adds `--allow-duplicate`) only if they say yes. Never cancel, move, or
   resume the existing booking unless they ask.
+- If `init` returns `next_command: booking-agent flow link-auth connect`, the user is signed out
+  of Link. Sign them in now, before any question or search (see [Link
+  sign-in](#link-sign-in-automatic)), then follow the `next_command` from `link-auth poll`.
 - If `init` returns `phase == "PREREQ_OK"`, skip directly to Step 2 (discover services).
 - If `phase == "INIT"` (first session ever), run prereq check first:
 
@@ -681,10 +738,10 @@ booking-agent flow slots select --slot-id <chosen by user> --user-confirmed
 booking-agent flow link-auth connect
 ```
 
-Run **in the background** (`run_in_background`) when the command emits a sign-in URL
-(`awaiting_user: link_auth_approval`). The CLI surfaces `user_message` (the device setup URL),
-then blocks polling link-cli until the user approves in the Link app — same pattern as
-`calendar connect`. If already authenticated, this returns immediately.
+The user is normally already signed in from Step 1, so this returns at once with
+`data.authenticated: true`. If it returns `awaiting_user: link_auth_approval` instead, follow
+[Link sign-in](#link-sign-in-automatic): start `booking-agent flow link-auth poll` in the
+background and post the URL in the same turn.
 
 **Step 5b — Resolve buyer**
 
@@ -734,7 +791,8 @@ confirmation after booking.
 
 This step applies [Personal identification (always from Link)](#personal-identification-always-from-link).
 Never hand-enter buyer details. If `buyer resolve` fails with `link_cli_failed` or
-`link_auth_expired`, re-run `booking-agent flow link-auth connect` in the background, then retry.
+`link_auth_expired`, sign the user in again (see [Link sign-in](#link-sign-in-automatic)), then
+retry.
 
 ### Step 6: Book and pay
 
@@ -995,6 +1053,9 @@ booking-agent flow calendar create-event
 - **Never** run the first `pay poll` after `pay request` in the foreground. Start it in the
   background and post the approval URL in the same turn; otherwise the turn blocks until
   approval and the user never sees the link.
+- **Never** run the first `link-auth poll` after `link-auth connect` in the foreground, and never
+  use `link-auth connect --wait` in interactive flows. Start the poll in the background and post
+  the sign-in URL in the same turn, exactly like `pay poll`.
 - **Never** ask the user to reply "approved" or "done" after showing a Link approval URL.
 - **Never** continue an existing session without asking the user first. When `sessions list`
   shows an incomplete session that matches the request, or when `flow init` returns
@@ -1032,9 +1093,10 @@ recover.
 | Error code | Cause | Recovery |
 |---|---|---|
 | `calendar_gate_not_completed` | `availability` called before calendar step | Run `booking-agent flow calendar connect` or `skip` |
-| `link_auth_gate_not_completed` | `buyer resolve` before Link sign-in | Run `booking-agent flow link-auth connect` in the background |
-| `link_auth_expired` | Link session expired before payment | Run `booking-agent flow link-auth connect` in the background, then retry |
-| `link_auth_timeout` | User did not complete Link sign-in in time | Re-run `booking-agent flow link-auth connect` in the background |
+| `link_auth_gate_not_completed` | `search-area propose` or `buyer resolve` while signed out of Link | Sign the user in (`link-auth connect`, then `link-auth poll` in the background and post the URL in the same turn), then retry |
+| `link_auth_expired` | Link session expired before payment | Sign the user in the same way, then retry |
+| `link_auth_timeout` | User did not approve the Link sign-in in time | Run `next_command`: `link-auth poll` again in the background (same link, do not re-post it) or `link-auth connect` (new link, post it once, then poll in the background) |
+| `link_auth_not_started` | `link-auth poll` with no sign-in waiting | Run `booking-agent flow link-auth connect`, start `link-auth poll` in the background, and post the URL |
 | `checkout_prereq_not_completed` | Calendar step before native checkout validation | Run `next_command` from `business use` (`use-ucp-checkout-mode`) |
 | `ucp_native_required` | Business does not support the native v2 checkout path | Tell the user this business cannot be booked here yet and offer another result |
 | `disclosures_unconfirmed` | Deposit checkout returned terms or disclosures the user has not acknowledged | Show due now, due at the appointment, and every disclosure, then re-run `pay request` with `--disclosures-confirmed` |
@@ -1048,6 +1110,7 @@ recover.
 | `buyer_not_from_link_cli` | Buyer details not sourced from Link wallet | Run `booking-agent flow buyer resolve` |
 | `buyer_email_invalid` | Placeholder or malformed email detected | Run `booking-agent flow buyer resolve` — never hand-enter |
 | `profile_unreachable` | Business profile URL unreachable | Surface the URL from `data.error.message` to the user |
+| `agent_profile_unresolvable` | The business could not fetch the booking assistant's platform profile, so nothing was booked | Post `user_message`, then run `next_command` once (it reuses the same idempotency key, so it cannot double-book); if it fails again, offer another time or business |
 | `spend_request_not_approved` | Spend request was denied, canceled, expired, or remained pending | Re-run `pay ucp-complete` with the same spend id, or create a new spend request |
 | `missing_network_id_for_spt` | UCP checkout lacked `com.stripe.payments` Link instrument `config.network_id` | `booking-agent flow pay rebook --service-id <id>` for a fresh checkout, or stop if the merchant omitted `link.config.network_id` |
 | `approval_not_surfaced_to_user` | `pay ucp-complete` ran before the approval URL was shown | Start `booking-agent flow pay poll` in the background and post `user_message` in the same turn |

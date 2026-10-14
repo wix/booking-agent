@@ -25,7 +25,7 @@ from urllib.parse import urlparse
 import httpx
 
 from booking_agent.http_retry import with_http_retry
-from booking_agent.http_trace import traced_async_client
+from booking_agent.http_trace import _TOKEN_RE, traced_async_client
 
 from . import usp_methods
 from .authorization import (
@@ -160,6 +160,45 @@ def _booking_from_response(data: Dict[str, Any]) -> Booking:
             ],
         }
     return Booking.model_validate(raw)
+
+class BookingRequestError(Exception):
+    """The business refused ``POST /bookings`` and named a machine-readable code.
+
+    Only the status and the code are kept. The business's message and body can
+    echo buyer details back, so they never reach the caller.
+    """
+
+    def __init__(self, http_status: int, business_code: str) -> None:
+        super().__init__(
+            f"The business rejected the booking (HTTP {http_status}, code {business_code})."
+        )
+        self.http_status = http_status
+        self.business_code = business_code
+
+
+def usp_error_code(response: httpx.Response) -> Optional[str]:
+    """The error code from a business error body, when it is a safe token.
+
+    Accepts the spec's ``error.code`` (or a top-level ``code``), the
+    ``details.applicationError.code`` shape Wix-hosted businesses return, and a
+    ``messages[]`` envelope entry of ``type: error``.
+    """
+    payload = usp_error_payload(response)
+    candidates: List[Any] = [payload.get("code")]
+    details = payload.get("details")
+    if isinstance(details, dict) and isinstance(details.get("applicationError"), dict):
+        candidates.append(details["applicationError"].get("code"))
+    messages = payload.get("messages")
+    if isinstance(messages, list):
+        candidates.extend(
+            m.get("code") for m in messages
+            if isinstance(m, dict) and m.get("type") == "error"
+        )
+    for code in candidates:
+        if isinstance(code, str) and _TOKEN_RE.match(code):
+            return code
+    return None
+
 
 class RevisionMismatch(Exception):
     """A conditional write was rejected because the resource moved on (HTTP 412).
@@ -613,6 +652,7 @@ class BaseUSPRestClient:
         *,
         json_body: Optional[Dict[str, Any]] = None,
         idempotent: bool = False,
+        idempotency_key: Optional[str] = None,
         access: str = usp_methods.PUBLIC,
         credential: Optional[BookingScopedCredential] = None,
         if_match: Optional[str] = None,
@@ -628,7 +668,11 @@ class BaseUSPRestClient:
         # at the *same* logical call, so it must reuse the key or the business
         # cannot deduplicate it. Proof ``jti`` values, by contrast, are rebuilt per
         # attempt inside ``_headers``, which is what the replay cache requires.
-        idempotency_key = str(uuid.uuid4()) if idempotent else None
+        # A caller-supplied key carries that guarantee across processes.
+        if idempotent and not idempotency_key:
+            idempotency_key = str(uuid.uuid4())
+        elif not idempotent:
+            idempotency_key = None
         sent_nonce: Optional[str] = None
 
         async def _do() -> httpx.Response:
@@ -702,12 +746,14 @@ class BaseUSPRestClient:
             body: Dict[str, Any],
             *,
             idempotent: bool = False,
+            idempotency_key: Optional[str] = None,
             access: str = usp_methods.PUBLIC,
             credential: Optional[BookingScopedCredential] = None,
             if_match: Optional[str] = None,
     ) -> dict:
         return await self._request(
             "POST", url, json_body=body, idempotent=idempotent,
+            idempotency_key=idempotency_key,
             access=access, credential=credential, if_match=if_match,
         )
 
@@ -824,6 +870,7 @@ class USPBusinessRestClient(BaseUSPRestClient):
         body: Dict[str, Any],
         *,
         idempotent: bool = False,
+        idempotency_key: Optional[str] = None,
         access: str = usp_methods.PUBLIC,
         credential: Optional[BookingScopedCredential] = None,
         if_match: Optional[str] = None,
@@ -831,6 +878,7 @@ class USPBusinessRestClient(BaseUSPRestClient):
         return await super()._post(url=f"{self.endpoint.rstrip('/')}{path}",
                                    body=body,
                                    idempotent=idempotent,
+                                   idempotency_key=idempotency_key,
                                    access=access,
                                    credential=credential,
                                    if_match=if_match)
@@ -999,6 +1047,7 @@ class USPBusinessRestClient(BaseUSPRestClient):
         delivery_address: Optional[Dict[str, Any]] = None,
         recipient: Optional[Dict[str, Any]] = None,
         consent: Optional[Dict[str, Any]] = None,
+        idempotency_key: Optional[str] = None,
     ) -> Booking:
         body: Dict[str, Any] = {
             "service_id": service_id,
@@ -1018,10 +1067,16 @@ class USPBusinessRestClient(BaseUSPRestClient):
             body["recipient"] = recipient
         if consent:
             body["consent"] = consent
-        data = await self._post(
-            "/bookings", body, idempotent=True,
-            access=usp_methods.PRIVILEGED_PLATFORM,
-        )
+        try:
+            data = await self._post(
+                "/bookings", body, idempotent=True, idempotency_key=idempotency_key,
+                access=usp_methods.PRIVILEGED_PLATFORM,
+            )
+        except httpx.HTTPStatusError as exc:
+            code = usp_error_code(exc.response)
+            if code is None:
+                raise
+            raise BookingRequestError(exc.response.status_code, code) from exc
         # Issuance: the credential arrives here and nowhere else.  Verified
         # against our own key before it is handed back to the caller.
         self.last_issued_credential = self._read_issued_credential(data)

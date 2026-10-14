@@ -196,6 +196,9 @@ class Session:
     total_confirmed_amount_minor: Optional[int] = None  # checkout total the user re-approved
     accepted_term: Optional[Dict[str, Any]] = None
     complete_checkout_idempotency_key: Optional[str] = None
+    # Direct POST /bookings the business refused as invalid_profile_url:
+    # {idempotency_key, fingerprint, retry_command}. Reused only for the same booking.
+    pending_booking_attempt: Optional[Dict[str, Any]] = None
     checkout_mode: Optional[str] = None  # ucp_native | direct; set by business use
     supported_checkout_modes: List[str] = field(default_factory=list)
     checkout_prereq_completed: bool = False
@@ -752,6 +755,11 @@ def _session_from_dict(raw: Dict[str, Any]) -> Session:
         total_confirmed_amount_minor=raw.get("total_confirmed_amount_minor"),
         accepted_term=raw.get("accepted_term"),
         complete_checkout_idempotency_key=raw.get("complete_checkout_idempotency_key"),
+        pending_booking_attempt=(
+            raw["pending_booking_attempt"]
+            if isinstance(raw.get("pending_booking_attempt"), dict)
+            else None
+        ),
         checkout_mode=raw.get("checkout_mode"),
         supported_checkout_modes=list(raw.get("supported_checkout_modes") or []),
         checkout_prereq_completed=raw.get("checkout_prereq_completed", False),

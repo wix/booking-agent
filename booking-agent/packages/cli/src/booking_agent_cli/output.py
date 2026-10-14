@@ -100,6 +100,13 @@ PAY_POLL_BACKGROUND_INSTRUCTION = (
     "poll before the user has seen the URL. Do not wait for a chat reply. When the poll "
     "exits, tell the user the outcome and do not repeat the URL."
 )
+LINK_AUTH_POLL_BACKGROUND_INSTRUCTION = (
+    "Start `booking-agent flow link-auth poll` in the background (run_in_background) in this "
+    "same turn, and post the raw URL to the user right away; never run it in the foreground "
+    "before the user has seen the URL. Do not ask the user to tell you they signed in. When "
+    "the poll exits, run its next_command without waiting for a chat reply and do not "
+    "repeat the URL."
+)
 
 
 def spend_approval_user_message(approval_url: Optional[str]) -> Optional[str]:
