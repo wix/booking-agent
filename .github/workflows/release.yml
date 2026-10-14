@@ -1,0 +1,120 @@
+name: release
+
+# Builds booking-agent-cli from the mirrored booking-agent/ tree and publishes it with
+# PyPI Trusted Publishing (OIDC). The publisher on TestPyPI is wix / booking-agent /
+# release.yml / environment testpypi. The wix org allows only GitHub-owned actions
+# pinned by SHA, so uploads use `uv publish`, not pypa/gh-action-pypi-publish.
+# Lives on master only; never add it to main (the Pages branch allow-list rejects it).
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref_name }}
+  cancel-in-progress: false
+
+env:
+  UV_VERSION: "0.13.0"
+  PYTHON_VERSION: "3.12"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Refuse tags whose commit is not on master
+        run: |
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/master; then
+            echo "::error::$GITHUB_REF_NAME ($GITHUB_SHA) is not on master"
+            exit 1
+          fi
+
+      - name: Refuse production tags until the pypi environment exists (Stage 3)
+        run: |
+          case "$GITHUB_REF_NAME" in
+            *.dev*) ;;
+            *)
+              echo "::error::Only .devN tags publish (to TestPyPI). Production PyPI is not set up yet."
+              exit 1
+              ;;
+          esac
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install uv
+        run: python -m pip install "uv==${UV_VERSION}"
+
+      - name: Tag must equal the package version
+        working-directory: booking-agent
+        run: |
+          version="$(uv version --package booking-agent-cli --short)"
+          if [ "v${version}" != "$GITHUB_REF_NAME" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match booking-agent-cli version ${version} (expected v${version})"
+            exit 1
+          fi
+
+      - name: Test against a fresh resolution (no lockfile, like end users)
+        working-directory: booking-agent
+        run: |
+          uv sync --all-packages --all-extras
+          uv run pytest -q -p no:cacheprovider
+
+      - name: Build
+        working-directory: booking-agent
+        run: uv build --package booking-agent-cli --out-dir "$GITHUB_WORKSPACE/dist"
+
+      - name: Dist must be exactly one wheel and one sdist for the tag version
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          ls -l dist
+          test "$(ls dist | wc -l)" -eq 2
+          test -f "dist/booking_agent_cli-${version}-py3-none-any.whl"
+          test -f "dist/booking_agent_cli-${version}.tar.gz"
+
+      - name: Upload dist
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: dist
+          path: dist/
+          if-no-files-found: error
+
+  publish-testpypi:
+    needs: build
+    if: contains(github.ref_name, '.dev')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      name: testpypi
+      url: https://test.pypi.org/project/booking-agent-cli/
+    permissions:
+      id-token: write
+    steps:
+      - name: Download dist
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: dist
+          path: dist/
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install uv
+        run: python -m pip install "uv==${UV_VERSION}"
+
+      - name: Publish to TestPyPI
+        run: uv publish --trusted-publishing always --publish-url https://test.pypi.org/legacy/ dist/*
