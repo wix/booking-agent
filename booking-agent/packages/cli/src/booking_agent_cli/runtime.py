@@ -10,7 +10,6 @@ from urllib.parse import urlsplit
 
 from booking_agent.backend import USPBackend, get_usp_backend
 from booking_agent.calendar import CustomerCalendarService
-from booking_agent.config import load_config
 from booking_agent.platform_profile import platform_profile_url
 
 
@@ -46,15 +45,10 @@ def require_fetchable_profile_url() -> str:
 
 
 def resolve_calendar_service() -> CustomerCalendarService:
-    cfg = load_config()
-    if cfg.google_calendar_client_id:
-        from booking_agent.calendar.google import GoogleCalendarService
-        return GoogleCalendarService()
-    raise RuntimeError(
-        "No calendar provider configured. Set GOOGLE_CALENDAR_CLIENT_ID (and "
-        "related GOOGLE_CALENDAR_* vars) to connect a calendar, or run "
-        "`booking-agent flow calendar skip` to proceed without conflict checking."
-    )
+    """Google Calendar. A host token works without an OAuth client; a new sign-in needs one."""
+    from booking_agent.calendar.google import GoogleCalendarService
+
+    return GoogleCalendarService()
 
 
 def resolve_backend() -> USPBackend:

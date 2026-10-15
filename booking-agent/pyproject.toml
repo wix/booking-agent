@@ -14,4 +14,4 @@ booking-agent-cli = { workspace = true }
 asyncio_mode = "auto"
 pythonpath = ["packages/cli/tests"]
 testpaths = ["packages/cli/tests"]
-addopts = ["--deselect=packages/cli/tests/integration/test_declined_spt.py::test_superagent_inherits_the_matrix_without_restating_it"]
+addopts = []

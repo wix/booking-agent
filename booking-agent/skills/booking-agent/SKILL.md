@@ -1,5 +1,5 @@
 ---
-version: 0.45.0
+version: 0.46.0
 name: booking-agent
 description: |
   Books time-based services via USP from a Link wallet. Use when the user wants to book, schedule, reserve, or pay for a service from a business (haircut, lesson, repair, class, appointment, consult). The `booking-agent` CLI owns the booking state machine and refuses to proceed when human gates are skipped. Sign the user in to Link on your own, right after install and at the start of every booking (`booking-agent flow link-auth connect`, then start `booking-agent flow link-auth poll` in the background and post the sign-in URL in the same turn, exactly like `pay poll`); never wait for the user to ask to sign in or to say they approved. After `booking-agent flow business use`, follow `next_command` through `use-ucp-checkout-mode`; businesses without native checkout fail closed. Payment uses `booking-agent flow pay request` (default returns immediately with the approval URL), then start `booking-agent flow pay poll` in the background and post the approval URL to the user in the same turn; the poll finishes checkout once they approve. Confirm through `booking-agent flow book poll --wait`; never start an inbound webhook. Surface the approval URL exactly once. Personal identification (name, phone, email, address) must always come from the user's Link account via `link-cli`, never from chat or placeholders. Before any location-based search, the CLI proposes the Link shipping address and the user confirms it or gives another; online services skip this. Talk to the user in plain everyday language only; never expose CLI, UCP, auth, session, or other implementation details unless they explicitly ask.
@@ -211,12 +211,27 @@ the skill, then try again.
 `link-cli` is required for buyer identity and spend-request create/approve — install via the
 [link-cli skill](https://github.com/stripe/link-cli/blob/main/skills/create-payment-credential/SKILL.md) or your harness's link-cli provisioner.
 
-Nothing needs configuring for a basic booking: every setting has a shipped default. A personal
-calendar needs either an operator Google OAuth app (`GOOGLE_CALENDAR_CLIENT_ID` and
-`GOOGLE_CALENDAR_CLIENT_SECRET`) or a token from the host's calendar connector; without either,
-the flow skips the calendar check. **Never** write tokens, keys, or personal details into any env
-file. `booking-agent config show` prints each effective setting and where it came from;
-`booking-agent config init` creates `~/.booking-agent/.env` for an operator to edit.
+Nothing needs configuring for a basic booking: every setting has a shipped default. The user
+never configures anything for the calendar either: you work out at runtime how this runtime can
+reach Google Calendar (see [the calendar gate](#step-3-select-business-and-resolve-calendar-gate)).
+**Never** write tokens, keys, or personal details into any env file. `booking-agent config show`
+prints each effective setting and where it came from; `booking-agent config init` creates
+`~/.booking-agent/.env` for an operator to edit.
+
+**Keep state between conversations (only when this runtime needs it).** Inspect the runtime you
+are in. When its filesystem starts fresh in each conversation and it gives you a folder that
+survives between conversations, run this once per conversation, before `booking-agent flow
+sessions list`:
+
+```bash
+booking-agent runtime prepare --persistent-root <absolute folder that survives>
+```
+
+It links the booking state and the Link sign-in into that folder, so saved bookings, calendar
+preferences, and the sign-in carry over. Add `--link <runtime folder>=<persistent folder>` once
+for each extra cache folder the runtime asks you to keep (a relative persistent folder is placed
+under the root). When the runtime keeps its files anyway, or offers no surviving folder, skip the
+command. Do not tell the user about it. If it fails, continue the booking without it.
 
 **Right after installing, sign the user in to Link** as described in [Link
 sign-in](#link-sign-in-automatic). It works with no booking in progress. Do not wait for the
@@ -589,63 +604,94 @@ booking-agent flow calendar ask
 
 Follow `next_command` from the JSON. **Do not ask the user calendar options yourself.**
 
+**Pick the calendar route from what you observe at runtime.** The CLI cannot see how this
+runtime reaches Google Calendar, so you tell it on `calendar connect`. Decide before you ask
+the user anything:
+
+- **`--route connector`**: your platform can connect Google Calendar on the user's behalf and
+  hands the access token to the commands you run in an environment variable. Pass that
+  variable's **name** with `--token-env <NAME>`. Never pass, print, or store the token itself,
+  and never copy it into an env file. Look up the name each conversation; do not assume it.
+- **`--route local-oauth`**: `data.local_oauth_configured` is true and you can relay a sign-in
+  link to the user.
+- **Neither**: run `booking-agent flow calendar skip --session-only` without asking the user
+  about the calendar, then continue to availability.
+
+The CLI stores the route and the variable name for later commands and later bookings, and it
+never guesses one: `calendar connect` without `--route` fails with `calendar_route_required`,
+and `--route connector` without a valid `--token-env` fails with `calendar_token_env_required`.
+
+`calendar ask` outcomes:
+
 - **Connected or remembered preference:** The CLI auto-applies conflict checking (or a saved
   skip) and advances to availability. Briefly tell the user you are using their calendar when
   conflict checking is active.
-- **No calendar identity on the device** (`data.local_oauth_configured` is false and not
-  connected): The CLI skips personal calendar conflict checking for this session and advances
-  to availability. Do not ask about calendar options. You may say you are continuing without
-  checking their personal calendar.
 - **Saved calendar access expired** (`awaiting_user: calendar_reconnect`): The user previously
   connected Google Calendar but that access is no longer valid. Do **not** ask the three
   calendar questions again. Ask only the two choices in `data.calendar_reconnect_choices`:
   reconnect for the same use (`data.remembered_calendar_mode`), or continue this booking
-  without calendar checking. Run the matching `command`: `booking-agent flow calendar connect --mode
-  <remembered mode>` (in the background, as below) or `booking-agent flow calendar skip
+  without calendar checking. Run the matching `command` exactly as printed (it already carries
+  the stored route) or `booking-agent flow calendar skip
   --session-only`, which keeps the saved preference.
 - **Saved access expired and reconnect unavailable** (`data.calendar_checking_unavailable`):
   The CLI already skipped calendar checking for this booking only. Tell the user in one plain
   sentence that calendar checking was unavailable, then continue.
 - Never quote calendar access tokens or Google token URLs. `data.connection_problem` holds
   only sanitized codes (`invalid_token`, `tokeninfo_http_error`, `tokeninfo_unavailable`).
-- **Local OAuth available but not connected** (`awaiting_user: calendar_consent`): Ask the user
-  which they prefer, then run the matching command:
+- **Not connected yet** (`awaiting_user: calendar_consent`): When a route is available, ask the
+  user which they prefer and run the matching command with your route. With no route, skip
+  as above without asking.
 
 ```bash
-booking-agent flow calendar skip                              # neither
-booking-agent flow calendar connect --mode freebusy           # free/busy conflict checking only
-booking-agent flow calendar connect --mode events             # conflict checking + post-booking event
+booking-agent flow calendar skip                                                     # neither
+booking-agent flow calendar connect --mode freebusy --route connector --token-env <NAME>  # free/busy only
+booking-agent flow calendar connect --mode events --route connector --token-env <NAME>    # + post-booking event
+booking-agent flow calendar connect --mode freebusy --route local-oauth                   # same, by sign-in link
+booking-agent flow calendar connect --mode events --route local-oauth
 ```
 
 The CLI remembers explicit user choices (`last_calendar_state` / `last_calendar_mode`) for
 future bookings when Google Calendar stays connected.
 
-For `calendar connect` (only when `data.local_oauth_configured` is true), run the command **in
-the background** (`run_in_background`) so its local OAuth callback server stays alive while the
-user approves.
+**Connector route.** `calendar connect` returns at once:
 
-`calendar connect` emits a JSON object containing `data.auth_url` and then blocks waiting for
-the OAuth callback. The CLI does **not** open a browser itself. As soon as the `auth_url`
-appears in the background output:
+- Connected: it completes the gate and `next_command` is `booking-agent flow availability`.
+- `awaiting_user: calendar_connector` (`data.error: calendar_not_connected`): the variable is
+  empty or holds no valid token, so the user has not connected Google Calendar to you yet. Use
+  your platform's own way of connecting Google Calendar, ask for the access in
+  `data.scope_request`, and when the connection is in place rerun `data.retry_command` (the same
+  command). Never show a sign-in link from this CLI for this route. If your platform cannot
+  connect it, run `booking-agent flow calendar skip --session-only`.
+- `calendar_insufficient_scope`: the connection lacks the access the chosen mode needs.
+  Reconnect through your platform with `data.scope_request`, then rerun the same command.
+
+**Local OAuth route.** `calendar connect` returns at once with `awaiting_user: oauth_approval`
+and `data.auth_url`. The CLI does **not** open a browser itself.
 
 1. **Present the raw `auth_url` to the user** (never markdown `[label](url)`) and ask them to
    open it and approve the Google Calendar access described in the CLI `prompt` (free/busy only
    vs events). Never open the browser for them; always relay the URL. Tell them how long the
    link works (`data.link_valid_minutes`, about 10 minutes by default).
-2. The background process keeps the callback server running. Wait for it to complete. It
-   emits a second JSON object with `prompt: "Calendar connected…"` once the user approves
-   (or a `calendar_oauth_timeout` error if they don't approve in time).
-3. On timeout, post the error's `user_message` and **STOP**. Do not start a new link on your
-   own. Run `calendar connect` with the same `--mode` in the background only if the user asks
-   for a new link, or `booking-agent flow calendar skip --session-only` if they want to continue
-   without calendar checking.
+2. In the same turn, run `booking-agent flow calendar poll` without blocking your turn (in the
+   background when you can). Each `poll` returns within its `--wait` budget (2 minutes by
+   default). While it returns `awaiting_user: oauth_approval` with `data.status: pending`, run
+   `poll` again without posting the link again. When it connects, run `next_command`.
+3. On `calendar_oauth_timeout` or `calendar_oauth_failed`, post the error's `user_message` and
+   **STOP**. Do not start a new link on your own. Run the `new_link` command from
+   `data.choices` only if the user asks for a new link, or `booking-agent flow calendar skip
+   --session-only` if they want to continue without calendar checking.
+4. `calendar_insufficient_scope` from `poll` means the user approved less access than the mode
+   needs. Ask whether they want a new link; do not start one on your own.
+5. `calendar_oauth_not_started` means no sign-in is waiting. Run `booking-agent flow calendar ask`.
 
-If `calendar connect` fails with `calendar_insufficient_scope`, the existing token lacks the
-permission for the chosen mode — re-run connect with the same `--mode` so the user can grant
-the right access.
+The sign-in listener stops by itself when the link expires. `calendar skip` stops it too, and
+`booking-agent flow calendar cleanup` stops it when the user abandons the sign-in.
 
-If `calendar connect` fails with `calendar_oauth_not_configured`, run `booking-agent flow calendar
-skip` or rely on `calendar ask` auto-skip (no local OAuth client on the host).
+If `calendar connect` fails with `calendar_oauth_not_configured`, local sign-in is not set up on
+this device: use the connector route when your platform has one, otherwise run
+`booking-agent flow calendar skip --session-only`. If it fails with
+`calendar_callback_port_busy`, no link was created; run `booking-agent flow calendar skip
+--session-only`.
 
 ### Step 4: Check availability and select a slot
 
@@ -1080,7 +1126,10 @@ booking-agent flow calendar create-event
 - **Never** run `sleep` or a fixed wait alongside a `booking-agent` command; wait for the command to
   exit.
 - **Never** skip the calendar gate. `booking-agent flow availability` fails until the user has
-  connected a calendar or explicitly declined.
+  connected a calendar or declined, or you skipped it because this runtime has no calendar route.
+- **Never** guess a calendar route or token variable name, and never pass a token value on the
+  command line. Observe the runtime, then pass `--route` (and `--token-env <NAME>` for a
+  connector).
 - Selecting a business via direct profile URL does not skip gates — the same gates apply as
   for registry discovery.
 
@@ -1092,7 +1141,7 @@ recover.
 
 | Error code | Cause | Recovery |
 |---|---|---|
-| `calendar_gate_not_completed` | `availability` called before calendar step | Run `booking-agent flow calendar connect` or `skip` |
+| `calendar_gate_not_completed` | `availability` called before calendar step | Run `booking-agent flow calendar ask` and follow [the calendar gate](#step-3-select-business-and-resolve-calendar-gate) |
 | `link_auth_gate_not_completed` | `search-area propose` or `buyer resolve` while signed out of Link | Sign the user in (`link-auth connect`, then `link-auth poll` in the background and post the URL in the same turn), then retry |
 | `link_auth_expired` | Link session expired before payment | Sign the user in the same way, then retry |
 | `link_auth_timeout` | User did not approve the Link sign-in in time | Run `next_command`: `link-auth poll` again in the background (same link, do not re-post it) or `link-auth connect` (new link, post it once, then poll in the background) |

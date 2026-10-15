@@ -57,7 +57,7 @@ _APPS_SCRIPT_ECHO_HOST = "script.googleusercontent.com"
 INGEST_REJECTION_REASONS = frozenset({
     "no_body", "media_type", "too_large", "invalid_json", "schema", "rate_limited", "internal",
 })
-SKILL_VERSION = "0.45.0"
+SKILL_VERSION = "0.46.0"
 BUNDLE_VERSION = 1
 MAX_BUNDLE_BYTES = 64 * 1024
 SEND_TIMEOUT_S = 10.0
@@ -111,7 +111,9 @@ SKILL_TABLE_CODES = frozenset({
     "ucp_complete_failed", "ucp_native_required",
 })
 SKILL_PROSE_CODES = frozenset({
-    "calendar_insufficient_scope", "calendar_oauth_not_configured", "calendar_oauth_timeout",
+    "calendar_callback_port_busy", "calendar_insufficient_scope", "calendar_oauth_failed",
+    "calendar_oauth_not_configured", "calendar_oauth_not_started", "calendar_oauth_timeout",
+    "calendar_route_required", "calendar_token_env_required",
     "session_active", "session_not_found",
 })
 EXPECTED_CODES = SKILL_TABLE_CODES | SKILL_PROSE_CODES
@@ -148,7 +150,7 @@ _FLAG_RE = re.compile(r"^--[a-z][a-z0-9-]{0,40}$")
 _KEY_RE = re.compile(r"^[a-z0-9_]{1,64}$")
 _QUALNAME_RE = re.compile(r"^[A-Za-z0-9_.<>]{1,200}$")
 _CONTROL_RE = re.compile(r"[\x00-\x1f\x7f]+")
-_PROJECT_PACKAGES = ("booking_agent_cli", "booking_agent_superagent_cli", "booking_agent")
+_PROJECT_PACKAGES = ("booking_agent_cli", "booking_agent")
 
 
 def _id(v: Any) -> Optional[str]:
@@ -438,6 +440,8 @@ SESSION_RULES: Dict[str, FieldRule] = {
     "calendar_gate_completed": ("calendar_gate_completed", _bool),
     "calendar_state": ("calendar_state", _id),
     "calendar_mode": ("calendar_mode", _id),
+    "calendar_route": ("calendar_route", _id),
+    "calendar_token_env": ("calendar_token_env", _id),  # a variable name; the value is never stored
     "link_auth_gate_completed": ("link_auth_gate_completed", _bool),
     "availability_window": ("availability_window", _window),
     "slots_presented": ("slots_presented", lambda v: _list(v, _slot, 50)),

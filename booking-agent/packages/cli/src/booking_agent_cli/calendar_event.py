@@ -8,6 +8,7 @@ from urllib.parse import urlsplit, urlunsplit
 
 import httpx
 
+from booking_agent.calendar.scope import CALENDAR_MODE_EVENTS
 from booking_agent.http_deadlines import coerce_timeout
 from booking_agent_cli.session import Session
 
@@ -448,7 +449,14 @@ def build_event_body(session: Session) -> Tuple[Optional[Dict[str, Any]], Option
     return body, None
 
 
+def _refresh_host_token(session: Session) -> None:
+    from .calendar_connection import refresh_host_token
+
+    refresh_host_token(session, CALENDAR_MODE_EVENTS)
+
+
 def create_calendar_event(session: Session, user_key: str = "cli") -> Dict[str, Any]:
+    _refresh_host_token(session)
     cached = load_cached_token(user_key)
     if not cached or not cached.get("access_token"):
         return {
@@ -507,6 +515,7 @@ def update_calendar_event(session: Session, user_key: str = "cli") -> Dict[str, 
     Creates the event when none was recorded or the user deleted it, so the
     calendar ends up showing the new time either way.
     """
+    _refresh_host_token(session)
     cached = load_cached_token(user_key)
     if not cached or not cached.get("access_token"):
         return {
@@ -559,6 +568,7 @@ def delete_calendar_event(session: Session, user_key: str = "cli") -> Dict[str, 
     if not event_id:
         return {"ok": True, "status": "skipped", "reason": "no_event"}
 
+    _refresh_host_token(session)
     cached = load_cached_token(user_key)
     if not cached or not cached.get("access_token"):
         return {

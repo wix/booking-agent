@@ -10,7 +10,7 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple
 
 from dotenv import dotenv_values
 
@@ -79,6 +79,13 @@ def source_of(name: str) -> str:
     if settings.shipped_default(name) is None:
         return "unset"
     return SOURCE_SHIPPED
+
+
+def process_value(name: str) -> Optional[str]:
+    """The value the process started with; a value an env file supplied is never returned."""
+    if name in _applied and os.environ.get(name) == _applied[name][0]:
+        return None
+    return os.environ.get(name)
 
 
 def loaded_files() -> List[Tuple[str, Path]]:

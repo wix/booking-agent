@@ -37,7 +37,7 @@ from booking_agent.rest_client import (
 from booking_agent.ucp_checkout import CompleteOutcome, UcpCheckoutHttpError, UcpCompleteOutcomeError
 from booking_agent.ucp_profile import UcpProfileValidationError
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 from zoneinfo import ZoneInfo
 
 import httpx
@@ -72,7 +72,20 @@ from ..payment_helpers import (
     resolve_spend_request_fields_sync,
     resolve_spend_approval_url,
 )
-from ..calendar_connection import bridge_token_cache_for_mode, calendar_connection_status
+from ..calendar_connection import (
+    CALENDAR_ROUTES,
+    ROUTE_CONNECTOR,
+    ROUTE_LOCAL_OAUTH,
+    cache_host_token,
+    calendar_connection_status,
+    host_token,
+    local_oauth_configured,
+    refresh_host_token,
+    remember_route,
+    remembered_route,
+    scope_request,
+    valid_token_env_name,
+)
 from ..calendar_event import (
     create_calendar_event,
     delete_calendar_event,
@@ -2533,6 +2546,8 @@ app.add_typer(calendar_app, name="calendar")
 _CALENDAR_SESSION_ID = "cli"
 # Google sign-in plus consent on a phone routinely takes longer than two minutes.
 CALENDAR_APPROVAL_TIMEOUT_SECONDS = 600
+# Below common agent tool-call limits, so a foreground poll still returns a result.
+CALENDAR_POLL_WAIT_SECONDS = 120
 _VALID_CALENDAR_MODES = frozenset({CALENDAR_MODE_FREEBUSY, CALENDAR_MODE_EVENTS})
 
 
@@ -2544,49 +2559,60 @@ def _complete_calendar_gate(session: Session, *, mode: str) -> None:
     )
 
 
-def _auto_skip_calendar_if_no_identity(
-    session: Session,
-    status: dict,
-    *,
-    data: Optional[dict] = None,
-) -> bool:
-    """Session-only skip when no calendar token and no operator OAuth client on the host."""
-    if status.get("connected") or status.get("local_oauth_configured"):
-        return False
-    skip_calendar_gate_session_only(session)
-    out = dict(data or {})
-    out.update(status)
-    out["calendar_state"] = "skipped"
-    out["calendar_mode"] = CALENDAR_MODE_NONE
-    prompt = (
-        "No Google Calendar identity on this device; continuing without "
-        "personal calendar conflict checking. Ready to query availability."
-    )
-    stale_mode = stale_remembered_calendar_mode(status)
-    if stale_mode or status.get("connection_problem"):
-        out["calendar_checking_unavailable"] = True
-        if stale_mode:
-            out["stale_calendar_mode"] = stale_mode
-        prompt = (
-            "The saved Google Calendar access is no longer valid and reconnecting is not "
-            "available on this device, so calendar checking is unavailable for this "
-            "booking. Tell the user that in one plain sentence, then continue. Ready to "
-            "query availability."
-        )
-    emit(_agent_out(
-        session,
-        prompt=prompt,
-        next_command="booking-agent flow availability",
-        data=out,
-    ))
-    return True
-
-
 _CALENDAR_MODE_LABELS = {
     CALENDAR_MODE_FREEBUSY: "conflict checking (free/busy only)",
     CALENDAR_MODE_EVENTS: "conflict checking and post-booking calendar events",
 }
 _CALENDAR_SKIP_SESSION_ONLY = "booking-agent flow calendar skip --session-only"
+_CALENDAR_POLL = "booking-agent flow calendar poll"
+_TOKEN_ENV_PLACEHOLDER = "<TOKEN_VARIABLE>"
+
+
+def _connect_command(mode: str, route: Optional[str], token_env: Optional[str] = None) -> str:
+    """The exact connect command for a route; the connector route always names its variable."""
+    base = f"booking-agent flow calendar connect --mode {mode}"
+    if route == ROUTE_CONNECTOR:
+        return f"{base} --route {ROUTE_CONNECTOR} --token-env {token_env or _TOKEN_ENV_PLACEHOLDER}"
+    if route == ROUTE_LOCAL_OAUTH:
+        return f"{base} --route {ROUTE_LOCAL_OAUTH}"
+    return base
+
+
+def _session_route(session: Session) -> Tuple[Optional[str], Optional[str]]:
+    if session.calendar_route:
+        return session.calendar_route, session.calendar_token_env
+    return remembered_route()
+
+
+def _reconnect_route(status: dict) -> Tuple[Optional[str], Optional[str]]:
+    """Route a stale connection can be renewed on, or (None, None) when none can."""
+    route, token_env = remembered_route()
+    if route == ROUTE_CONNECTOR and valid_token_env_name(token_env):
+        return route, token_env
+    if status.get("local_oauth_configured"):
+        return ROUTE_LOCAL_OAUTH, None
+    return None, None
+
+
+def _emit_calendar_unavailable(session: Session, status: dict, mode: str, *, data: Optional[dict]) -> None:
+    skip_calendar_gate_session_only(session)
+    out = dict(data or {})
+    out.update(status)
+    out["calendar_state"] = "skipped"
+    out["calendar_mode"] = CALENDAR_MODE_NONE
+    out["calendar_checking_unavailable"] = True
+    out["stale_calendar_mode"] = mode
+    emit(_agent_out(
+        session,
+        prompt=(
+            "The saved Google Calendar access is no longer valid and reconnecting is not "
+            "available on this device, so calendar checking is unavailable for this "
+            "booking. Tell the user that in one plain sentence, then continue. Ready to "
+            "query availability."
+        ),
+        next_command="booking-agent flow availability",
+        data=out,
+    ))
 
 
 def _emit_calendar_reconnect_if_stale(
@@ -2597,13 +2623,19 @@ def _emit_calendar_reconnect_if_stale(
 ) -> bool:
     """Offer reconnect-or-skip when a remembered connected mode lost its access."""
     mode = stale_remembered_calendar_mode(status)
-    if not mode or not status.get("local_oauth_configured"):
+    if not mode:
         return False
-    reconnect = f"booking-agent flow calendar connect --mode {mode}"
+    route, token_env = _reconnect_route(status)
+    if route is None:
+        _emit_calendar_unavailable(session, status, mode, data=data)
+        return True
+    reconnect = _connect_command(mode, route, token_env)
     label = _CALENDAR_MODE_LABELS[mode]
     out = dict(data or {})
     out.update(status)
     out["remembered_calendar_mode"] = mode
+    out["calendar_route"] = route
+    out["scope_request"] = scope_request(mode)
     out["calendar_reconnect_choices"] = [
         {"choice": "reconnect", "mode": mode, "command": reconnect},
         {"choice": "continue_without_calendar", "command": _CALENDAR_SKIP_SESSION_ONLY},
@@ -2616,9 +2648,8 @@ def _emit_calendar_reconnect_if_stale(
             f"The user's saved Google Calendar connection for {label} has expired. Ask "
             "exactly two choices: (1) reconnect Google Calendar for the same use, or "
             "(2) continue this booking without calendar checking. Map (1) to "
-            f"`{reconnect}` (run in the background and relay the raw auth_url) and (2) "
-            f"to `{_CALENDAR_SKIP_SESSION_ONLY}`. Do not offer the other calendar "
-            "options and do not change the saved preference."
+            f"`{reconnect}` and (2) to `{_CALENDAR_SKIP_SESSION_ONLY}`. Do not offer the "
+            "other calendar options and do not change the saved preference."
         ),
         next_command=reconnect,
         data=out,
@@ -2647,25 +2678,18 @@ def _emit_calendar_gate_entry(session: Session, *, data: Optional[dict] = None) 
             data=out,
         ))
         return
-    if _auto_skip_calendar_if_no_identity(session, status, data=out):
-        return
     if _emit_calendar_reconnect_if_stale(session, status, data=out):
         return
     emit(_agent_out(
         session,
         prompt=(
             "Checkout ready. Run `booking-agent flow calendar ask` next. Do not ask the user "
-            "about calendar options yourself; the CLI will auto-apply a saved preference "
-            "or prompt only when Google Calendar is not connected."
+            "about calendar options yourself; the CLI applies a saved preference or tells "
+            "you when to ask."
         ),
         next_command="booking-agent flow calendar ask",
         data=out,
     ))
-
-
-def _calendar_connection_status() -> dict:
-    """Backward-compatible alias for calendar_connection_status()."""
-    return calendar_connection_status()
 
 
 @calendar_app.command("status")
@@ -2678,8 +2702,9 @@ def calendar_status() -> None:
     except GateError as e:
         raise _handle_gate(session, e)
 
-    status = _calendar_connection_status()
+    status = calendar_connection_status()
     pref_state, pref_mode = get_calendar_preference()
+    route, token_env = remembered_route()
     status_prompt = (
         "Use this to see what Google Calendar access is already granted. "
         "If a remembered preference can be applied automatically, run calendar ask next."
@@ -2700,6 +2725,8 @@ def calendar_status() -> None:
             "remembered_calendar_state": pref_state,
             "remembered_calendar_mode": pref_mode,
             "remembered_preference_applicable": remembered_preference_applicable(status),
+            "calendar_route": session.calendar_route or route,
+            "calendar_token_env": session.calendar_token_env or token_env,
             **status,
         },
     ))
@@ -2731,25 +2758,39 @@ def calendar_ask() -> None:
         ))
         return
 
-    if _auto_skip_calendar_if_no_identity(session, status):
-        return
     if _emit_calendar_reconnect_if_stale(session, status):
         return
 
+    local_oauth = bool(status.get("local_oauth_configured"))
     save_session(session)
     emit(_agent_out(
         session,
         awaiting_user="calendar_consent",
         prompt=(
-            "Run `booking-agent flow calendar status` first. Then ask the user which they "
-            "prefer for Google Calendar: (1) only check free/busy slots for conflicts, "
-            "(2) also add the booked service as a calendar event after confirmation, "
-            "or (3) neither. Map answers to "
-            "`booking-agent flow calendar connect --mode freebusy`, "
-            "`booking-agent flow calendar connect --mode events`, or "
-            "`booking-agent flow calendar skip`."
+            "Pick the calendar route from what you observe at runtime: `connector` when "
+            "your platform can connect Google Calendar for you and hands the access token "
+            "to commands in an environment variable you can name, or `local-oauth` when "
+            "local_oauth_configured is true and you can relay a sign-in link to the user. "
+            "If neither route is available, run "
+            f"`{_CALENDAR_SKIP_SESSION_ONLY}` without asking. Otherwise ask the user which "
+            "they prefer for Google Calendar: (1) only check free/busy slots for "
+            "conflicts, (2) also add the booked service as a calendar event after "
+            "confirmation, or (3) neither. Map (1) and (2) to "
+            "`booking-agent flow calendar connect --mode freebusy|events` with "
+            f"`--route {ROUTE_CONNECTOR} --token-env <NAME>` or `--route {ROUTE_LOCAL_OAUTH}`, "
+            "and (3) to `booking-agent flow calendar skip`."
         ),
-        next_command="booking-agent flow calendar status",
+        next_command=None,
+        data={
+            "local_oauth_configured": local_oauth,
+            "calendar_routes": list(CALENDAR_ROUTES),
+            "calendar_choices": [
+                {"choice": "freebusy", "command": "booking-agent flow calendar connect --mode freebusy --route <ROUTE>"},
+                {"choice": "events", "command": "booking-agent flow calendar connect --mode events --route <ROUTE>"},
+                {"choice": "neither", "command": "booking-agent flow calendar skip"},
+            ],
+            **status,
+        },
     ))
 
 
@@ -2767,6 +2808,7 @@ def calendar_skip(
         require_checkout_prereq(session)
     except GateError as e:
         raise _handle_gate(session, e)
+    _stop_pending_sign_in()
     if session_only:
         skip_calendar_gate_session_only(session)
         emit(_agent_out(
@@ -2798,11 +2840,24 @@ def calendar_connect(
         "--mode",
         help="freebusy = conflict checking only; events = conflict checking + post-booking event",
     ),
+    route: Optional[str] = typer.Option(
+        None,
+        "--route",
+        help=(
+            "connector = the agent's platform supplies a Google Calendar token in an "
+            "environment variable; local-oauth = sign in through a link on this device"
+        ),
+    ),
+    token_env: Optional[str] = typer.Option(
+        None,
+        "--token-env",
+        help="Connector route: NAME of the environment variable holding the token (never the token)",
+    ),
     timeout: int = typer.Option(
         CALENDAR_APPROVAL_TIMEOUT_SECONDS,
         "--timeout",
         min=30,
-        help="Seconds the sign-in link stays valid while waiting for the user to approve.",
+        help="Local OAuth: seconds the sign-in link stays valid.",
     ),
 ) -> None:
     session = must_load()
@@ -2821,60 +2876,179 @@ def calendar_connect(
         )
         raise typer.Exit(code=1)
 
-    status = calendar_connection_status()
-    if not status.get("connected") and not status.get("local_oauth_configured"):
+    if route not in CALENDAR_ROUTES:
+        emit_error(
+            session.flow_phase,
+            code="calendar_route_required",
+            message=(
+                f"Pass --route {ROUTE_CONNECTOR} when your platform connects Google Calendar "
+                "and exposes the access token in an environment variable (also pass "
+                f"--token-env NAME), or --route {ROUTE_LOCAL_OAUTH} to relay a sign-in link. "
+                "The CLI cannot tell which one this runtime supports."
+            ),
+            next_command=None,
+            data={"calendar_routes": list(CALENDAR_ROUTES), "mode": mode},
+        )
+        raise typer.Exit(code=1)
+
+    if route == ROUTE_CONNECTOR:
+        _connect_via_connector(session, mode=mode, token_env=token_env)
+        return
+    _connect_via_local_oauth(session, mode=mode, timeout=timeout)
+
+
+def _emit_calendar_connected(session: Session, *, mode: str, data: dict) -> None:
+    prompt = (
+        "Calendar connected for conflict checking and post-booking events."
+        if mode == CALENDAR_MODE_EVENTS
+        else "Calendar connected for conflict checking (free/busy only)."
+    )
+    emit(_agent_out(
+        session,
+        prompt=f"{prompt} Ready to query availability.",
+        next_command="booking-agent flow availability",
+        data={**data, "mode": mode},
+    ))
+
+
+def _stop_pending_sign_in() -> bool:
+    cal = resolve_calendar_service()
+    try:
+        return bool(asyncio.run(cal.cleanup_auth()))
+    except Exception:
+        return False
+
+
+def _connect_via_connector(session: Session, *, mode: str, token_env: Optional[str]) -> None:
+    if not valid_token_env_name(token_env):
+        emit_error(
+            session.flow_phase,
+            code="calendar_token_env_required",
+            message=(
+                f"--route {ROUTE_CONNECTOR} needs --token-env NAME: the environment variable "
+                "your platform puts the Google Calendar access token in. Pass only the name."
+            ),
+            next_command=None,
+            data={"mode": mode, "scope_request": scope_request(mode)},
+        )
+        raise typer.Exit(code=1)
+
+    command = _connect_command(mode, ROUTE_CONNECTOR, token_env)
+    request = scope_request(mode)
+    token = host_token(token_env)
+    scope, info = inspect_access_token(token) if token else (None, {})
+    if not scope:
+        out = {
+            "error": "calendar_not_connected",
+            "mode": mode,
+            "token_env": token_env,
+            "scope_request": request,
+            "retry_command": command,
+        }
+        if token:
+            out["connection_problem"] = {k: v for k, v in info.items() if k in ("error", "http_status")}
+        save_session(session)
+        emit(_agent_out(
+            session,
+            awaiting_user="calendar_connector",
+            prompt=(
+                f"Google Calendar is not connected to you, or {token_env} is empty in this "
+                "command's environment. Connect Google Calendar through your platform's own "
+                f"mechanism with this access: {request}. Then rerun `{command}`. If your "
+                f"platform cannot connect it, run `{_CALENDAR_SKIP_SESSION_ONLY}`."
+            ),
+            next_command=command,
+            data=out,
+        ))
+        return
+
+    if not scope_satisfies_mode(scope, mode):
+        emit_error(
+            session.flow_phase,
+            code="calendar_insufficient_scope",
+            message=(
+                f"The connected Google Calendar access does not cover '{mode}'. Ask your "
+                f"platform to reconnect Google Calendar with this access: {request}. Then "
+                f"rerun `{command}`."
+            ),
+            next_command=command,
+            data={"scope": scope, "mode": mode, "scope_request": request, "token_env": token_env},
+        )
+        raise typer.Exit(code=1)
+
+    cache_host_token(token, info, user_key=_CALENDAR_SESSION_ID)
+    _stop_pending_sign_in()
+    remember_route(ROUTE_CONNECTOR, token_env, session)
+    _complete_calendar_gate(session, mode=mode)
+    _emit_calendar_connected(
+        session,
+        mode=mode,
+        data={"connected": True, "scope": scope, "calendar_route": ROUTE_CONNECTOR, "token_env": token_env},
+    )
+
+
+def _oauth_retry_choices(mode: str) -> list:
+    return [
+        {"choice": "new_link", "command": _connect_command(mode, ROUTE_LOCAL_OAUTH)},
+        {"choice": "continue_without_calendar", "command": _CALENDAR_SKIP_SESSION_ONLY},
+    ]
+
+
+def _connect_via_local_oauth(session: Session, *, mode: str, timeout: int) -> None:
+    from booking_agent.calendar.oauth_listener import CallbackPortBusy
+
+    cal = resolve_calendar_service()
+    cached = cal.load_cached_connection(_CALENDAR_SESSION_ID, _CALENDAR_SESSION_ID, mode)
+    if cached:
+        remember_route(ROUTE_LOCAL_OAUTH, None, session)
+        _complete_calendar_gate(session, mode=mode)
+        _emit_calendar_connected(session, mode=mode, data={**cached, "calendar_route": ROUTE_LOCAL_OAUTH})
+        return
+
+    if not local_oauth_configured():
         emit_error(
             session.flow_phase,
             code="calendar_oauth_not_configured",
             message=(
-                "Local Google Calendar OAuth is not configured on this device. "
-                "Set GOOGLE_CALENDAR_CLIENT_ID or connect a calendar token on the host."
+                "Local Google Calendar sign-in is not configured on this device. Use "
+                f"--route {ROUTE_CONNECTOR} --token-env NAME if your platform can connect "
+                f"Google Calendar, or run `{_CALENDAR_SKIP_SESSION_ONLY}`."
             ),
-            next_command="booking-agent flow calendar skip",
+            next_command=_CALENDAR_SKIP_SESSION_ONLY,
+            data={"mode": mode, "local_oauth_configured": False},
         )
         raise typer.Exit(code=1)
-
-    cal = resolve_calendar_service()
 
     async def _go():
         return await cal.initiate_connection(
             session_id=_CALENDAR_SESSION_ID,
             user_key=_CALENDAR_SESSION_ID,
             mode=mode,
+            timeout=timeout,
         )
 
     try:
         result = asyncio.run(_go())
+    except CallbackPortBusy as e:
+        emit_error(
+            session.flow_phase,
+            code="calendar_callback_port_busy",
+            message=(
+                f"{e} No sign-in link was created. Another program is using that port; "
+                f"run `{_CALENDAR_SKIP_SESSION_ONLY}` to continue without calendar checking."
+            ),
+            next_command=_CALENDAR_SKIP_SESSION_ONLY,
+            data={"port": e.port, "mode": mode},
+        )
+        raise typer.Exit(code=1)
     except Exception as e:
         emit_error(session.flow_phase, code="calendar_connect_failed", message=str(e))
         raise typer.Exit(code=1)
 
     if result.get("connected"):
-        scope = result.get("scope", "")
-        if scope and not scope_satisfies_mode(scope, mode):
-            emit_error(
-                session.flow_phase,
-                code="calendar_insufficient_scope",
-                message=(
-                    f"Connected Google Calendar token lacks permission for mode '{mode}'. "
-                    f"Current scopes: {scope}. Re-run connect to request the right access."
-                ),
-                next_command=f"booking-agent flow calendar connect --mode {mode}",
-                data={"scope": scope, "mode": mode},
-            )
-            raise typer.Exit(code=1)
+        remember_route(ROUTE_LOCAL_OAUTH, None, session)
         _complete_calendar_gate(session, mode=mode)
-        prompt = (
-            "Calendar connected for conflict checking and post-booking events."
-            if mode == CALENDAR_MODE_EVENTS
-            else "Calendar connected for conflict checking (free/busy only)."
-        )
-        emit(_agent_out(
-            session,
-            prompt=f"{prompt} Ready to query availability.",
-            next_command="booking-agent flow availability",
-            data={**result, "mode": mode},
-        ))
+        _emit_calendar_connected(session, mode=mode, data={**result, "calendar_route": ROUTE_LOCAL_OAUTH})
         return
 
     auth_url = result.get("auth_url")
@@ -2884,65 +3058,141 @@ def calendar_connect(
         else "free/busy visibility only"
     )
     valid_minutes = max(1, timeout // 60)
+    save_session(session)
     emit(_agent_out(
         session,
         awaiting_user="oauth_approval",
         prompt=(
             f"Present the raw auth_url to the user (never markdown [label](url)) and ask them "
             f"to open it and approve Google Calendar access ({scope_hint}): {auth_url}  "
-            f"Tell them the link works for about {valid_minutes} minutes. "
-            f"Waiting for the callback…"
+            f"Tell them the link works for about {valid_minutes} minutes. Then run "
+            f"`{_CALENDAR_POLL}` without blocking your turn; it returns within its --wait "
+            "budget, so run it again while the result stays pending."
         ),
-        next_command=f"booking-agent flow calendar connect --mode {mode}",
-        data={"auth_url": auth_url, "mode": mode, "link_valid_minutes": valid_minutes},
+        next_command=_CALENDAR_POLL,
+        data={
+            "auth_url": auth_url,
+            "mode": mode,
+            "link_valid_minutes": valid_minutes,
+            "calendar_route": ROUTE_LOCAL_OAUTH,
+        },
     ))
 
-    async def _wait():
-        return await cal.wait_for_auth(session_id=_CALENDAR_SESSION_ID, timeout=timeout)
 
+@calendar_app.command("poll")
+def calendar_poll(
+    wait: int = typer.Option(
+        CALENDAR_POLL_WAIT_SECONDS,
+        "--wait",
+        min=0,
+        help="Seconds to wait for the sign-in to finish before reporting it is still pending.",
+    ),
+) -> None:
+    """Report the local OAuth sign-in started by `calendar connect --route local-oauth`."""
+    session = must_load()
     try:
-        wait_result = asyncio.run(_wait())
-    except Exception as e:
-        emit_error(session.flow_phase, code="calendar_connect_failed", message=str(e))
-        raise typer.Exit(code=1)
+        require_business(session)
+        require_checkout_prereq(session)
+    except GateError as e:
+        raise _handle_gate(session, e)
 
-    if wait_result.get("connected"):
-        _complete_calendar_gate(session, mode=mode)
-        prompt = (
-            "Calendar connected for conflict checking and post-booking events."
-            if mode == CALENDAR_MODE_EVENTS
-            else "Calendar connected for conflict checking (free/busy only)."
-        )
+    cal = resolve_calendar_service()
+    started = time.monotonic()
+    while True:
+        result = asyncio.run(cal.poll_auth(_CALENDAR_SESSION_ID))
+        state = result.get("status")
+        if state != "pending" or time.monotonic() - started >= wait:
+            break
+        time.sleep(1)
+
+    mode = result.get("mode") if result.get("mode") in _VALID_CALENDAR_MODES else CALENDAR_MODE_FREEBUSY
+    if state == "pending":
         emit(_agent_out(
             session,
-            prompt=f"{prompt} Ready to query availability.",
-            next_command="booking-agent flow availability",
-            data={**wait_result, "mode": mode},
+            awaiting_user="oauth_approval",
+            prompt=(
+                "The user has not finished the Google Calendar sign-in yet. Do not post the "
+                f"link again unless they ask. Run `{_CALENDAR_POLL}` again."
+            ),
+            next_command=_CALENDAR_POLL,
+            data={"status": "pending", "mode": mode, "calendar_route": ROUTE_LOCAL_OAUTH},
         ))
-    else:
+        return
+
+    if state == "connected":
+        asyncio.run(cal.cleanup_auth())
+        connected = cal.load_cached_connection(_CALENDAR_SESSION_ID, _CALENDAR_SESSION_ID, mode)
+        if not connected:
+            emit_error(
+                session.flow_phase,
+                code="calendar_insufficient_scope",
+                message=(
+                    f"The Google sign-in finished without the access '{mode}' needs "
+                    f"({scope_request(mode)}). Ask whether the user wants a new link."
+                ),
+                next_command=None,
+                data={"mode": mode, "scope_request": scope_request(mode), "choices": _oauth_retry_choices(mode)},
+            )
+            raise typer.Exit(code=1)
+        remember_route(ROUTE_LOCAL_OAUTH, None, session)
+        _complete_calendar_gate(session, mode=mode)
+        _emit_calendar_connected(session, mode=mode, data={**connected, "calendar_route": ROUTE_LOCAL_OAUTH})
+        return
+
+    asyncio.run(cal.cleanup_auth())
+    if state == "none":
         emit_error(
             session.flow_phase,
-            code="calendar_oauth_timeout",
-            message=(
-                wait_result.get("error", "OAuth timed out.")
-                + " Do not start a new link on your own. Post user_message and STOP. Run "
-                f"`booking-agent flow calendar connect --mode {mode}` (in the background) only if "
-                "the user asks for a new link, or `booking-agent flow calendar skip --session-only` "
-                "if they want to continue without calendar checking."
-            ),
-            user_message=(
-                "The Google Calendar link expired before it was approved. Would you like a "
-                "new link, or should I continue this booking without checking your calendar?"
-            ),
-            next_command=None,
-            data={
-                "choices": [
-                    {"choice": "new_link", "command": f"booking-agent flow calendar connect --mode {mode}"},
-                    {"choice": "continue_without_calendar", "command": "booking-agent flow calendar skip --session-only"},
-                ],
-            },
+            code="calendar_oauth_not_started",
+            message="No Google Calendar sign-in is pending. Run calendar ask to choose again.",
+            next_command="booking-agent flow calendar ask",
         )
         raise typer.Exit(code=1)
+
+    new_link = _connect_command(mode, ROUTE_LOCAL_OAUTH)
+    if state == "timeout":
+        code = "calendar_oauth_timeout"
+        message = "The Google Calendar sign-in link expired before it was approved."
+        user_message = (
+            "The Google Calendar link expired before it was approved. Would you like a "
+            "new link, or should I continue this booking without checking your calendar?"
+        )
+    else:
+        code = "calendar_oauth_failed"
+        message = result.get("error") or "The Google Calendar sign-in did not finish."
+        user_message = (
+            "Google Calendar did not connect. Would you like a new link, or should I "
+            "continue this booking without checking your calendar?"
+        )
+    emit_error(
+        session.flow_phase,
+        code=code,
+        message=(
+            f"{message} Do not start a new link on your own. Post user_message and STOP. Run "
+            f"`{new_link}` only if the user asks for a new link, or "
+            f"`{_CALENDAR_SKIP_SESSION_ONLY}` if they want to continue without calendar checking."
+        ),
+        user_message=user_message,
+        next_command=None,
+        data={"choices": _oauth_retry_choices(mode)},
+    )
+    raise typer.Exit(code=1)
+
+
+@calendar_app.command("cleanup")
+def calendar_cleanup() -> None:
+    """Stop a pending local OAuth sign-in and release its callback port."""
+    session = must_load()
+    stopped = _stop_pending_sign_in()
+    emit(_agent_out(
+        session,
+        prompt=(
+            "Stopped the pending Google Calendar sign-in." if stopped
+            else "No Google Calendar sign-in was running."
+        ),
+        next_command="booking-agent flow calendar ask",
+        data={"stopped": stopped},
+    ))
 
 
 @calendar_app.command("create-event")
@@ -3377,18 +3627,14 @@ async def _query_slots_async(
                 if session.calendar_mode in _VALID_CALENDAR_MODES
                 else CALENDAR_MODE_FREEBUSY
             )
-            # Reload token from disk cache into in-memory store (each CLI
-            # invocation is a new process so _TOKEN_STORE starts empty).
-            await cal.initiate_connection(
-                session_id=_CALENDAR_SESSION_ID,
-                user_key=_CALENDAR_SESSION_ID,
-                mode=mode,
-            )
+            refresh_host_token(session, mode)
+            # Each CLI invocation is a new process, so load the saved token into memory.
+            cal.load_cached_connection(_CALENDAR_SESSION_ID, _CALENDAR_SESSION_ID, mode)
             if not await cal.is_connected(_CALENDAR_SESSION_ID):
                 raise RuntimeError(
-                    "Calendar was connected but is no longer available. "
-                    "Run `booking-agent flow calendar connect` again or "
-                    "`booking-agent flow calendar skip`."
+                    "Calendar was connected but is no longer available. Run "
+                    f"`{_connect_command(mode, *(_session_route(session)))}` "
+                    f"again or `{_CALENDAR_SKIP_SESSION_ONLY}`."
                 )
             busy_blocks = await cal.get_busy_times(
                 _CALENDAR_SESSION_ID, *_calendar_window(window_from, window_to),

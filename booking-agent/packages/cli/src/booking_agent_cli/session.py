@@ -177,6 +177,8 @@ class Session:
     calendar_gate_completed: bool = False
     calendar_state: str = "unset"  # connected | skipped | unset
     calendar_mode: str = "unset"  # none | freebusy | events | unset
+    calendar_route: Optional[str] = None  # connector | local-oauth
+    calendar_token_env: Optional[str] = None  # name of the host variable, never its value
     link_auth_gate_completed: bool = False
     availability_window: AvailabilityWindow = field(default_factory=AvailabilityWindow)
     slots_presented: List[SlotRef] = field(default_factory=list)
@@ -271,6 +273,8 @@ class SessionStore:
     active_session_id: Optional[str] = None
     last_calendar_state: Optional[str] = None  # connected | skipped
     last_calendar_mode: Optional[str] = None  # freebusy | events | none
+    last_calendar_route: Optional[str] = None  # connector | local-oauth
+    last_calendar_token_env: Optional[str] = None  # name of the host variable, never its value
     sessions: List[Session] = field(default_factory=list)
 
 
@@ -675,6 +679,10 @@ def _store_to_dict(store: SessionStore) -> Dict[str, Any]:
         d["last_calendar_state"] = store.last_calendar_state
     if store.last_calendar_mode is not None:
         d["last_calendar_mode"] = store.last_calendar_mode
+    if store.last_calendar_route is not None:
+        d["last_calendar_route"] = store.last_calendar_route
+    if store.last_calendar_token_env is not None:
+        d["last_calendar_token_env"] = store.last_calendar_token_env
     return d
 
 
@@ -690,6 +698,8 @@ def _store_from_dict(raw: Dict[str, Any]) -> SessionStore:
         active_session_id=raw.get("active_session_id"),
         last_calendar_state=raw.get("last_calendar_state"),
         last_calendar_mode=raw.get("last_calendar_mode"),
+        last_calendar_route=raw.get("last_calendar_route"),
+        last_calendar_token_env=raw.get("last_calendar_token_env"),
         sessions=[_session_from_dict(s) for s in (raw.get("sessions") or [])],
     )
 
@@ -736,6 +746,8 @@ def _session_from_dict(raw: Dict[str, Any]) -> Session:
         calendar_gate_completed=raw.get("calendar_gate_completed", False),
         calendar_state=raw.get("calendar_state", "unset"),
         calendar_mode=raw.get("calendar_mode", "unset"),
+        calendar_route=raw.get("calendar_route"),
+        calendar_token_env=raw.get("calendar_token_env"),
         link_auth_gate_completed=raw.get("link_auth_gate_completed", False),
         availability_window=AvailabilityWindow(**raw["availability_window"]),
         slots_presented=[SlotRef(**s) for s in (raw.get("slots_presented") or [])],

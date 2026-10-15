@@ -3,16 +3,15 @@
 Implements the Authorization Code flow with PKCE to obtain user consent,
 then queries the Google Calendar FreeBusy endpoint for busy intervals.
 
-The local OAuth callback is served on a short-lived loopback HTTP server.
+The local OAuth callback is served by a short-lived child process (see
+``oauth_listener``) so the command that prints the sign-in link exits at once.
 """
-import asyncio
 import base64
 import hashlib
 import json
 import logging
 import os
 import secrets
-import threading
 import time
 import urllib.parse
 from typing import Dict, List, Optional, Any
@@ -72,6 +71,8 @@ _GOOGLE_SCOPE_DEFAULT = "https://www.googleapis.com/auth/calendar.freebusy"
 
 _TOKEN_STORE: Dict[str, Dict[str, Any]] = {}
 _PKCE_STORE: Dict[str, Dict[str, str]] = {}
+# Sign-in attempts that ended with an error page, by OAuth state.
+_OAUTH_FAILURES: Dict[str, str] = {}
 
 
 def _user_cache_path(user_key: str) -> str:
@@ -230,6 +231,8 @@ def _build_callback_app():
 
         if error:
             logger.warning("Google OAuth error: %s", error)
+            if state in _PKCE_STORE:
+                _OAUTH_FAILURES[state] = f"Google sign-in returned {error}."
             return HTMLResponse(_error_html(error), status_code=400)
 
         if not code or not state:
@@ -248,6 +251,7 @@ def _build_callback_app():
 
         token_data = await _exchange_code_for_token(code, code_verifier)
         if not token_data:
+            _OAUTH_FAILURES[state] = "Google did not exchange the sign-in code for a token."
             return HTMLResponse(
                 _error_html("Token exchange failed"), status_code=500
             )
@@ -271,32 +275,6 @@ def _build_callback_app():
         ]
     )
     return app
-
-
-_callback_server_started = False
-
-
-def _start_callback_server() -> None:
-    """Start the OAuth callback HTTP server in a daemon thread (idempotent)."""
-    global _callback_server_started
-    if _callback_server_started:
-        return
-    _callback_server_started = True
-    port = _redirect_port()
-
-    def _run():
-        import uvicorn
-
-        uvicorn.run(
-            _build_callback_app(),
-            host="0.0.0.0",
-            port=port,
-            log_level="warning",
-        )
-
-    t = threading.Thread(target=_run, daemon=True)
-    t.start()
-    logger.info("Google Calendar OAuth callback server started on http://0.0.0.0:%d", port)
 
 
 # ---------------------------------------------------------------------------
@@ -474,11 +452,32 @@ p{{font-size:16px;color:#5f6368;line-height:1.6}}
 class GoogleCalendarService(CustomerCalendarService):
     """Real Google Calendar OAuth 2.0 + FreeBusy API integration."""
 
-    _OAUTH_TIMEOUT = 120  # seconds to wait for user to complete consent
+    def load_cached_connection(self, session_id: str, user_key: str, mode: str) -> Optional[dict]:
+        """Load a saved token that covers ``mode``. Needs no OAuth client (a host token works)."""
+        cached = _load_cached_token(user_key)
+        if not cached or not cached.get("access_token"):
+            return None
+        scope, _info = inspect_access_token(cached["access_token"])
+        if not scope or not scope_satisfies_mode(scope, mode):
+            return None
+        cached["user_key"] = user_key
+        _TOKEN_STORE[session_id] = cached
+        return {"connected": True, "scope": scope, "mode": mode}
 
     async def initiate_connection(
-        self, session_id: str, user_key: str = "", mode: str = CALENDAR_MODE_FREEBUSY
+        self,
+        session_id: str,
+        user_key: str = "",
+        mode: str = CALENDAR_MODE_FREEBUSY,
+        timeout: int = 600,
     ) -> dict:
+        from . import oauth_listener
+
+        user_key = user_key or session_id
+        cached = self.load_cached_connection(session_id, user_key, mode)
+        if cached:
+            return cached
+
         if not _client_id():
             raise RuntimeError(
                 "GOOGLE_CALENDAR_CLIENT_ID is not set. "
@@ -486,53 +485,39 @@ class GoogleCalendarService(CustomerCalendarService):
                 "live Google Calendar integration."
             )
 
-        user_key = user_key or session_id
         requested_scope = oauth_scope_param(mode)
-
-        cached = _load_cached_token(user_key)
-        if cached and cached.get("access_token"):
-            scope, _info = inspect_access_token(cached["access_token"])
-            if scope and scope_satisfies_mode(scope, mode):
-                cached["user_key"] = user_key
-                _TOKEN_STORE[session_id] = cached
-                logger.info(
-                    "Reusing cached Google Calendar token for session %s (user %s)",
-                    session_id,
-                    user_key[:6],
-                )
-                return {"connected": True, "scope": scope, "mode": mode}
-
-        _start_callback_server()
-
         code_verifier, code_challenge = _generate_pkce_pair()
-        _PKCE_STORE[session_id] = {
-            "code_verifier": code_verifier,
-            "code_challenge": code_challenge,
-            "user_key": user_key,
-            "oauth_scope": requested_scope,
-            "mode": mode,
-        }
+        state = secrets.token_urlsafe(16)
+        oauth_listener.start(
+            port=_redirect_port(),
+            state=state,
+            pkce={
+                "code_verifier": code_verifier,
+                "code_challenge": code_challenge,
+                "user_key": user_key,
+                "oauth_scope": requested_scope,
+                "mode": mode,
+            },
+            mode=mode,
+            timeout=timeout,
+        )
 
         # Launcher opens Google OAuth in a popup so the callback page can call
         # window.close() (browsers block close on tabs the user opened directly).
         # State lives in the path (not ?state=) so agent/chat links are less
         # likely to drop it when presenting a shortened loopback URL.
-        auth_url = _build_launcher_url(session_id)
-        logger.info("Built Google Calendar OAuth launcher for session %s", session_id)
+        auth_url = _build_launcher_url(state)
         return {"auth_url": auth_url, "mode": mode, "requested_scope": requested_scope}
 
-    async def wait_for_auth(self, session_id: str, timeout: int = 120) -> dict:
-        elapsed = 0.0
-        while elapsed < timeout:
-            if session_id in _TOKEN_STORE:
-                logger.info("Google Calendar OAuth completed for session %s", session_id)
-                return {"connected": True}
-            await asyncio.sleep(1)
-            elapsed += 1
+    async def poll_auth(self, session_id: str) -> dict:
+        from . import oauth_listener
 
-        _PKCE_STORE.pop(session_id, None)
-        logger.warning("Google Calendar OAuth timed out after %ds", timeout)
-        return {"error": "OAuth timed out. Please try again."}
+        return oauth_listener.status()
+
+    async def cleanup_auth(self) -> bool:
+        from . import oauth_listener
+
+        return oauth_listener.cleanup()
 
     async def is_connected(self, session_id: str) -> bool:
         entry = _TOKEN_STORE.get(session_id)

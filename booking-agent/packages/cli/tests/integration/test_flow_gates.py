@@ -600,7 +600,6 @@ def test_book_refetches_and_rejects_unsupported_payment_timing(
 def _pin_calendar_host(monkeypatch, home, *, client_id: str | None) -> None:
     """Hide the developer machine's calendar token so gate tests are hermetic."""
     monkeypatch.setenv("HOME", str(home))
-    monkeypatch.delenv("GOOGLECALENDAR_ACCESS_TOKEN", raising=False)
     if client_id:
         monkeypatch.setenv("GOOGLE_CALENDAR_CLIENT_ID", client_id)
     else:
@@ -627,14 +626,13 @@ def test_business_use_routes_at_service_directly(runner, isolated_session, monke
     body = _stdout_json(result)
     assert body["data"]["payment_route"] == "at_service"
     assert body["data"]["checkout_mode"] == "direct"
-    # No calendar identity: the real gate auto-skips for this session only.
-    assert body["next_command"] == "booking-agent flow availability"
-    assert body["data"]["calendar_state"] == "skipped"
-    assert "Next, ask about Google Calendar" not in body["prompt"]
+    # Only the agent knows whether its platform can connect a calendar, so the gate asks.
+    assert body["next_command"] == "booking-agent flow calendar ask"
+    assert "calendar_state" not in body["data"]
     assert "direct" in body["data"]["supported_checkout_modes"]
     session = must_load()
     assert session.checkout_prereq_completed is True
-    assert session.calendar_gate_completed is True
+    assert session.calendar_gate_completed is False
     assert load_store().last_calendar_state is None
 
 
@@ -696,9 +694,7 @@ def test_business_use_at_service_without_shopping_endpoint(
     body = _stdout_json(result)
     assert body["data"]["payment_route"] == "at_service"
     assert body["data"]["checkout_mode"] == "direct"
-    assert body["next_command"] == "booking-agent flow availability"
-    assert body["data"]["calendar_state"] == "skipped"
-    assert "Next, ask about Google Calendar" not in body["prompt"]
+    assert body["next_command"] == "booking-agent flow calendar ask"
     assert "direct" in body["data"]["supported_checkout_modes"]
     assert "ucp_rest_base" not in body["data"]
 
@@ -1072,7 +1068,7 @@ def test_availability_with_connected_calendar_filters_conflicting_slots(
         "GOOGLE_CALENDAR_CLIENT_ID",
         "test-client-id.apps.googleusercontent.com",
     )
-    connect = _invoke(runner, "flow", "calendar", "connect")
+    connect = _invoke(runner, "flow", "calendar", "connect", "--route", "local-oauth")
     assert connect.exit_code == 0, connect.stdout + connect.stderr
     connected = _stdout_json(
         _invoke(runner, "flow", "availability", "--service-id", _SERVICE_ID)

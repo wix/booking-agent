@@ -1,4 +1,4 @@
-"""Google Calendar OAuth scope helpers shared by the Booking Agent CLI and superagent-cli."""
+"""Google Calendar OAuth scope helpers for the Booking Agent CLI."""
 from __future__ import annotations
 
 from typing import Any, Dict, Optional, Tuple
