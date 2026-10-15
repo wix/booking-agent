@@ -21,7 +21,7 @@ _TRUTHY = frozenset({"1", "true", "yes", "on"})
 
 #: Values a host injects into one process. They are never configuration, so they are
 #: not in defaults.env and the env-file loader ignores them.
-RUNTIME_ONLY = frozenset({"GOOGLECALENDAR_ACCESS_TOKEN", "BOOKING_AGENT_BUYER_DEVICE_IP"})
+RUNTIME_ONLY = frozenset({"BOOKING_AGENT_BUYER_DEVICE_IP"})
 
 
 @dataclass(frozen=True)

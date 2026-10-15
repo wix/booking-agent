@@ -12,6 +12,7 @@ from .commands.lowlevel import (
     profile_app,
     search_app,
 )
+from .commands.runtime import app as runtime_app
 
 app = typer.Typer(
     help="booking-agent — stateful USP service discovery, availability, and booking. "
@@ -23,6 +24,7 @@ app.add_typer(config_app, name="config")
 app.add_typer(search_app, name="search")
 app.add_typer(profile_app, name="profile")
 app.add_typer(availability_app, name="availability")
+app.add_typer(runtime_app, name="runtime")
 
 INTERNAL_ERROR_MESSAGE = (
     "The booking assistant hit an unexpected internal error. Tell the user in plain "

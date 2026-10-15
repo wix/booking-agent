@@ -306,6 +306,8 @@ SUPPORT_BUNDLE_SCHEMA: Dict[str, Any] = {
                 "calendar_gate_completed": {"$ref": "#/$defs/bool"},
                 "calendar_state": {"$ref": "#/$defs/id"},
                 "calendar_mode": {"$ref": "#/$defs/id"},
+                "calendar_route": {"$ref": "#/$defs/id"},
+                "calendar_token_env": {"$ref": "#/$defs/id"},
                 "link_auth_gate_completed": {"$ref": "#/$defs/bool"},
                 "availability_window": {
                     "type": ["object", "null"],

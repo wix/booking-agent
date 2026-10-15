@@ -48,8 +48,12 @@ class MockCalendarService(CustomerCalendarService):
     _connected_sessions: set = set()
 
     async def initiate_connection(
-        self, session_id: str, user_key: str = "", mode: str = "freebusy"
+        self, session_id: str, user_key: str = "", mode: str = "freebusy", timeout: int = 600,
     ) -> dict:
+        MockCalendarService._connected_sessions.add(session_id)
+        return {"connected": True}
+
+    def load_cached_connection(self, session_id: str, user_key: str, mode: str):
         MockCalendarService._connected_sessions.add(session_id)
         return {"connected": True}
 

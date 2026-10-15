@@ -17,9 +17,9 @@ class CustomerCalendarService(ABC):
 
     @abstractmethod
     async def initiate_connection(
-        self, session_id: str, user_key: str = "", mode: str = "freebusy"
+        self, session_id: str, user_key: str = "", mode: str = "freebusy", timeout: int = 600,
     ) -> dict:
-        """Start the calendar connection flow.
+        """Start the calendar connection flow without waiting for the user.
 
         Returns:
             ``{"connected": True}`` if no user step is needed, or
@@ -27,9 +27,20 @@ class CustomerCalendarService(ABC):
         """
         ...
 
-    async def wait_for_auth(self, session_id: str, timeout: int = 120) -> dict:
-        """Block until OAuth completes or times out (default: immediate)."""
-        return {"connected": True}
+    def load_cached_connection(self, session_id: str, user_key: str, mode: str) -> Optional[dict]:
+        """Load an already-saved connection for ``mode`` without starting a sign-in."""
+        return None
+
+    async def poll_auth(self, session_id: str) -> dict:
+        """State of the sign-in started by ``initiate_connection``.
+
+        ``status`` is ``pending``, ``connected``, ``timeout``, ``failed``, or ``none``.
+        """
+        return {"status": "connected"}
+
+    async def cleanup_auth(self) -> bool:
+        """Stop a pending sign-in. True when a running listener was stopped."""
+        return False
 
     @abstractmethod
     async def is_connected(self, session_id: str) -> bool: ...

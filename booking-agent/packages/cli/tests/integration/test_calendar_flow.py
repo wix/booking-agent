@@ -1,6 +1,7 @@
 """Calendar status, modes, and create-event flow tests."""
 import json
 
+from booking_agent_cli.calendar_connection import remember_route
 from booking_agent_cli.main import app
 from booking_agent_cli.session import (
     Business,
@@ -12,6 +13,9 @@ from booking_agent_cli.session import (
     save_session,
     save_store,
 )
+
+
+_TOKEN_ENV = "TEST_HOST_CALENDAR_TOKEN"
 
 
 def _stdout_json(result):
@@ -42,6 +46,7 @@ def _seed_session(
     monkeypatch.setenv("BOOKING_AGENT_SESSION_DIR", str(tmp_path))
     monkeypatch.setenv("HOME", str(tmp_path))
     monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv(_TOKEN_ENV, raising=False)
     store = load_store()
     session = Session(
         flow_phase=phase,
@@ -75,7 +80,8 @@ def test_calendar_ask_auto_applies_remembered_preference(runner, tmp_path, monke
 
     _seed_session(tmp_path, monkeypatch)
     save_calendar_preference(state="connected", mode="events")
-    monkeypatch.setenv("GOOGLECALENDAR_ACCESS_TOKEN", "tok-write")
+    remember_route("connector", _TOKEN_ENV)
+    monkeypatch.setenv(_TOKEN_ENV, "tok-write")
 
     class FakeResp:
         def raise_for_status(self):
@@ -116,7 +122,6 @@ def test_calendar_ask_auto_applies_remembered_preference(runner, tmp_path, monke
 
 def test_calendar_ask_still_prompts_when_not_connected(runner, tmp_path, monkeypatch):
     _seed_session(tmp_path, monkeypatch)
-    monkeypatch.delenv("GOOGLECALENDAR_ACCESS_TOKEN", raising=False)
     monkeypatch.setenv("GOOGLE_CALENDAR_CLIENT_ID", "operator-client-id")
     result = runner.invoke(app, ["flow", "calendar", "ask"])
     assert result.exit_code == 0
@@ -157,9 +162,9 @@ def test_calendar_ask_offers_reconnect_for_stale_remembered_mode(
     from booking_agent_cli.calendar_preference import save_calendar_preference
 
     _seed_session(tmp_path, monkeypatch)
-    monkeypatch.delenv("GOOGLECALENDAR_ACCESS_TOKEN", raising=False)
     monkeypatch.setenv("GOOGLE_CALENDAR_CLIENT_ID", "operator-client-id")
     save_calendar_preference(state="connected", mode="events")
+    remember_route("local-oauth", None)
     write_token_cache("cli", _SECRET_TOKEN)
     _tokeninfo_rejects(monkeypatch)
     result = runner.invoke(app, ["flow", "calendar", "ask"])
@@ -167,13 +172,13 @@ def test_calendar_ask_offers_reconnect_for_stale_remembered_mode(
     _assert_no_token_leak(result)
     body = _stdout_json(result)
     assert body["awaiting_user"] == "calendar_reconnect"
-    assert body["next_command"] == "booking-agent flow calendar connect --mode events"
+    assert body["next_command"] == "booking-agent flow calendar connect --mode events --route local-oauth"
     data = body["data"]
     assert data["remembered_calendar_mode"] == "events"
     assert data["connection_problem"]["code"] == "invalid_token"
     assert data["connection_problem"]["cached_token_removed"] is True
     assert [c["command"] for c in data["calendar_reconnect_choices"]] == [
-        "booking-agent flow calendar connect --mode events",
+        "booking-agent flow calendar connect --mode events --route local-oauth",
         "booking-agent flow calendar skip --session-only",
     ]
     assert "(3)" not in body["prompt"]
@@ -190,7 +195,10 @@ def test_calendar_ask_stale_without_oauth_skips_for_session_only(
 
     _seed_session(tmp_path, monkeypatch)
     monkeypatch.delenv("GOOGLE_CALENDAR_CLIENT_ID", raising=False)
-    monkeypatch.setenv("GOOGLECALENDAR_ACCESS_TOKEN", _SECRET_TOKEN)
+    from booking_agent_cli.calendar_event import write_token_cache
+
+    write_token_cache("cli", _SECRET_TOKEN)
+    remember_route("local-oauth", None)
     save_calendar_preference(state="connected", mode="freebusy")
     _tokeninfo_rejects(monkeypatch)
     result = runner.invoke(app, ["flow", "calendar", "ask"])
@@ -229,7 +237,8 @@ def test_calendar_skip_session_only_keeps_saved_preference(runner, tmp_path, mon
 def test_calendar_status_never_leaks_rejected_token(runner, tmp_path, monkeypatch):
     _seed_session(tmp_path, monkeypatch)
     monkeypatch.delenv("GOOGLE_CALENDAR_CLIENT_ID", raising=False)
-    monkeypatch.setenv("GOOGLECALENDAR_ACCESS_TOKEN", _SECRET_TOKEN)
+    remember_route("connector", _TOKEN_ENV)
+    monkeypatch.setenv(_TOKEN_ENV, _SECRET_TOKEN)
     _tokeninfo_rejects(monkeypatch)
     result = runner.invoke(app, ["flow", "calendar", "status"])
     assert result.exit_code == 0
@@ -239,23 +248,20 @@ def test_calendar_status_never_leaks_rejected_token(runner, tmp_path, monkeypatc
     assert body["data"]["connection_problem"]["token_source"] == "env"
 
 
-def test_calendar_ask_auto_skips_without_oauth_client(runner, tmp_path, monkeypatch):
+def test_calendar_ask_lets_the_agent_decide_without_an_oauth_client(runner, tmp_path, monkeypatch):
+    """Only the agent knows whether its platform can connect Google Calendar, so ask never auto-skips."""
     monkeypatch.delenv("GOOGLE_CALENDAR_CLIENT_ID", raising=False)
-    monkeypatch.delenv("GOOGLECALENDAR_ACCESS_TOKEN", raising=False)
     _seed_session(tmp_path, monkeypatch)
-    store = load_store()
-    assert store.last_calendar_state is None
-    assert store.last_calendar_mode is None
     result = runner.invoke(app, ["flow", "calendar", "ask"])
     assert result.exit_code == 0
     body = _stdout_json(result)
-    assert body["next_command"] == "booking-agent flow availability"
-    assert body["data"]["calendar_state"] == "skipped"
-    assert body["data"]["calendar_mode"] == "none"
+    assert body["awaiting_user"] == "calendar_consent"
     assert body["data"]["local_oauth_configured"] is False
+    assert body["data"]["calendar_routes"] == ["connector", "local-oauth"]
+    assert "--route connector --token-env <NAME>" in body["prompt"]
+    assert "skip --session-only" in body["prompt"]
     s = must_load()
-    assert s.calendar_gate_completed is True
-    assert s.calendar_state == "skipped"
+    assert s.calendar_gate_completed is False
     store = load_store()
     assert store.last_calendar_state is None
     assert store.last_calendar_mode is None
@@ -264,11 +270,14 @@ def test_calendar_ask_auto_skips_without_oauth_client(runner, tmp_path, monkeypa
 def test_calendar_connect_oauth_not_configured(runner, tmp_path, monkeypatch):
     monkeypatch.delenv("GOOGLE_CALENDAR_CLIENT_ID", raising=False)
     _seed_session(tmp_path, monkeypatch)
-    result = runner.invoke(app, ["flow", "calendar", "connect", "--mode", "freebusy"])
+    result = runner.invoke(
+        app, ["flow", "calendar", "connect", "--mode", "freebusy", "--route", "local-oauth"],
+    )
     assert result.exit_code == 1
     body = _stdout_json(result)
     assert body["data"]["error"]["code"] == "calendar_oauth_not_configured"
-    assert body["next_command"] == "booking-agent flow calendar skip"
+    assert body["next_command"] == "booking-agent flow calendar skip --session-only"
+    assert "localhost" not in result.stdout
 
 
 def test_calendar_status_reports_not_connected(runner, tmp_path, monkeypatch):
@@ -279,7 +288,6 @@ def test_calendar_status_reports_not_connected(runner, tmp_path, monkeypatch):
     monkeypatch.delenv("GOOGLE_CALENDAR_CLIENT_SECRET", raising=False)
     monkeypatch.delenv("GOOGLE_CALENDAR_REDIRECT_PORT", raising=False)
     monkeypatch.delenv("GOOGLE_CALENDAR_TOKEN_CACHE_DIR", raising=False)
-    monkeypatch.delenv("GOOGLECALENDAR_ACCESS_TOKEN", raising=False)
     _seed_session(tmp_path, monkeypatch)
     result = runner.invoke(app, ["flow", "calendar", "status"])
     assert result.exit_code == 0
@@ -713,7 +721,6 @@ def test_delete_event_skips_when_no_event_was_created(tmp_path, monkeypatch):
 def test_delete_event_without_a_token_keeps_the_link_for_manual_removal(tmp_path, monkeypatch):
     from booking_agent_cli.calendar_event import delete_calendar_event, existing_event_id
 
-    monkeypatch.delenv("GOOGLECALENDAR_ACCESS_TOKEN", raising=False)
     session = _session_with_event(tmp_path, monkeypatch, token=False)
     calls = _fake_google(monkeypatch)
 
@@ -792,58 +799,162 @@ def _last_json(text: str) -> dict:
 
 
 class _FakeCalendarService:
-    def __init__(self):
+    """A local OAuth sign-in whose poll results the test scripts."""
+
+    def __init__(self, poll_results=None, *, cached=None):
         self.timeouts = []
+        self.poll_results = list(poll_results or [{"status": "timeout", "mode": "events"}])
+        self.cached = cached
+        self.cleanups = 0
 
-    async def initiate_connection(self, **_kwargs):
-        return {"connected": False, "auth_url": "https://accounts.google.com/o/oauth2/auth?x=1"}
+    def load_cached_connection(self, session_id, user_key, mode):
+        return self.cached
 
-    async def wait_for_auth(self, *, session_id, timeout):
+    async def initiate_connection(self, *, timeout, **_kwargs):
         self.timeouts.append(timeout)
-        return {"connected": False, "error": "OAuth timed out."}
+        return {"auth_url": "http://localhost:8098/oauth/google/start/state-1", "mode": _kwargs.get("mode")}
+
+    async def poll_auth(self, session_id):
+        return self.poll_results.pop(0) if len(self.poll_results) > 1 else self.poll_results[0]
+
+    async def cleanup_auth(self):
+        self.cleanups += 1
+        return True
 
 
-def _connect_until_timeout(runner, tmp_path, monkeypatch, *args):
-    _seed_session(tmp_path, monkeypatch)
-    service = _FakeCalendarService()
-    monkeypatch.setattr(
-        "booking_agent_cli.commands.flow.calendar_connection_status",
-        lambda: {"connected": False, "local_oauth_configured": True},
-    )
+def _local_oauth(monkeypatch, service):
+    monkeypatch.setenv("GOOGLE_CALENDAR_CLIENT_ID", "operator-client-id")
     monkeypatch.setattr("booking_agent_cli.commands.flow.resolve_calendar_service", lambda: service)
-    result = runner.invoke(app, ["flow", "calendar", "connect", "--mode", "events", *args])
+
+
+def _connect_local(runner, tmp_path, monkeypatch, *args, service=None):
+    _seed_session(tmp_path, monkeypatch)
+    service = service or _FakeCalendarService()
+    _local_oauth(monkeypatch, service)
+    result = runner.invoke(
+        app, ["flow", "calendar", "connect", "--mode", "events", "--route", "local-oauth", *args],
+    )
     return result, service
 
 
-def test_calendar_connect_waits_ten_minutes_by_default_and_says_so(runner, tmp_path, monkeypatch):
-    result, service = _connect_until_timeout(runner, tmp_path, monkeypatch)
+def test_calendar_connect_returns_at_once_with_the_link_and_poll_next(runner, tmp_path, monkeypatch):
+    result, service = _connect_local(runner, tmp_path, monkeypatch)
 
+    assert result.exit_code == 0
     assert service.timeouts == [600]
-    first = json.JSONDecoder().raw_decode(result.stdout.strip())[0]
-    assert first["awaiting_user"] == "oauth_approval"
-    assert first["data"]["link_valid_minutes"] == 10
-    assert "about 10 minutes" in first["prompt"]
+    body = _stdout_json(result)
+    assert body["awaiting_user"] == "oauth_approval"
+    assert body["next_command"] == "booking-agent flow calendar poll"
+    assert body["data"]["auth_url"].endswith("/oauth/google/start/state-1")
+    assert body["data"]["link_valid_minutes"] == 10
+    assert "about 10 minutes" in body["prompt"]
+    assert must_load().calendar_gate_completed is False
 
 
-def test_calendar_connect_timeout_flag_sets_the_wait(runner, tmp_path, monkeypatch):
-    result, service = _connect_until_timeout(runner, tmp_path, monkeypatch, "--timeout", "120")
+def test_calendar_connect_timeout_flag_sets_the_link_lifetime(runner, tmp_path, monkeypatch):
+    result, service = _connect_local(runner, tmp_path, monkeypatch, "--timeout", "120")
 
     assert service.timeouts == [120]
-    first = json.JSONDecoder().raw_decode(result.stdout.strip())[0]
-    assert first["data"]["link_valid_minutes"] == 2
+    assert _stdout_json(result)["data"]["link_valid_minutes"] == 2
 
 
-def test_calendar_connect_timeout_asks_the_user_instead_of_relinking(runner, tmp_path, monkeypatch):
-    result, _ = _connect_until_timeout(runner, tmp_path, monkeypatch)
+def test_calendar_poll_reports_pending_within_its_wait(runner, tmp_path, monkeypatch):
+    _seed_session(tmp_path, monkeypatch)
+    service = _FakeCalendarService([{"status": "pending", "mode": "events"}])
+    _local_oauth(monkeypatch, service)
+    result = runner.invoke(app, ["flow", "calendar", "poll", "--wait", "0"])
+
+    assert result.exit_code == 0
+    body = _stdout_json(result)
+    assert body["awaiting_user"] == "oauth_approval"
+    assert body["next_command"] == "booking-agent flow calendar poll"
+    assert "auth_url" not in body["data"]
+    assert service.cleanups == 0
+
+
+def test_calendar_poll_completes_the_gate_when_connected(runner, tmp_path, monkeypatch):
+    _seed_session(tmp_path, monkeypatch)
+    service = _FakeCalendarService(
+        [{"status": "connected", "mode": "events"}], cached={"connected": True, "scope": "x"},
+    )
+    _local_oauth(monkeypatch, service)
+    result = runner.invoke(app, ["flow", "calendar", "poll", "--wait", "0"])
+
+    assert result.exit_code == 0
+    body = _stdout_json(result)
+    assert body["next_command"] == "booking-agent flow availability"
+    s = must_load()
+    assert (s.calendar_state, s.calendar_mode, s.calendar_route) == ("connected", "events", "local-oauth")
+    assert load_store().last_calendar_route == "local-oauth"
+    assert service.cleanups == 1
+
+
+def test_calendar_poll_rejects_a_sign_in_without_the_needed_access(runner, tmp_path, monkeypatch):
+    _seed_session(tmp_path, monkeypatch)
+    service = _FakeCalendarService([{"status": "connected", "mode": "events"}], cached=None)
+    _local_oauth(monkeypatch, service)
+    result = runner.invoke(app, ["flow", "calendar", "poll", "--wait", "0"])
+
+    assert result.exit_code == 1
+    body = _stdout_json(result)
+    assert body["data"]["error"]["code"] == "calendar_insufficient_scope"
+    assert "add events" in body["data"]["scope_request"]
+    assert must_load().calendar_gate_completed is False
+
+
+def test_calendar_poll_timeout_asks_the_user_instead_of_relinking(runner, tmp_path, monkeypatch):
+    _seed_session(tmp_path, monkeypatch)
+    service = _FakeCalendarService([{"status": "timeout", "mode": "events"}])
+    _local_oauth(monkeypatch, service)
+    result = runner.invoke(app, ["flow", "calendar", "poll", "--wait", "0"])
 
     assert result.exit_code == 1
     body = _last_json(result.stdout)
     assert body["data"]["error"]["code"] == "calendar_oauth_timeout"
     assert body["next_command"] is None
     assert "Would you like a new link" in body["user_message"]
-    assert "Would you like a new link" in result.stdout.split("\n{")[-2]
     assert [c["choice"] for c in body["data"]["choices"]] == ["new_link", "continue_without_calendar"]
+    assert body["data"]["choices"][0]["command"] == (
+        "booking-agent flow calendar connect --mode events --route local-oauth"
+    )
     assert body["data"]["choices"][1]["command"] == "booking-agent flow calendar skip --session-only"
+    assert service.cleanups == 1
+
+
+def test_calendar_poll_without_a_pending_sign_in(runner, tmp_path, monkeypatch):
+    _seed_session(tmp_path, monkeypatch)
+    _local_oauth(monkeypatch, _FakeCalendarService([{"status": "none"}]))
+    result = runner.invoke(app, ["flow", "calendar", "poll", "--wait", "0"])
+
+    assert result.exit_code == 1
+    assert _stdout_json(result)["data"]["error"]["code"] == "calendar_oauth_not_started"
+
+
+def test_calendar_cleanup_and_skip_stop_a_pending_sign_in(runner, tmp_path, monkeypatch):
+    _seed_session(tmp_path, monkeypatch)
+    service = _FakeCalendarService()
+    _local_oauth(monkeypatch, service)
+    result = runner.invoke(app, ["flow", "calendar", "cleanup"])
+    assert result.exit_code == 0
+    assert _stdout_json(result)["data"]["stopped"] is True
+    result = runner.invoke(app, ["flow", "calendar", "skip", "--session-only"])
+    assert result.exit_code == 0
+    assert service.cleanups == 2
+
+
+def test_calendar_connect_port_busy_emits_no_link(runner, tmp_path, monkeypatch):
+    from booking_agent.calendar.oauth_listener import CallbackPortBusy
+
+    class _Busy(_FakeCalendarService):
+        async def initiate_connection(self, **_kwargs):
+            raise CallbackPortBusy(8098)
+
+    result, _ = _connect_local(runner, tmp_path, monkeypatch, service=_Busy())
+    assert result.exit_code == 1
+    body = _stdout_json(result)
+    assert body["data"]["error"]["code"] == "calendar_callback_port_busy"
+    assert "localhost" not in result.stdout
+    assert body["next_command"] == "booking-agent flow calendar skip --session-only"
 
 
 def test_event_location_and_time_zone_for_a_home_visit():

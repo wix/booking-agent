@@ -42,7 +42,9 @@ def _is_secret(name: str) -> bool:
 
 
 def _calendar_status() -> str:
-    if (os.environ.get("GOOGLECALENDAR_ACCESS_TOKEN") or "").strip():
+    from ..calendar_connection import host_token, remembered_route
+
+    if host_token(remembered_route()[1]):
         return "connected, token from host environment"
     token_dir = settings.google_calendar_token_dir()
     if token_dir.is_dir() and any(token_dir.glob("*.json")):

@@ -62,11 +62,15 @@ def test_logout_clears_calendar_cache_and_keeps_booking(tmp_path, monkeypatch):
 
 
 def test_logout_reports_env_calendar_token(monkeypatch, tmp_path):
+    from booking_agent_cli.calendar_connection import remember_route, remembered_route
+
     monkeypatch.setenv("BOOKING_AGENT_SESSION_DIR", str(tmp_path))
-    monkeypatch.setenv("GOOGLECALENDAR_ACCESS_TOKEN", "env-tok")
+    monkeypatch.setenv("HOST_CALENDAR_TOKEN", "env-tok")
+    remember_route("connector", "HOST_CALENDAR_TOKEN")
     monkeypatch.setattr("booking_agent_cli.link_cli.logout", lambda: None)
     result = logout_identity()
     assert result["calendar_env_token_still_present"] is True
+    assert remembered_route() == (None, None)
 
 
 def test_flow_logout_command(runner, isolated_session, monkeypatch):

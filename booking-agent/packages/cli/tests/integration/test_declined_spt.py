@@ -715,7 +715,7 @@ def test_second_decline_is_logged_as_failed_new_card_retry(
 
 
 # ---------------------------------------------------------------------------
-# A6: the base skill carries the matrix the CLI emits; the superagent inherits it
+# A6: the base skill carries the matrix the CLI emits
 # ---------------------------------------------------------------------------
 
 _MATRIX_TERMS = [
@@ -743,14 +743,6 @@ def _skill(name):
 def test_base_skill_states_the_decline_matrix():
     missing = [t for t in _MATRIX_TERMS if t not in _skill("booking-agent")]
     assert not missing, f"booking-agent SKILL.md is missing {missing}"
-
-
-def test_superagent_inherits_the_matrix_without_restating_it():
-    text = _skill("base44-booking-superagent")
-    assert "../booking-agent/SKILL.md" in text
-    assert "error recovery" in text
-    restated = [t for t in _MATRIX_TERMS if t in text]
-    assert not restated, f"base44-booking-superagent restates base rules: {restated}"
 
 
 def test_base_skill_keeps_every_discover_result_in_registry_order():

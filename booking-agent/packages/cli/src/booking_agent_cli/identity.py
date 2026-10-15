@@ -6,7 +6,6 @@ Link tokens live in ``link-cli``; Google tokens live in hashed files under
 """
 from __future__ import annotations
 
-import os
 import shutil
 from pathlib import Path
 from typing import Any, Dict, List
@@ -49,7 +48,10 @@ def clear_google_calendar_token_cache() -> List[str]:
 
 
 def calendar_env_token_present() -> bool:
-    return bool(os.environ.get("GOOGLECALENDAR_ACCESS_TOKEN", "").strip())
+    """True when the host still supplies a token under the variable name the agent gave."""
+    from .calendar_connection import host_token
+
+    return host_token(load_store().last_calendar_token_env) is not None
 
 
 def reset_session_identity_gates(session: Session) -> None:
@@ -57,12 +59,16 @@ def reset_session_identity_gates(session: Session) -> None:
     session.calendar_gate_completed = False
     session.calendar_state = "unset"
     session.calendar_mode = "unset"
+    session.calendar_route = None
+    session.calendar_token_env = None
 
 
 def clear_calendar_preference() -> None:
     store = load_store()
     store.last_calendar_state = None
     store.last_calendar_mode = None
+    store.last_calendar_route = None
+    store.last_calendar_token_env = None
     save_store(store)
 
 

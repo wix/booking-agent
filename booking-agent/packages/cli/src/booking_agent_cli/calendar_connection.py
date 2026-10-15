@@ -1,33 +1,83 @@
-"""Unified Google Calendar connection detection (host token or saved token)."""
+"""Google Calendar connection detection (host token or saved token) and route bookkeeping."""
 from __future__ import annotations
 
-import asyncio
 import os
+import re
 import time
 from typing import Any, Dict, Optional, Tuple
 
 from booking_agent.config import load_config
 from booking_agent.calendar.scope import (
+    CALENDAR_MODE_EVENTS,
     TOKENINFO_ERROR_INVALID,
     connection_capabilities,
     inspect_access_token,
     scope_satisfies_mode,
 )
 
+from . import config_loader
 from .calendar_event import _user_cache_path, load_cached_token, write_token_cache
-from .runtime import resolve_calendar_service
 
-TOKEN_ENV = "GOOGLECALENDAR_ACCESS_TOKEN"
 _CALENDAR_SESSION_ID = "cli"
 
+ROUTE_CONNECTOR = "connector"
+ROUTE_LOCAL_OAUTH = "local-oauth"
+CALENDAR_ROUTES = (ROUTE_CONNECTOR, ROUTE_LOCAL_OAUTH)
 
 TOKEN_SOURCE_ENV = "env"
 TOKEN_SOURCE_CACHE = "cache"
 
+_ENV_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
-def read_access_token_with_source() -> Tuple[Optional[str], Optional[str]]:
+
+def valid_token_env_name(name: Optional[str]) -> bool:
+    return bool(name and _ENV_NAME.match(name))
+
+
+def remembered_route() -> Tuple[Optional[str], Optional[str]]:
+    """The route and token variable name the agent last connected with."""
+    from .session import load_store
+
+    store = load_store()
+    return store.last_calendar_route, store.last_calendar_token_env
+
+
+def remember_route(route: str, token_env: Optional[str], session=None) -> None:
+    """Record the route (and variable name, never the value) for later commands."""
+    from .session import load_store, save_session, save_store
+
+    if session is not None:
+        session.calendar_route = route
+        session.calendar_token_env = token_env
+        save_session(session)
+    store = load_store()
+    store.last_calendar_route = route
+    store.last_calendar_token_env = token_env
+    save_store(store)
+
+
+def scope_request(mode: str) -> str:
+    """Plain-language access to request from the user's calendar connection."""
+    if mode == CALENDAR_MODE_EVENTS:
+        return "See free/busy times and add events to Google Calendar"
+    return "See only free/busy information in Google Calendar"
+
+
+def host_token(token_env: Optional[str]) -> Optional[str]:
+    """The host-supplied token in ``token_env``, read only from the starting process environment."""
+    if not valid_token_env_name(token_env):
+        return None
+    value = (config_loader.process_value(token_env) or "").strip()
+    return value or None
+
+
+def read_access_token_with_source(
+    token_env: Optional[str] = None,
+) -> Tuple[Optional[str], Optional[str]]:
     """Return (token, source) where source is ``env`` or ``cache``."""
-    env_token = os.environ.get(TOKEN_ENV, "").strip()
+    if token_env is None:
+        token_env = remembered_route()[1]
+    env_token = host_token(token_env)
     if env_token:
         return env_token, TOKEN_SOURCE_ENV
     cached = load_cached_token(_CALENDAR_SESSION_ID)
@@ -36,9 +86,9 @@ def read_access_token_with_source() -> Tuple[Optional[str], Optional[str]]:
     return None, None
 
 
-def read_access_token() -> Optional[str]:
-    """Return a calendar access token from Base44 env or Booking Agent disk cache."""
-    return read_access_token_with_source()[0]
+def read_access_token(token_env: Optional[str] = None) -> Optional[str]:
+    """Return a calendar access token from the host variable or the Booking Agent disk cache."""
+    return read_access_token_with_source(token_env)[0]
 
 
 def _remove_invalid_cached_token() -> bool:
@@ -70,11 +120,10 @@ def local_oauth_configured() -> bool:
     return bool(load_config().google_calendar_client_id.strip())
 
 
-def calendar_connection_status() -> Dict[str, Any]:
+def calendar_connection_status(token_env: Optional[str] = None) -> Dict[str, Any]:
     """Report whether Google Calendar is connected and which modes are supported."""
-    oauth_ready = local_oauth_configured()
-    base: Dict[str, Any] = {"local_oauth_configured": oauth_ready}
-    token, source = read_access_token_with_source()
+    base: Dict[str, Any] = {"local_oauth_configured": local_oauth_configured()}
+    token, source = read_access_token_with_source(token_env)
     if token:
         scope, info = inspect_access_token(token)
         if scope:
@@ -88,19 +137,6 @@ def calendar_connection_status() -> Dict[str, Any]:
             "supports_events": False,
             **base,
         }
-
-    if oauth_ready:
-        cal = resolve_calendar_service()
-        connected = asyncio.run(cal.is_connected(_CALENDAR_SESSION_ID))
-        if connected:
-            return {
-                "connected": True,
-                "scope": "",
-                "supports_freebusy": True,
-                "supports_events": True,
-                **base,
-            }
-
     return {
         "connected": False,
         "supports_freebusy": False,
@@ -109,25 +145,52 @@ def calendar_connection_status() -> Dict[str, Any]:
     }
 
 
-def bridge_token_cache_for_mode(mode: str, *, user_key: str = _CALENDAR_SESSION_ID) -> bool:
+def _expires_in(info: Dict[str, Any]) -> int:
+    exp = info.get("exp")
+    if exp is not None:
+        try:
+            return max(int(float(exp) - time.time()), 60)
+        except (TypeError, ValueError):
+            pass
+    if info.get("expires_in") is not None:
+        try:
+            return int(info["expires_in"])
+        except (TypeError, ValueError):
+            pass
+    return 3600
+
+
+def cache_host_token(token: str, info: Dict[str, Any], *, user_key: str = _CALENDAR_SESSION_ID) -> str:
+    """Write a validated host token into Booking Agent's private token cache."""
+    return write_token_cache(user_key, token, expires_in=_expires_in(info))
+
+
+def refresh_host_token(session, mode: str) -> bool:
+    """On the connector route, refresh the cache from this process's host token.
+
+    Platform connectors rotate short-lived tokens, so each command re-reads the
+    variable the agent named at connect time.
+    """
+    route, token_env = getattr(session, "calendar_route", None), getattr(session, "calendar_token_env", None)
+    if not route:
+        route, token_env = remembered_route()
+    if route != ROUTE_CONNECTOR:
+        return False
+    return bridge_token_cache_for_mode(mode, token_env=token_env)
+
+
+def bridge_token_cache_for_mode(
+    mode: str,
+    *,
+    user_key: str = _CALENDAR_SESSION_ID,
+    token_env: Optional[str] = None,
+) -> bool:
     """Copy the active access token into Booking Agent's disk cache when scopes allow."""
-    token = read_access_token()
+    token = read_access_token(token_env)
     if not token:
         return False
     scope, info = inspect_access_token(token)
     if not scope or not scope_satisfies_mode(scope, mode):
         return False
-    expires_in = 3600
-    exp = info.get("exp")
-    if exp is not None:
-        try:
-            expires_in = max(int(float(exp) - time.time()), 60)
-        except (TypeError, ValueError):
-            pass
-    elif info.get("expires_in") is not None:
-        try:
-            expires_in = int(info["expires_in"])
-        except (TypeError, ValueError):
-            pass
-    write_token_cache(user_key, token, expires_in=expires_in)
+    cache_host_token(token, info, user_key=user_key)
     return True

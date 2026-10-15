@@ -17,7 +17,6 @@ from booking_agent_cli.main import app
 _PACKAGES = Path(__file__).resolve().parents[3]
 _SOURCE_DIRS = [
     _PACKAGES / "cli" / "src",
-    _PACKAGES / "superagent-cli" / "src",
 ]
 _ENV_NAME = re.compile(
     r'"((?:BOOKING_AGENT|USP|GOOGLE_?CALENDAR|LINK_CLI)_[A-Z0-9_]+)"'
@@ -84,17 +83,27 @@ def test_reloading_drops_values_from_a_file_that_is_gone(home):
 
 def test_runtime_only_names_in_an_env_file_are_ignored(home):
     session_dir, work = home
-    _write(session_dir / ".env", "GOOGLECALENDAR_ACCESS_TOKEN=leaked\n")
     _write(work / ".env", "BOOKING_AGENT_BUYER_DEVICE_IP=198.51.100.7\n")
 
     config_loader.load()
 
-    assert "GOOGLECALENDAR_ACCESS_TOKEN" not in os.environ
     assert "BOOKING_AGENT_BUYER_DEVICE_IP" not in os.environ
     assert config_loader.unknown_keys() == []
-    assert sorted(n for _s, _p, n in config_loader.ignored_runtime_keys()) == [
-        "BOOKING_AGENT_BUYER_DEVICE_IP", "GOOGLECALENDAR_ACCESS_TOKEN",
+    assert [n for _s, _p, n in config_loader.ignored_runtime_keys()] == [
+        "BOOKING_AGENT_BUYER_DEVICE_IP",
     ]
+
+
+def test_a_calendar_token_in_an_env_file_is_never_used(home, monkeypatch):
+    from booking_agent_cli.calendar_connection import host_token
+
+    session_dir, _work = home
+    monkeypatch.delenv("HOST_CALENDAR_TOKEN", raising=False)
+    _write(session_dir / ".env", "HOST_CALENDAR_TOKEN=leaked\n")
+    config_loader.load()
+
+    assert host_token("HOST_CALENDAR_TOKEN") is None
+    assert [n for _s, _p, n in config_loader.unknown_keys()] == ["HOST_CALENDAR_TOKEN"]
 
 
 def test_init_reads_the_folder_env(runner, isolated_session, monkeypatch):
@@ -187,7 +196,10 @@ def test_defaults_file_ships_inside_the_package():
 def test_config_show_hides_secrets_and_flags_unknown_keys(runner, home, monkeypatch):
     session_dir, _work = home
     _write(session_dir / ".env", "GOOGLE_CALENDAR_CLIENT_SECRET=s3cr3t-value\nOLD_RENAMED_SETTING=x\n")
-    monkeypatch.setenv("GOOGLECALENDAR_ACCESS_TOKEN", "token-value")
+    from booking_agent_cli.calendar_connection import remember_route
+
+    remember_route("connector", "HOST_CALENDAR_TOKEN")
+    monkeypatch.setenv("HOST_CALENDAR_TOKEN", "token-value")
 
     r = runner.invoke(app, ["config", "show"])
     assert r.exit_code == 0, r.stdout
@@ -201,7 +213,7 @@ def test_config_show_hides_secrets_and_flags_unknown_keys(runner, home, monkeypa
     )
     assert [k["name"] for k in report["unknown_keys"]] == ["OLD_RENAMED_SETTING"]
     assert report["ignored_runtime_keys"] == []
-    assert by_name["GOOGLECALENDAR_ACCESS_TOKEN"]["value"] == "<set, hidden>"
+    assert "HOST_CALENDAR_TOKEN" not in by_name
     assert report["runtime"]["calendar"] == "connected, token from host environment"
 
 

@@ -606,7 +606,6 @@ def _cancel_paid_session(runner, monkeypatch, session, booking_result):
 def home(tmp_path, monkeypatch):
     monkeypatch.setenv("HOME", str(tmp_path))
     monkeypatch.delenv("GOOGLE_CALENDAR_TOKEN_CACHE_DIR", raising=False)
-    monkeypatch.delenv("GOOGLECALENDAR_ACCESS_TOKEN", raising=False)
     return tmp_path
 
 
