@@ -1,0 +1,39 @@
+# Files Claude Code should skip when scanning the repo.
+# Same shape as .gitignore: gitignore-style globs.
+
+# Virtual envs, caches, build outputs (large, noisy, regenerable)
+.venv/
+venv/
+env/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.tox/
+.nox/
+.cache/
+build/
+dist/
+*.egg-info/
+*.whl
+
+# Lock files (huge; not useful to read line-by-line)
+uv.lock
+poetry.lock
+package-lock.json
+pnpm-lock.yaml
+
+# Local secrets / runtime state
+.env
+.env.*
+!.env.tests
+.usp-session.json
+.google-calendar-tokens/
+usp_tokens.json
+
+# IDE noise
+.idea/
+.vscode/
+*.iml
+

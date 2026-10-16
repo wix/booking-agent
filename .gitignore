@@ -1,5 +1,28 @@
 __pycache__/
 *.py[cod]
 .pytest_cache/
+.ruff_cache/
+.mypy_cache/
 .venv/
 .DS_Store
+
+# Build outputs
+build/
+dist/
+*.egg-info/
+*.whl
+
+# Local secrets and runtime state (never commit)
+.env
+.env.*
+!.env.tests
+.usp-session.json
+.google-calendar-tokens/
+usp_tokens.json
+http_trace.log
+
+# IDE: keep only the shared JetBrains ignore file
+.idea/*
+!.idea/.gitignore
+.vscode/
+*.iml

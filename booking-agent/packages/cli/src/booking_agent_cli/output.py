@@ -20,7 +20,7 @@ approval, ``awaiting_user`` is set to
 ``link_spend_approval`` so agents **stop** and surface the URL before polling or other tools.
 Operational context stays on stderr (agents must not relay stderr to the user).
 
-This is what skills/usp-platform-link/SKILL.md tells the agent to read on
+This is what skills/booking-agent/SKILL.md tells the agent to read on
 every iteration of the loop.
 """
 from __future__ import annotations
@@ -41,7 +41,7 @@ class AgentOutput:
     forbidden: List[str] = field(default_factory=list)
     data: Dict[str, Any] = field(default_factory=dict)
     correlation_id: Optional[str] = None
-    # Set only when this failure offers the consented support report (spec #307).
+    # Set only when this failure offers the consented support report.
     support_report_offered: Optional[bool] = None
 
 
