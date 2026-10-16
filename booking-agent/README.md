@@ -16,7 +16,19 @@ The `main` branch of this repository is the GitHub Pages branch for the hosted p
 
 **Prerequisites:** [uv](https://docs.astral.sh/uv/), Python 3.10 or newer, and [`link-cli`](https://github.com/stripe/link-cli) for buyer identity and spend-request approval. The v2 checkout path does not require a browser.
 
-Agents provision `booking-agent` automatically from the [skill metadata](skills/booking-agent/SKILL.md). To install from a checkout:
+Install the CLI from PyPI:
+
+```bash
+uv tool install booking-agent-cli
+# or
+pipx install booking-agent-cli
+
+booking-agent --help
+```
+
+Agents provision `booking-agent` the same way from the [skill metadata](skills/booking-agent/SKILL.md) (`kind: python`, `package: booking-agent-cli`).
+
+To install from a checkout instead (development, or to test unreleased changes):
 
 ```bash
 git clone https://github.com/wix/booking-agent.git
