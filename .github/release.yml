@@ -1,0 +1,20 @@
+# Groups the notes that `gh release create --generate-notes` writes (release.yml).
+# Each PR carries exactly one release label (checked by release-pr.yml); `internal`
+# PRs ship nothing and stay out of the notes.
+changelog:
+  exclude:
+    labels:
+      - internal
+  categories:
+    - title: Breaking changes
+      labels:
+        - breaking
+    - title: Features
+      labels:
+        - feature
+    - title: Fixes
+      labels:
+        - fix
+    - title: Other changes
+      labels:
+        - "*"

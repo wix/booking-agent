@@ -1,5 +1,14 @@
 # Change Log
 
+## 16/10/26 at 16:49:18 by [Ran Yahalom](mailto:ranya@wix.com)
+
+- Wrote the whole release policy into "Releasing" in `booking-agent/CONTRIBUTING.md` (version number, PR title and label, rollout decision), and pointed `AGENTS.md`, the root `CONTRIBUTING.md`, and `booking-agent/README.md` at it, because the policy was split between files and the parts about release notes and rollout were not written down anywhere humans would look. `AGENTS.md` keeps a short checklist for agents opening a PR instead of a second copy of the rules
+- Added `booking-agent/release-notes/<version>.json` (with a `0.1.0` entry) and the generated `index.json`, plus `scripts/release_notes.py` and its tests, because a version number cannot say whether a release is a feature or a breaking change below `1.0.0`, or whether businesses and the registry are ready for it. The metadata records the change type, the rollout status (`available`, `recommended`, `urgent`, `deferred`, `withdrawn`), readiness evidence, and a one-sentence summary that an installed assistant can later use to decide whether to tell its user about an update. The CI `version` job now checks that every entry is valid, that the change type fits the semantic-versioning step, that non-deferred releases have evidence, and that the current version has an entry
+- Added `release-pr.yml`, which checks on every PR edit that the PR has exactly one release label (`fix`, `feature`, `breaking`, or `internal`), that a version-raising PR's title describes the change for users, and that its `Release and rollout` section is filled in and matches the metadata, because `--generate-notes` publishes PR titles unchanged as the release notes. Added a pull request template with that section, defaulting to `deferred`
+- Added `.github/release.yml` so generated release notes are grouped into breaking changes, features, and fixes and leave out `internal` PRs, and `release.yml` now attaches the version's release metadata to its GitHub Release so the decision made at release time stays on record
+
+---
+
 ## 16/10/26 at 15:59:53 by [Ran Yahalom](mailto:ranya@wix.com)
 
 - Documented a semantic versioning policy in `AGENTS.md` and `booking-agent/CONTRIBUTING.md` (patch for fixes, minor for features and, below `1.0.0`, for breaking changes, major for breaking changes from `1.0.0` on, and `1.0.0` itself left to the release owner), because the bump rule only said "raise the version" and every merged bump becomes a permanent PyPI release, so authors and agents need the same rule for picking the number
