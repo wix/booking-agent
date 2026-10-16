@@ -1,5 +1,5 @@
 ---
-version: 0.46.0
+version: 0.47.0
 name: booking-agent
 description: |
   Books time-based services via USP from a Link wallet. Use when the user wants to book, schedule, reserve, or pay for a service from a business (haircut, lesson, repair, class, appointment, consult). The `booking-agent` CLI owns the booking state machine and refuses to proceed when human gates are skipped. Sign the user in to Link on your own, right after install and at the start of every booking (`booking-agent flow link-auth connect`, then start `booking-agent flow link-auth poll` in the background and post the sign-in URL in the same turn, exactly like `pay poll`); never wait for the user to ask to sign in or to say they approved. After `booking-agent flow business use`, follow `next_command` through `use-ucp-checkout-mode`; businesses without native checkout fail closed. Payment uses `booking-agent flow pay request` (default returns immediately with the approval URL), then start `booking-agent flow pay poll` in the background and post the approval URL to the user in the same turn; the poll finishes checkout once they approve. Confirm through `booking-agent flow book poll --wait`; never start an inbound webhook. Surface the approval URL exactly once. Personal identification (name, phone, email, address) must always come from the user's Link account via `link-cli`, never from chat or placeholders. Before any location-based search, the CLI proposes the Link shipping address and the user confirms it or gives another; online services skip this. Talk to the user in plain everyday language only; never expose CLI, UCP, auth, session, or other implementation details unless they explicitly ask.
@@ -17,6 +17,10 @@ metadata:
       bins:
         - booking-agent
         - link-cli
+    install:
+      - kind: python
+        package: booking-agent-cli
+        bins: [booking-agent]
 user-invocable: true
 ---
 
@@ -204,9 +208,20 @@ Only then may you use terms like CLI, UCP, or session. Keep explanations brief.
 
 ## Installing
 
-Install the `booking-agent` CLI by following the [Booking Agent README](https://github.com/wix/booking-agent/blob/master/booking-agent/README.md). If
-`booking-agent --help` does not run, your harness has not provisioned it — ask the user to install
-the skill, then try again.
+Install the `booking-agent` CLI from PyPI (package `booking-agent-cli`) with either command:
+
+```bash
+uv tool install booking-agent-cli
+# or
+pipx install booking-agent-cli
+
+booking-agent --help
+```
+
+Harnesses that read the `install` block in this skill's metadata do this for you. If
+`booking-agent --help` still does not run, run one of the commands above yourself; if that is not
+possible in this runtime, ask the user to install the skill, then try again. To develop the CLI from
+a checkout instead, see the [Booking Agent README](https://github.com/wix/booking-agent/blob/master/booking-agent/README.md).
 
 `link-cli` is required for buyer identity and spend-request create/approve — install via the
 [link-cli skill](https://github.com/stripe/link-cli/blob/main/skills/create-payment-credential/SKILL.md) or your harness's link-cli provisioner.

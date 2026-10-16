@@ -57,7 +57,7 @@ _APPS_SCRIPT_ECHO_HOST = "script.googleusercontent.com"
 INGEST_REJECTION_REASONS = frozenset({
     "no_body", "media_type", "too_large", "invalid_json", "schema", "rate_limited", "internal",
 })
-SKILL_VERSION = "0.46.0"
+SKILL_VERSION = "0.47.0"
 BUNDLE_VERSION = 1
 MAX_BUNDLE_BYTES = 64 * 1024
 SEND_TIMEOUT_S = 10.0
