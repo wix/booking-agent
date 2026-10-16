@@ -16,7 +16,7 @@ Canonical profile URI (platform identity; do not change lightly):
 - `main` is the only GitHub Pages branch. It contains only the profile, its schemas, validators, and these docs. The `validate` check rejects any other path and any `CNAME` other than `profile.booking-agent.dev`.
 - `master` is the default and development branch. It carries the same profile files plus the Booking Agent source under `booking-agent/`.
 - Profile updates enter through a pull request into `main`, followed by a pull request that carries the same bytes into `master`. Do not merge `master` into `main` while `booking-agent/` exists, and do not reset or fast-forward `master` to `main`.
-- Changes under `booking-agent/` arrive through pull requests into `master`. Only repository admins can merge pull requests, on any branch.
+- Changes under `booking-agent/` arrive through pull requests into `master`. Only repository and `wix` org admins can merge into `master` or `main`.
 
 ## Who can transfer what
 
