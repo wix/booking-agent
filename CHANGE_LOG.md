@@ -1,5 +1,12 @@
 # Change Log
 
+## 16/10/26 at 14:00:12 by [Ran Yahalom](mailto:ranya@wix.com)
+
+- `release.yml` now publishes non-`.devN` tags to production PyPI: added a `publish-pypi` job (`environment: pypi`, `id-token: write` on that job only, `uv publish --trusted-publishing always`, no `twine` and no token secret). The protected `pypi` environment (required reviewer, `v*` tags only, no admin bypass) now exists, so the guard that failed every production tag in the build job is removed
+- Fixed the `release.yml` header comment, which still described building "from the mirrored booking-agent/ tree" after development moved into this repository
+
+---
+
 ## 16/10/26 at 13:33:51 by [Ran Yahalom](mailto:ranya@wix.com)
 
 - Added a test that builds the `booking-agent-cli` wheel and fails on any file outside the two product packages, their `.py` modules, `defaults.env`, and the package metadata, so a packaging mistake cannot ship tests, mocks, or local files to PyPI; `release.yml` runs the suite before building, so the check also gates every release
