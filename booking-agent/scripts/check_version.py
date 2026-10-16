@@ -6,7 +6,10 @@ Every merge into master that raises the version is published to PyPI, so CI chec
 * consistency (always): the pyproject version, both ``__version__`` strings, and the
   ``booking-agent-cli`` entry in ``uv.lock`` agree;
 * bump (with ``--base REF``): a change to shipped code raises the version above the
-  version on ``REF``, and the version never moves backwards.
+  version on ``REF``, the version never moves backwards, and a changed version is
+  ``MAJOR.MINOR.PATCH`` (optionally ``.devN``) one semantic-versioning step after the
+  base: the next patch, the next minor, or the next major, never skipping numbers.
+  Moving forward within the same release (``0.2.0.dev1`` to ``0.2.0``) is allowed.
 
 Shipped code is what the wheel contains: the packages listed under
 ``[tool.hatch.build.targets.wheel] packages`` (``test_wheel_contents.py`` holds the
@@ -78,6 +81,23 @@ def _without_version(pyproject: dict) -> dict:
     return {**pyproject, "project": project}
 
 
+def next_releases(base: Version) -> list[tuple[int, int, int]]:
+    """The patch, minor, and major releases that may follow ``base``."""
+    major, minor, patch = (tuple(base.release) + (0, 0, 0))[:3]
+    return [(major, minor, patch + 1), (major, minor + 1, 0), (major + 1, 0, 0)]
+
+
+def step_errors(base: Version, head: Version) -> list[str]:
+    if head == base:
+        return []
+    if len(head.release) != 3 or head.local or head.post is not None or head.pre is not None:
+        return [f"version {head} must be MAJOR.MINOR.PATCH, optionally with a .devN suffix"]
+    if head.release == (tuple(base.release) + (0, 0, 0))[:3] or head.release in next_releases(base):
+        return []
+    allowed = ", ".join(".".join(map(str, r)) for r in next_releases(base))
+    return [f"version {head} skips numbers after {base}. Use one of {allowed} (optionally with .devN)"]
+
+
 def bump_errors(
     changed_files: list[str], base_pyproject: str, head_pyproject: str, cli_rel: str
 ) -> list[str]:
@@ -95,6 +115,8 @@ def bump_errors(
 
     if head_version < base_version:
         return [f"version {head_version} is lower than the base version {base_version}"]
+    if errors := step_errors(base_version, head_version):
+        return errors
     if shipped and head_version == base_version:
         listed = "\n".join(f"  {f}" for f in shipped)
         return [
