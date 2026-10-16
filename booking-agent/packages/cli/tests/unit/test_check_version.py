@@ -88,6 +88,39 @@ def test_versions_compare_by_pep440_not_text():
     assert _errors([f"{CLI}/src/booking_agent/flow.py"], base=_pyproject("0.9.0"), head=_pyproject("0.10.0")) == []
 
 
+@pytest.mark.parametrize(
+    ("base", "head"),
+    [
+        ("0.1.0", "0.1.1"),
+        ("0.1.0", "0.2.0"),
+        ("0.1.0", "1.0.0"),
+        ("0.1.3", "0.2.0"),
+        ("1.4.2", "2.0.0"),
+        ("0.1.0", "0.2.0.dev1"),
+        ("0.2.0.dev1", "0.2.0.dev2"),
+        ("0.2.0.dev1", "0.2.0"),
+        ("0.2.0.dev1", "0.2.1"),
+    ],
+)
+def test_one_semver_step_passes(base, head):
+    assert _errors([f"{CLI}/src/booking_agent/flow.py"], base=_pyproject(base), head=_pyproject(head)) == []
+
+
+@pytest.mark.parametrize(
+    ("base", "head"),
+    [("0.1.0", "0.1.2"), ("0.1.0", "0.3.0"), ("0.1.0", "0.2.1"), ("0.1.0", "2.0.0"), ("0.1.0", "1.0.1")],
+)
+def test_skipping_numbers_fails(base, head):
+    (error,) = _errors([], base=_pyproject(base), head=_pyproject(head))
+    assert f"skips numbers after {base}" in error
+
+
+@pytest.mark.parametrize("head", ["0.2", "0.1.0.1", "0.2.0rc1", "0.1.0.post1", "0.1.1+local"])
+def test_changed_version_must_be_major_minor_patch(head):
+    (error,) = _errors([], head=_pyproject(head))
+    assert "must be MAJOR.MINOR.PATCH" in error
+
+
 def test_consistency_reports_each_mismatch(tmp_path):
     cli = tmp_path / "packages" / "cli"
     for module in check_version.VERSION_MODULES:

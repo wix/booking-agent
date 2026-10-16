@@ -1,5 +1,12 @@
 # Change Log
 
+## 16/10/26 at 15:59:53 by [Ran Yahalom](mailto:ranya@wix.com)
+
+- Documented a semantic versioning policy in `AGENTS.md` and `booking-agent/CONTRIBUTING.md` (patch for fixes, minor for features and, below `1.0.0`, for breaking changes, major for breaking changes from `1.0.0` on, and `1.0.0` itself left to the release owner), because the bump rule only said "raise the version" and every merged bump becomes a permanent PyPI release, so authors and agents need the same rule for picking the number
+- `scripts/check_version.py` now rejects a changed version that is not `MAJOR.MINOR.PATCH` (optionally `.devN`) exactly one step after the base (next patch, next minor, or next major), so a typo such as `0.1.0` to `0.3.0` cannot publish a version that skips numbers; moving forward within one release (`0.2.0.dev1` to `0.2.0`) still passes
+
+---
+
 ## 16/10/26 at 15:13:54 by [Ran Yahalom](mailto:ranya@wix.com)
 
 - `release.yml` now also runs on every push to `master`, so merging a PR that raises the `booking-agent-cli` version publishes it to PyPI without anyone cutting a GitHub Release. A new `decide` job skips the run when tag `v<version>` exists or the version is already on the target index, which also guards against double publishing; after a successful PyPI upload a `github-release` job (the only job with `contents: write`) creates the tag and a GitHub Release with generated notes, since a release made with `GITHUB_TOKEN` cannot trigger another workflow. Publishing stays in `release.yml` because the PyPI Trusted Publisher is bound to that file and the `pypi` environment
