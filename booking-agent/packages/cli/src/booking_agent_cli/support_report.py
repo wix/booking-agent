@@ -1,4 +1,4 @@
-"""Consented support report (USP spec issue #307).
+"""Consented support report.
 
 When a booking fails in a way the agent cannot recover from, ``emit_error`` offers
 the buyer a one-time note to the team that looks after the booking assistant. The
@@ -44,7 +44,7 @@ from .session import (
 )
 from .support_bundle_schema import validate_bundle
 
-# Apps Script web app owned by support@booking-agent.dev (ingest/apps-script).
+# Apps Script web app owned by support@booking-agent.dev.
 DEFAULT_SUPPORT_INGEST_URL = (
     "https://script.google.com/macros/s/"
     "AKfycbxfFz5rR9eqMpEsxBtWL4sB8hoLs1ZmHlsC7wan-xB3rOAG1TowUow1UF_ZDEHegzRFNA/exec"

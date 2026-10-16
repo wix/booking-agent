@@ -244,11 +244,8 @@ _TESTS_AND_SCRIPTS_ONLY = {
 }
 
 
-def test_env_example_names_only_known_settings():
-    example = _PACKAGES.parent / ".env.example"
-    if not example.is_file():
-        pytest.skip(".env.example is a private root doc")
-    names = set(re.findall(r"(?m)^#?\s*([A-Z][A-Z0-9_]+)=", example.read_text()))
-    assert names
-    assert names - settings.known_names() - _TESTS_AND_SCRIPTS_ONLY == set()
+def test_env_tests_names_only_test_settings():
+    env_tests = Path(__file__).resolve().parents[1] / ".env.tests"
+    names = set(re.findall(r"(?m)^#?\s*([A-Z][A-Z0-9_]+)=", env_tests.read_text()))
+    assert names == _TESTS_AND_SCRIPTS_ONLY
     assert _TESTS_AND_SCRIPTS_ONLY & settings.known_names() == set()

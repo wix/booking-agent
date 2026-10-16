@@ -1,0 +1,16 @@
+{
+  "measured_at": "2026-08-23",
+  "load": {
+    "concurrency": 1,
+    "registry_search_limit": 5,
+    "query": "haircut"
+  },
+  "steps": {
+    "discover": {"p50": 500, "p95": 15000},
+    "profile_resolve": {"p50": 2500, "p95": 30000},
+    "availability": {"p50": 1500, "p95": 15000},
+    "checkout_create": {"p50": 2000, "p95": 60000},
+    "pay": {"p50": 3000, "p95": 90000, "p99": 90000},
+    "confirm": {"p50": 1000, "p95": 120000}
+  }
+}
