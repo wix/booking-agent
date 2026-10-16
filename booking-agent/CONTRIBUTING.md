@@ -80,7 +80,7 @@ Product code has no test shortcuts. Do not add environment flags, mock branches,
 
    Optional live registry check: set `BOOKING_AGENT_STAGING_REGISTRY_TEST=1` to run `packages/cli/tests/e2e/test_staging_registry_integration.py`. It searches `haircut` and `AC repair Yuma` and resolves the HVAC test business profile by default; override with `USP_REGISTRY_URL`, `BOOKING_AGENT_STAGING_SEARCH_QUERY` (comma-separated), or `BOOKING_AGENT_STAGING_UCP_PROFILE_URL`. See [`packages/cli/tests/.env.tests`](packages/cli/tests/.env.tests).
 4. If you changed `platform_profile_doc()`, regenerate the artifact (`uv run python scripts/generate_platform_profile.py`) and follow the profile flow in the [root CONTRIBUTING.md](../CONTRIBUTING.md).
-5. Open the PR against `master`. The CI workflow at [`.github/workflows/ci.yml`](../.github/workflows/ci.yml) must be green, and a repository admin merges it.
+5. Open the PR against `master`. The CI workflow at [`.github/workflows/ci.yml`](../.github/workflows/ci.yml) must be green, and a repository or `wix` org admin merges it.
 
 ## Outbound HTTP: timeouts, retries, circuit breaker
 

@@ -1,5 +1,11 @@
 # Change Log
 
+## 16/10/26 at 13:05:24 by [Ran Yahalom](mailto:ranya@wix.com)
+
+- Corrected the contributor docs and `AGENTS.md` to say only repository and `wix` org admins can merge into `master` or `main`, because the admin-only rule now covers just those two branches and contributors can again push their own branches
+
+---
+
 ## 16/10/26 at 09:42:48 by [Ran Yahalom](mailto:ranya@wix.com)
 
 - Made `wix/booking-agent` the canonical development repository instead of a generated mirror, so contributors work and open pull requests here directly and no sync step is needed

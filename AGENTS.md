@@ -46,7 +46,7 @@ Where:
 - `main` is the GitHub Pages branch for `https://profile.booking-agent.dev/platform-profile.json`. It holds only the profile, vendored schemas, validators, and docs, and MUST NOT contain `booking-agent/`. Its `validate` check rejects any path outside the allow-list in `.github/workflows/publish.yml` and any `CNAME` other than `profile.booking-agent.dev`.
 - Never merge `master` into `main`: it would bring `booking-agent/` and fail `validate`.
 - Never reset or fast-forward `master` to `main`: it would delete `booking-agent/`.
-- Only repository admins can merge pull requests, on any branch. Open the PR and leave the merge to an admin unless you were asked to merge it. If a merge is denied (permissions, failing check, branch not up to date), leave the PR open, report the URL and error, and stop. Do not use `--admin`, force-push, or push directly to `main` or `master`.
+- Only repository and `wix` org admins can merge into `master` or `main` (ruleset "Admin-only merges (main, master)"). Open the PR and leave the merge to an admin unless you were asked to merge it. If a merge is denied (permissions, failing check, branch not up to date), leave the PR open, report the URL and error, and stop. Do not use `--admin`, force-push, or push directly to `main` or `master`.
 - Do not change the default branch, delete `master`, or retarget Pages.
 
 ## Platform profile
