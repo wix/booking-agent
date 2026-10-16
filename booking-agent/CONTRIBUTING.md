@@ -63,7 +63,7 @@ If your AI coding assistant should file issues and open PRs for you, connect it 
 | `packages/cli/tests/support/fixtures/` | Recorded registry, catalog, and checkout payloads |
 | `packages/cli/tests/support/offline_stack/` | Loopback registry, USP REST, and UCP checkout servers that E2E tests start in pytest |
 | `packages/cli/tests/.env.tests` | Test-only environment switches (export them in your shell; the CLI never reads them) |
-| `scripts/` | `install.sh`, `latency_soak.py`, `generate_platform_profile.py` |
+| `scripts/` | `install.sh`, `latency_soak.py`, `generate_platform_profile.py`, `check_version.py` |
 | `ops/` | Latency budgets and the soak runbook |
 
 Product code has no test shortcuts. Do not add environment flags, mock branches, or demo paths to `src`. Give the code a seam instead (for example `payment_token.shared_payment_token_source()`) and have tests inject a fake with `monkeypatch`, such as `support.mock.link_cli.fake_shared_payment_token`.
@@ -80,7 +80,17 @@ Product code has no test shortcuts. Do not add environment flags, mock branches,
 
    Optional live registry check: set `BOOKING_AGENT_STAGING_REGISTRY_TEST=1` to run `packages/cli/tests/e2e/test_staging_registry_integration.py`. It searches `haircut` and `AC repair Yuma` and resolves the HVAC test business profile by default; override with `USP_REGISTRY_URL`, `BOOKING_AGENT_STAGING_SEARCH_QUERY` (comma-separated), or `BOOKING_AGENT_STAGING_UCP_PROFILE_URL`. See [`packages/cli/tests/.env.tests`](packages/cli/tests/.env.tests).
 4. If you changed `platform_profile_doc()`, regenerate the artifact (`uv run python scripts/generate_platform_profile.py`) and follow the profile flow in the [root CONTRIBUTING.md](../CONTRIBUTING.md).
-5. Open the PR against `master`. The CI workflow at [`.github/workflows/ci.yml`](../.github/workflows/ci.yml) must be green, and a repository or `wix` org admin merges it.
+5. If you changed shipped code (`packages/cli/src/`, or the dependencies or other distribution metadata in `packages/cli/pyproject.toml`), raise the version (see [Releasing](#releasing)) and check it with `uv run python scripts/check_version.py --base origin/master`.
+6. Open the PR against `master`. The CI workflow at [`.github/workflows/ci.yml`](../.github/workflows/ci.yml) must be green, and a repository or `wix` org admin merges it.
+
+## Releasing
+
+Merging a PR into `master` that raises the `booking-agent-cli` version publishes that version to PyPI automatically ([`.github/workflows/release.yml`](../.github/workflows/release.yml)), then tags the commit `v<version>` and creates a GitHub Release. There is no release to cut and no deployment to approve.
+
+- Every PR that changes shipped code must raise the version above the one on `master`; the CI `version` job fails otherwise. Docs, CI, test, script, and skill changes need no bump.
+- To bump, change `version` in `packages/cli/pyproject.toml` and `__version__` in both `packages/cli/src/booking_agent/__init__.py` and `packages/cli/src/booking_agent_cli/__init__.py`, then run `uv lock`. CI checks that all four agree.
+- PyPI versions are permanent and cannot be re-uploaded. Work that should ship as one version goes into one PR with one bump; each merged bump is its own release.
+- `.devN` versions go to TestPyPI only, by publishing a GitHub Release tagged `v<version>` on a commit already on `master`.
 
 ## Outbound HTTP: timeouts, retries, circuit breaker
 

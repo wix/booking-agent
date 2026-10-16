@@ -1,0 +1,94 @@
+name: release-watch
+
+# Safety net for release.yml: every version on master should be on PyPI with a matching
+# v<version> tag. If not (a release run failed), fail visibly and open or update an
+# issue assigned to the release owner. Closes that issue once the release exists.
+# Lives on master only; never add it to main (the Pages branch allow-list rejects it).
+
+on:
+  schedule:
+    - cron: "17 6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+  issues: write
+
+env:
+  PACKAGE: booking-agent-cli
+  ASSIGNEE: yahalomran
+  ISSUE_TITLE: "PyPI release missing for the booking-agent-cli version on master"
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Master version is released
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version="$(python -c 'import tomllib; print(tomllib.load(open("booking-agent/packages/cli/pyproject.toml", "rb"))["project"]["version"])')"
+          case "$version" in *.dev*)
+            echo "${version} is a development version; nothing to check"
+            exit 0
+            ;;
+          esac
+
+          running="$(gh run list --repo "$GITHUB_REPOSITORY" --workflow release.yml --commit "$GITHUB_SHA" \
+            --json status --jq '[.[] | select(.status != "completed")] | length')"
+          if [ "$running" -gt 0 ]; then
+            echo "::notice::release.yml is still running for ${GITHUB_SHA}; checking again tomorrow"
+            exit 0
+          fi
+
+          problems=""
+          status="$(curl -sS -o /dev/null -w '%{http_code}' "https://pypi.org/pypi/${PACKAGE}/${version}/json")"
+          case "$status" in
+            200) ;;
+            404) problems="${problems}- ${PACKAGE} ${version} is not on PyPI.\n" ;;
+            *)
+              echo "::error::PyPI answered HTTP ${status} for ${PACKAGE} ${version}"
+              exit 1
+              ;;
+          esac
+          if ! git rev-parse -q --verify "refs/tags/v${version}" >/dev/null; then
+            problems="${problems}- Tag v${version} does not exist.\n"
+          fi
+
+          issue="$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --search "\"${ISSUE_TITLE}\" in:title" \
+            --json number --jq '.[0].number // empty')"
+
+          if [ -z "$problems" ]; then
+            echo "${PACKAGE} ${version} is on PyPI and tagged v${version}"
+            if [ -n "$issue" ]; then
+              gh issue close "$issue" --repo "$GITHUB_REPOSITORY" \
+                --comment "Resolved: ${PACKAGE} ${version} is on PyPI and tagged v${version}."
+            fi
+            exit 0
+          fi
+
+          run_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          releases_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/workflows/release.yml"
+          body="$(printf 'master (%s) has version %s, but its release is incomplete:\n\n%b\nCheck the release.yml runs at %s and re-run the failed one, or merge a pull request that raises the version.\n\nReported by %s' \
+            "$GITHUB_SHA" "$version" "$problems" "$releases_url" "$run_url")"
+          if [ -n "$issue" ]; then
+            gh issue comment "$issue" --repo "$GITHUB_REPOSITORY" --body "$body"
+          else
+            gh issue create --repo "$GITHUB_REPOSITORY" --title "$ISSUE_TITLE" --assignee "$ASSIGNEE" --body "$body"
+          fi
+          echo "::error::${PACKAGE} ${version} on master is not fully released"
+          printf '%b' "$problems"
+          exit 1

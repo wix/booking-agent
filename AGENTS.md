@@ -49,6 +49,18 @@ Where:
 - Only repository and `wix` org admins can merge into `master` or `main` (ruleset "Admin-only merges (main, master)"). Open the PR and leave the merge to an admin unless you were asked to merge it. If a merge is denied (permissions, failing check, branch not up to date), leave the PR open, report the URL and error, and stop. Do not use `--admin`, force-push, or push directly to `main` or `master`.
 - Do not change the default branch, delete `master`, or retarget Pages.
 
+## Releasing to PyPI
+
+Merging a pull request into `master` that raises `version` in `booking-agent/packages/cli/pyproject.toml` publishes that version of `booking-agent-cli` to PyPI automatically. The admin merge is the only human step: there is no release to cut and no deployment to approve.
+
+- `.github/workflows/release.yml` runs on every push to `master`. If tag `v<version>` does not exist and the version is not on PyPI, it runs the tests, builds, publishes with Trusted Publishing (environment `pypi`), then creates tag `v<version>` and a GitHub Release with generated notes on the merged commit. Otherwise it does nothing.
+- Every pull request that changes shipped code must raise the version above the version on `master`. Shipped code is what the wheel contains: `booking-agent/packages/cli/src/booking_agent/`, `booking-agent/packages/cli/src/booking_agent_cli/` (including `defaults.env`), and the distribution metadata in `booking-agent/packages/cli/pyproject.toml` (dependencies, entry points, build config). Docs, CI, tests, scripts, the skill, and `uv.lock`-only changes need no bump. The `version` job in `ci.yml` enforces this with `booking-agent/scripts/check_version.py`.
+- A bump changes four places that must agree (the `version` job checks this on every run): `version` in `booking-agent/packages/cli/pyproject.toml`, `__version__` in `booking_agent/__init__.py` and in `booking_agent_cli/__init__.py`, and the `booking-agent-cli` entry in `booking-agent/uv.lock` (run `uv lock` from `booking-agent/`).
+- PyPI versions are permanent. A published version can never be re-uploaded or replaced, even after deletion, so a broken release is fixed only by merging a new, higher version.
+- **One PyPI version, one pull request.** Each merged bump becomes its own permanent PyPI release. If you have several pieces of work that should ship as one version, combine them into a single pull request with one version bump and merge that. Do not merge several pull requests that each bump the version, and do not merge un-bumped shipped changes (CI blocks them) planning to bump later.
+- `.devN` versions are never published from `master`. To test a build on TestPyPI, set a `.devN` version and publish a GitHub Release whose tag is `v<version>` on a commit already on `master`; `release.yml` sends it to TestPyPI (environment `testpypi`). A manually published non-`.devN` release still goes to PyPI if that version is not there yet.
+- `.github/workflows/release-watch.yml` runs daily. If the version on `master` is not on PyPI or has no `v<version>` tag (a release run failed), it fails and opens or updates an issue assigned to the release owner. Re-run the failed `release.yml` run, or merge a new version.
+
 ## Platform profile
 
 | Role | Location |
@@ -86,7 +98,7 @@ The only runtime override is `USP_AGENT_PROFILE_URL`. Loopback is for developmen
      | diff -u - platform-profile.json
    ```
    Empty diff means the published document matches the generator.
-4. **Then the `master` PR** with the function change, tests, and the same `platform-profile.json` bytes. Re-run its `profile-parity` check if it ran before step 3; it fails until `main` has the same bytes.
+4. **Then the `master` PR** with the function change, tests, and the same `platform-profile.json` bytes. Re-run its `profile-parity` check if it ran before step 3; it fails until `main` has the same bytes. `platform_profile.py` ships in the wheel, so this PR must also raise the `booking-agent-cli` version (see "Releasing to PyPI"), and merging it publishes that version. The `main` PR needs no version change; releases never touch `main`.
 
 ### What not to do
 

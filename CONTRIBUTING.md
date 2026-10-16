@@ -3,6 +3,7 @@
 Development of the Booking Agent happens in this repository. Open pull requests against `master`; only repository and `wix` org admins can merge into `master` or `main`.
 
 - **Product changes** (CLI, library, skill, tests) live under `booking-agent/`. See [booking-agent/CONTRIBUTING.md](booking-agent/CONTRIBUTING.md) for setup, tests, and conventions.
+- **Releases:** merging a PR into `master` that raises the `booking-agent-cli` version publishes it to PyPI automatically; PRs that change shipped code must raise it. See [Releasing](booking-agent/CONTRIBUTING.md#releasing).
 - **Branches:** `master` is the default and development branch. `main` is the GitHub Pages branch and contains only the profile, its vendored schemas, validators, and docs; its `validate` check rejects any other path. Never merge `master` into `main`, and never reset or fast-forward `master` to `main`.
 
 ## Changing the platform profile
@@ -19,6 +20,6 @@ The profile is authored only in `platform_profile_doc()` (`booking-agent/package
    ```bash
    curl -fsS 'https://profile.booking-agent.dev/platform-profile.json' | diff -u - platform-profile.json
    ```
-3. Open (or update) the pull request into `master` with the function change, its tests, and the same `platform-profile.json` bytes. Its `profile-parity` check fails until `main` has those bytes.
+3. Open (or update) the pull request into `master` with the function change, its tests, and the same `platform-profile.json` bytes. Its `profile-parity` check fails until `main` has those bytes. Because `platform_profile.py` ships in the CLI, this PR also raises the `booking-agent-cli` version, and merging it publishes that version to PyPI.
 
 See [docs/OWNERSHIP.md](docs/OWNERSHIP.md) for branch roles and ownership.
