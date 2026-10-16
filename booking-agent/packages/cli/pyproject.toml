@@ -1,6 +1,6 @@
 [project]
 name = "booking-agent-cli"
-version = "0.1.0"
+version = "0.2.0"
 description = "The Booking Agent CLI: a stateful USP booking flow with hard gates, plus its USP protocol library."
 readme = "README.md"
 license = "Apache-2.0"
@@ -46,6 +46,7 @@ Homepage = "https://github.com/wix/booking-agent"
 Documentation = "https://github.com/wix/booking-agent/blob/master/booking-agent/README.md"
 Source = "https://github.com/wix/booking-agent/tree/master/booking-agent/packages/cli"
 Issues = "https://github.com/wix/booking-agent/issues"
+Changelog = "https://github.com/wix/booking-agent/releases"
 
 [project.scripts]
 booking-agent = "booking_agent_cli.main:run"

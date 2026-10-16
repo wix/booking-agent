@@ -63,7 +63,7 @@ If your AI coding assistant should file issues and open PRs for you, connect it 
 | `packages/cli/tests/support/fixtures/` | Recorded registry, catalog, and checkout payloads |
 | `packages/cli/tests/support/offline_stack/` | Loopback registry, USP REST, and UCP checkout servers that E2E tests start in pytest |
 | `packages/cli/tests/.env.tests` | Test-only environment switches (export them in your shell; the CLI never reads them) |
-| `scripts/` | `install.sh`, `latency_soak.py`, `generate_platform_profile.py`, `check_version.py` |
+| `scripts/` | `install.sh`, `latency_soak.py`, `generate_platform_profile.py`, `check_version.py`, `release_notes.py`, `sync_skill_bundle.py` |
 | `ops/` | Latency budgets and the soak runbook |
 
 Product code has no test shortcuts. Do not add environment flags, mock branches, or demo paths to `src`. Give the code a seam instead (for example `payment_token.shared_payment_token_source()`) and have tests inject a fake with `monkeypatch`, such as `support.mock.link_cli.fake_shared_payment_token`.
@@ -79,8 +79,8 @@ Product code has no test shortcuts. Do not add environment flags, mock branches,
    SKILL flow over loopback HTTP: `uv run pytest packages/cli/tests/e2e/test_ucp_skill_flow_e2e.py -q`.
 
    Optional live registry check: set `BOOKING_AGENT_STAGING_REGISTRY_TEST=1` to run `packages/cli/tests/e2e/test_staging_registry_integration.py`. It searches `haircut` and `AC repair Yuma` and resolves the HVAC test business profile by default; override with `USP_REGISTRY_URL`, `BOOKING_AGENT_STAGING_SEARCH_QUERY` (comma-separated), or `BOOKING_AGENT_STAGING_UCP_PROFILE_URL`. See [`packages/cli/tests/.env.tests`](packages/cli/tests/.env.tests).
-4. If you changed `platform_profile_doc()`, regenerate the artifact (`uv run python scripts/generate_platform_profile.py`) and follow the profile flow in the [root CONTRIBUTING.md](../CONTRIBUTING.md).
-5. If you changed shipped code (`packages/cli/src/`, or the dependencies or other distribution metadata in `packages/cli/pyproject.toml`), raise the version, add its release metadata, and fill in the PR's rollout section (see [Releasing](#releasing)). Check with `uv run python scripts/check_version.py --base origin/master` and `uv run python scripts/release_notes.py --check`.
+4. If you changed `platform_profile_doc()`, regenerate the artifact (`uv run python scripts/generate_platform_profile.py`) and follow the profile flow in the [root CONTRIBUTING.md](../CONTRIBUTING.md). If you changed `skills/booking-agent/SKILL.md`, raise its frontmatter `version` and copy it into the package with `uv run python scripts/sync_skill_bundle.py` (CI runs it with `--check`).
+5. If you changed shipped code (`packages/cli/src/`, which includes the bundled copy of the skill, or the dependencies or other distribution metadata in `packages/cli/pyproject.toml`), raise the version, add its release metadata, and fill in the PR's rollout section (see [Releasing](#releasing)). Check with `uv run python scripts/check_version.py --base origin/master` and `uv run python scripts/release_notes.py --check`.
 6. Open the PR against `master` with exactly one release label (see [Pull request title and label](#pull-request-title-and-label)). The CI workflows at [`.github/workflows/ci.yml`](../.github/workflows/ci.yml) and [`.github/workflows/release-pr.yml`](../.github/workflows/release-pr.yml) must be green, and a repository or `wix` org admin merges it.
 
 ## Releasing
@@ -97,7 +97,7 @@ A release answers three separate questions, and each has its own place:
 
 ### Version number
 
-- Every PR that changes shipped code must raise the version above the one on `master`; the CI `version` job fails otherwise. Docs, CI, test, and script changes need no bump.
+- Every PR that changes shipped code must raise the version above the one on `master`; the CI `version` job fails otherwise. Docs, CI, test, and script changes need no bump. A skill change is shipped code: the wheel carries a copy of the skill so the installed CLI can hand an assistant the instructions that match it.
 - Choose the bump with semantic versioning. A breaking change is anything a user or the `booking-agent` skill depends on that stops working: a removed or renamed command, flag, or environment variable, a changed JSON output field or exit code, a changed flow step order, or a raised minimum Python.
   - Below `1.0.0`: patch (`0.1.0` to `0.1.1`) for fixes and internal changes users cannot notice; minor (`0.1.0` to `0.2.0`) for new features **and** for breaking changes.
   - From `1.0.0` on: patch for fixes, minor for backwards-compatible features, major for breaking changes.
@@ -159,6 +159,21 @@ Decide `change_type`, `update_status`, and `ecosystem_ready` in this order. Do n
    - `deferred`: the rollout is not finished or evidence is missing. Never offered, and a newer version is not offered past it either, because installing it would bring this release's changes too.
    - `withdrawn`: a released version that must not be installed any more. Needs a newer, installable `replacement_version`.
 6. **Green CI is not readiness.** A newer version, passing tests, or a schema that validates does not show that the registry and live businesses work with the release.
+
+Saved session files have their own rule. Adding an optional field keeps `STORE_SCHEMA_VERSION` and `SCHEMA_VERSION` in `session.py` as they are: older builds keep fields they do not know when they save. Raising either number makes every older build refuse the file and ask its user to update, so that is a breaking change, and its release cannot be `available`.
+
+What an installed assistant does with the decision:
+
+| Situation | What the user sees |
+|---|---|
+| The loaded skill and the installed CLI do not match | Asked before the next booking starts (no network needed) |
+| `urgent`, or a ready `breaking` release that is `recommended` | Asked before the next booking starts |
+| `recommended` feature or fix | Offered after a booking; offered before one only when the request needs an affected capability; otherwise mentioned only if the assistant checks on the user's request |
+| `available` | Nothing |
+| `deferred`, or any release after a `deferred` one | Nothing |
+| The installed version is `withdrawn` | Asked to move to `replacement_version` |
+
+Nothing is ever installed without the user's yes, never during a booking, and never from a source checkout. A user who says no is not asked about that version again. `BOOKING_AGENT_UPDATE_CHECK=0` turns all of it off.
 
 To roll a deferred release out later, open an `internal` PR that changes only its entry (for example `deferred` to `recommended`, with evidence) and the regenerated index. That ships no code and needs no version bump. Never edit a published GitHub Release body to change the decision: the release's attached copy of its metadata records what was decided at release time.
 

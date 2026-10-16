@@ -1,0 +1,16 @@
+{
+  "change_type": "feature",
+  "cli_version": "0.2.0",
+  "details_url": "https://github.com/wix/booking-agent/releases/tag/v0.2.0",
+  "ecosystem_ready": true,
+  "readiness_evidence": [
+    "No request or response exchanged with the registry or with businesses changes: the platform profile, USP and UCP versions, and every booking call are as in 0.1.0.",
+    "The saved booking file keeps format 2. The only new field is optional and at the top level, which 0.1.0 ignores, so moving between 0.1.0 and 0.2.0 in either direction keeps every saved booking.",
+    "The full test suite passes, including new tests for older and newer saved bookings and for the update consent, decline, and install paths."
+  ],
+  "relevant_capabilities": [],
+  "schema_version": 1,
+  "skill_version": "0.48.0",
+  "update_status": "available",
+  "user_summary": "The booking assistant can now tell you when a newer version is ready and install it when you agree."
+}

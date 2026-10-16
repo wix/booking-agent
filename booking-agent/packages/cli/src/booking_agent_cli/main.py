@@ -13,6 +13,7 @@ from .commands.lowlevel import (
     search_app,
 )
 from .commands.runtime import app as runtime_app
+from .commands.update import skill_app, update_app
 
 app = typer.Typer(
     help="booking-agent — stateful USP service discovery, availability, and booking. "
@@ -25,6 +26,8 @@ app.add_typer(search_app, name="search")
 app.add_typer(profile_app, name="profile")
 app.add_typer(availability_app, name="availability")
 app.add_typer(runtime_app, name="runtime")
+app.add_typer(skill_app, name="skill")
+app.add_typer(update_app, name="update")
 
 INTERNAL_ERROR_MESSAGE = (
     "The booking assistant hit an unexpected internal error. Tell the user in plain "
@@ -60,12 +63,30 @@ def _emit_internal_error() -> None:
         sys.stdout.flush()
 
 
+def _emit_store_too_new(exc) -> None:
+    from .output import emit_error
+    from .updates import CHECK_COMMAND
+
+    emit_error(
+        "INIT",
+        code="session_store_too_new",
+        message=str(exc),
+        next_command=CHECK_COMMAND,
+        data={"found_format": exc.found, "supported_format": exc.supported},
+    )
+
+
 def run() -> None:
     """Console entry point: the Typer app plus the uncaught-exception boundary."""
+    from .session import SessionStoreTooNew
+
     try:
         app()
     except (SystemExit, KeyboardInterrupt):
         raise
+    except SessionStoreTooNew as exc:
+        _emit_store_too_new(exc)
+        raise SystemExit(1)
     except Exception:
         _emit_internal_error()
         raise SystemExit(1)

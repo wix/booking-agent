@@ -1,5 +1,15 @@
 # Change Log
 
+## 16/10/26 at 17:06:18 by [Ran Yahalom](mailto:ranya@wix.com)
+
+- Released as 0.2.0 (skill 0.48.0). The booking assistant can now tell the user when a newer version is ready and install it only after they agree, because until now an assistant could run instructions that no longer matched its installed CLI, and users had no way to learn about fixes. The installed CLI makes the decision from the release metadata (`booking-agent update check`), so a patch never interrupts anyone and a release the registry or businesses are not ready for stays quiet even though it is on PyPI. A mismatch between the loaded skill and the CLI is caught at `flow init` with no network
+- Added `booking-agent update --user-confirmed`, which installs the version the check selected (never past a `deferred` release), refuses while a booking is unfinished, leaves source checkouts alone, prints the install commands instead when the CLI was not installed with uv or pipx, and confirms from a fresh process that the new version starts. `booking-agent update decline` records a no, so the user is not asked about that version again. `BOOKING_AGENT_UPDATE_CHECK=0` turns checks off, and a failed fetch never blocks a booking
+- The wheel now ships a copy of the skill (`booking-agent skill print`, `skill version`), kept equal to `skills/booking-agent/SKILL.md` by `scripts/sync_skill_bundle.py --check` in CI, so after an update the assistant can load the instructions that match the new CLI without network access. `SKILL_VERSION` is now read from that copy instead of a second constant
+- A booking-agent that finds saved bookings written by a newer version now refuses them with `session_store_too_new` instead of crashing or rewriting them, and keeps fields it does not know (including inside the business, buyer, booking, and payment records) when it saves, so moving between versions cannot silently drop a booking credential or a captured-payment marker
+- Added the PyPI `Changelog` link to the GitHub releases page, and documented in "Releasing" that a skill change is shipped code and how each rollout status reaches users
+
+---
+
 ## 16/10/26 at 16:49:18 by [Ran Yahalom](mailto:ranya@wix.com)
 
 - Wrote the whole release policy into "Releasing" in `booking-agent/CONTRIBUTING.md` (version number, PR title and label, rollout decision), and pointed `AGENTS.md`, the root `CONTRIBUTING.md`, and `booking-agent/README.md` at it, because the policy was split between files and the parts about release notes and rollout were not written down anywhere humans would look. `AGENTS.md` keeps a short checklist for agents opening a PR instead of a second copy of the rules

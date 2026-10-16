@@ -96,6 +96,12 @@ def _no_buyer_timezone_network(monkeypatch):
     geocode.clear_cache()
 
 
+@pytest.fixture(autouse=True)
+def _no_update_checks(monkeypatch):
+    """No update prompt or release-index fetch unless a test turns checks back on."""
+    monkeypatch.setenv("BOOKING_AGENT_UPDATE_CHECK", "0")
+
+
 @pytest.fixture
 def isolated_session(tmp_path, monkeypatch):
     """Chdir into a tmp dir, set test env defaults, and inject the in-memory mocks."""

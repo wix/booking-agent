@@ -42,6 +42,7 @@ from .session import (
     load_session,
     save_session,
 )
+from .skill_bundle import SKILL_VERSION
 from .support_bundle_schema import validate_bundle
 
 # Apps Script web app owned by support@booking-agent.dev.
@@ -57,7 +58,6 @@ _APPS_SCRIPT_ECHO_HOST = "script.googleusercontent.com"
 INGEST_REJECTION_REASONS = frozenset({
     "no_body", "media_type", "too_large", "invalid_json", "schema", "rate_limited", "internal",
 })
-SKILL_VERSION = "0.47.0"
 BUNDLE_VERSION = 1
 MAX_BUNDLE_BYTES = 64 * 1024
 SEND_TIMEOUT_S = 10.0
@@ -106,9 +106,11 @@ SKILL_TABLE_CODES = frozenset({
     "reschedule_price_unknown", "reschedule_same_slot", "reschedule_unauthorized",
     "search_area_input_invalid", "search_area_not_user_confirmed", "search_area_unconfirmed",
     "service_address_unconfirmed", "service_details_changed", "service_not_available_in_area",
-    "shared_payment_token_not_issued", "slot_not_selected", "spend_request_not_approved",
+    "session_store_too_new", "shared_payment_token_not_issued", "skill_output_refused",
+    "slot_not_selected", "spend_request_not_approved",
     "spend_request_replacement_required", "timezone_confirmation_required",
-    "ucp_complete_failed", "ucp_native_required",
+    "ucp_complete_failed", "ucp_native_required", "update_failed", "update_not_confirmed",
+    "update_not_verified", "update_session_in_progress",
 })
 SKILL_PROSE_CODES = frozenset({
     "calendar_callback_port_busy", "calendar_insufficient_scope", "calendar_oauth_failed",
