@@ -1,6 +1,6 @@
 # Contributing
 
-Development of the Booking Agent happens in this repository. Open pull requests against `master`; only repository admins can merge them, on any branch.
+Development of the Booking Agent happens in this repository. Open pull requests against `master`; only repository and `wix` org admins can merge into `master` or `main`.
 
 - **Product changes** (CLI, library, skill, tests) live under `booking-agent/`. See [booking-agent/CONTRIBUTING.md](booking-agent/CONTRIBUTING.md) for setup, tests, and conventions.
 - **Branches:** `master` is the default and development branch. `main` is the GitHub Pages branch and contains only the profile, its vendored schemas, validators, and docs; its `validate` check rejects any other path. Never merge `master` into `main`, and never reset or fast-forward `master` to `main`.
