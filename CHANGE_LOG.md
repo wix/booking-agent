@@ -1,5 +1,11 @@
 # Change Log
 
+## 16/10/26 at 13:33:51 by [Ran Yahalom](mailto:ranya@wix.com)
+
+- Added a test that builds the `booking-agent-cli` wheel and fails on any file outside the two product packages, their `.py` modules, `defaults.env`, and the package metadata, so a packaging mistake cannot ship tests, mocks, or local files to PyPI; `release.yml` runs the suite before building, so the check also gates every release
+
+---
+
 ## 16/10/26 at 13:05:24 by [Ran Yahalom](mailto:ranya@wix.com)
 
 - Corrected the contributor docs and `AGENTS.md` to say only repository and `wix` org admins can merge into `master` or `main`, because the admin-only rule now covers just those two branches and contributors can again push their own branches
