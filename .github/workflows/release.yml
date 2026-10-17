@@ -132,8 +132,9 @@ jobs:
         env:
           VERSION: ${{ needs.decide.outputs.version }}
         run: |
-          ls -l dist
-          test "$(find dist -mindepth 1 | wc -l)" -eq 2
+          ls -la dist
+          # uv build writes dist/.gitignore so the artifacts are not committed. It is not an artifact.
+          test "$(find dist -mindepth 1 ! -name '.*' -print | wc -l | tr -d '[:space:]')" -eq 2
           test -f "dist/booking_agent_cli-${VERSION}-py3-none-any.whl"
           test -f "dist/booking_agent_cli-${VERSION}.tar.gz"
 
