@@ -1,5 +1,11 @@
 # Change Log
 
+## 17/10/26 at 12:13:16 by [Ran Yahalom](mailto:ranya@wix.com)
+
+- The release workflow's artifact count now ignores `dist/.gitignore`, because `uv build` writes that file next to the wheel and sdist and the count treated it as a third artifact. The 0.2.0 build produced the right files and then stopped before publishing, so PyPI still has only 0.1.0
+
+---
+
 ## 16/10/26 at 17:06:18 by [Ran Yahalom](mailto:ranya@wix.com)
 
 - Released as 0.2.0 (skill 0.48.0). The booking assistant can now tell the user when a newer version is ready and install it only after they agree, because until now an assistant could run instructions that no longer matched its installed CLI, and users had no way to learn about fixes. The installed CLI makes the decision from the release metadata (`booking-agent update check`), so a patch never interrupts anyone and a release the registry or businesses are not ready for stays quiet even though it is on PyPI. A mismatch between the loaded skill and the CLI is caught at `flow init` with no network
