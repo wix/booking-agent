@@ -15,6 +15,11 @@ File format (schema_version 2):
 
 Migration: a file whose top-level JSON has no "sessions" key is the old
 schema-version-1 single-object format and is transparently upgraded.
+
+Compatibility: a store or session whose ``schema_version`` is higher than this
+build understands was written by a newer CLI, and is refused (``SessionStoreTooNew``)
+rather than rewritten without the fields this build does not know. Adding an optional
+field does not raise the version: older builds keep unknown keys through a save.
 """
 from __future__ import annotations
 
@@ -275,7 +280,22 @@ class SessionStore:
     last_calendar_mode: Optional[str] = None  # freebusy | events | none
     last_calendar_route: Optional[str] = None  # connector | local-oauth
     last_calendar_token_env: Optional[str] = None  # name of the host variable, never its value
+    # Update prompts the user already answered (accepted or declined); never asked again.
+    update_prompts_answered: List[str] = field(default_factory=list)
     sessions: List[Session] = field(default_factory=list)
+
+
+class SessionStoreTooNew(Exception):
+    """The session file was written by a newer booking-agent than this one."""
+
+    def __init__(self, found: int, supported: int) -> None:
+        super().__init__(
+            f"The saved booking state uses format {found}, but this booking-agent only reads "
+            f"format {supported} or older. It was written by a newer version; install that "
+            "version again instead of continuing, so no saved booking is lost."
+        )
+        self.found = found
+        self.supported = supported
 
 
 # ---------------------------------------------------------------------------
@@ -303,6 +323,7 @@ def load_store() -> SessionStore:
         max_s = settings.get_int("BOOKING_AGENT_MAX_SESSIONS")
         return SessionStore(max_sessions=max_s)
     raw = json.loads(p.read_text())
+    _refuse_newer_format(raw)
     if "sessions" not in raw:
         store = _migrate_v1(raw)
     else:
@@ -667,6 +688,40 @@ def endpoint_still_in_use(
 # Serialisation
 # ---------------------------------------------------------------------------
 
+def _refuse_newer_format(raw: Any) -> None:
+    if not isinstance(raw, dict):
+        return
+    found = raw.get("schema_version")
+    supported = STORE_SCHEMA_VERSION if "sessions" in raw else SCHEMA_VERSION
+    if isinstance(found, int) and found > supported:
+        raise SessionStoreTooNew(found, supported)
+    for s in raw.get("sessions") or []:
+        found = s.get("schema_version") if isinstance(s, dict) else None
+        if isinstance(found, int) and found > SCHEMA_VERSION:
+            raise SessionStoreTooNew(found, SCHEMA_VERSION)
+
+
+# Keys a newer build wrote that this one does not model, kept so a save returns them.
+_UNKNOWN_KEYS = "_unknown_keys"
+_STORE_KEYS = {f.name for f in fields(SessionStore)}
+# Nested objects whose unknown keys are kept. List items (slots, activity) are rebuilt
+# from known keys only.
+_NESTED = ("business", "buyer", "booking", "payment", "last_error")
+
+
+def _remember_unknown(obj: Any, raw: Dict[str, Any], known: set) -> Any:
+    extra = {k: v for k, v in raw.items() if k not in known}
+    if extra:
+        setattr(obj, _UNKNOWN_KEYS, extra)
+    return obj
+
+
+def _restore_unknown(obj: Any, d: Dict[str, Any]) -> Dict[str, Any]:
+    for k, v in getattr(obj, _UNKNOWN_KEYS, {}).items():
+        d.setdefault(k, v)
+    return d
+
+
 def _store_to_dict(store: SessionStore) -> Dict[str, Any]:
     d: Dict[str, Any] = {
         "schema_version": store.schema_version,
@@ -683,7 +738,9 @@ def _store_to_dict(store: SessionStore) -> Dict[str, Any]:
         d["last_calendar_route"] = store.last_calendar_route
     if store.last_calendar_token_env is not None:
         d["last_calendar_token_env"] = store.last_calendar_token_env
-    return d
+    if store.update_prompts_answered:
+        d["update_prompts_answered"] = list(store.update_prompts_answered)
+    return _restore_unknown(store, d)
 
 
 def _store_from_dict(raw: Dict[str, Any]) -> SessionStore:
@@ -691,7 +748,8 @@ def _store_from_dict(raw: Dict[str, Any]) -> SessionStore:
         "BOOKING_AGENT_MAX_SESSIONS",
         raw.get("max_sessions") or settings.get_int("BOOKING_AGENT_MAX_SESSIONS"),
     ))
-    return SessionStore(
+    answered = raw.get("update_prompts_answered")
+    store = SessionStore(
         schema_version=raw.get("schema_version", STORE_SCHEMA_VERSION),
         max_sessions=max_s,
         sessions_created=raw.get("sessions_created", 0),
@@ -700,26 +758,34 @@ def _store_from_dict(raw: Dict[str, Any]) -> SessionStore:
         last_calendar_mode=raw.get("last_calendar_mode"),
         last_calendar_route=raw.get("last_calendar_route"),
         last_calendar_token_env=raw.get("last_calendar_token_env"),
+        update_prompts_answered=[a for a in answered if isinstance(a, str)] if isinstance(answered, list) else [],
         sessions=[_session_from_dict(s) for s in (raw.get("sessions") or [])],
     )
+    return _remember_unknown(store, raw, _STORE_KEYS)
 
 
 def _session_to_dict(s: Session) -> Dict[str, Any]:
     d = asdict(s)
     aw = d.pop("availability_window")
     d["availability_window"] = {"from": aw.get("from_"), "to": aw.get("to")}
+    for name in _NESTED:
+        if isinstance(d.get(name), dict):
+            _restore_unknown(getattr(s, name), d[name])
     buyer = d.get("buyer")
     if isinstance(buyer, dict):
         # Agent half of spec #159: do not persist buyer contact on disk.
         # Name and buyer_source stay; email/phone are rehydrated from link-cli.
         buyer["email"] = ""
         buyer["phone"] = None
-    return d
+    return _restore_unknown(s, d)
 
 
 def _known_fields(cls, raw: Dict[str, Any]):
     names = {f.name for f in fields(cls)}
-    return cls(**{k: v for k, v in raw.items() if k in names})
+    return _remember_unknown(cls(**{k: v for k, v in raw.items() if k in names}), raw, names)
+
+
+_SESSION_KEYS = {f.name for f in fields(Session)}
 
 
 def _session_from_dict(raw: Dict[str, Any]) -> Session:
@@ -729,14 +795,14 @@ def _session_from_dict(raw: Dict[str, Any]) -> Session:
         "from_": aw_in.get("from") or aw_in.get("from_"),
         "to": aw_in.get("to"),
     }
-    return Session(
+    session = Session(
         id=raw.get("id") or str(uuid.uuid4()),
         correlation_id=raw.get("correlation_id") or str(uuid.uuid4()),
         created_at=raw.get("created_at") or datetime.now(timezone.utc).isoformat(),
         user_request=raw.get("user_request", ""),
         schema_version=raw.get("schema_version", SCHEMA_VERSION),
         flow_phase=raw.get("flow_phase", "INIT"),
-        business=Business(**(raw.get("business") or {})),
+        business=_known_fields(Business, raw.get("business") or {}),
         service_timezone=raw.get("service_timezone"),
         buyer_timezone=raw.get("buyer_timezone"),
         buyer_timezone_source=raw.get("buyer_timezone_source"),
@@ -750,7 +816,7 @@ def _session_from_dict(raw: Dict[str, Any]) -> Session:
         calendar_token_env=raw.get("calendar_token_env"),
         link_auth_gate_completed=raw.get("link_auth_gate_completed", False),
         availability_window=AvailabilityWindow(**raw["availability_window"]),
-        slots_presented=[SlotRef(**s) for s in (raw.get("slots_presented") or [])],
+        slots_presented=[_known_fields(SlotRef, s) for s in (raw.get("slots_presented") or [])],
         slot_id=raw.get("slot_id"),
         slot_user_confirmed=raw.get("slot_user_confirmed", False),
         service_id=raw.get("service_id"),
@@ -790,11 +856,11 @@ def _session_from_dict(raw: Dict[str, Any]) -> Session:
         ucp_checkout_cancel_succeeded=raw.get("ucp_checkout_cancel_succeeded"),
         ucp_checkout_cancel_error=raw.get("ucp_checkout_cancel_error"),
         buyer_source=raw.get("buyer_source", "none"),
-        buyer=Buyer(**(raw.get("buyer") or {})),
+        buyer=_known_fields(Buyer, raw.get("buyer") or {}),
         booking=_known_fields(BookingRef, raw.get("booking") or {}),
-        payment=PaymentRef(**(raw.get("payment") or {})),
-        last_error=(LastError(**raw["last_error"]) if raw.get("last_error") else None),
-        activity_log=[ActivityEntry(**e) for e in (raw.get("activity_log") or [])],
+        payment=_known_fields(PaymentRef, raw.get("payment") or {}),
+        last_error=(_known_fields(LastError, raw["last_error"]) if raw.get("last_error") else None),
+        activity_log=[_known_fields(ActivityEntry, e) for e in (raw.get("activity_log") or [])],
         discover_query=raw.get("discover_query"),
         discover_location_lat=raw.get("discover_location_lat"),
         discover_location_lng=raw.get("discover_location_lng"),
@@ -806,7 +872,7 @@ def _session_from_dict(raw: Dict[str, Any]) -> Session:
         human_gate_timings=dict(raw.get("human_gate_timings") or {}),
         skill_compliance_validated=raw.get("skill_compliance_validated", False),
         reschedule_original_slot_id=raw.get("reschedule_original_slot_id"),
-        reschedule_slots=[SlotRef(**s) for s in (raw.get("reschedule_slots") or [])],
+        reschedule_slots=[_known_fields(SlotRef, s) for s in (raw.get("reschedule_slots") or [])],
         reschedule_slot_id=raw.get("reschedule_slot_id"),
         reschedule_user_confirmed=bool(raw.get("reschedule_user_confirmed", False)),
         support_report_declined=bool(raw.get("support_report_declined", False)),
@@ -822,6 +888,7 @@ def _session_from_dict(raw: Dict[str, Any]) -> Session:
         booking_notes=raw.get("booking_notes"),
         calendar_timezone=raw.get("calendar_timezone"),
     )
+    return _remember_unknown(session, raw, _SESSION_KEYS)
 
 
 def _migrate_v1(raw: Dict[str, Any]) -> SessionStore:

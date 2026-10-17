@@ -323,6 +323,12 @@ def init(
         False, "--allow-duplicate",
         help="The user confirmed they want another booking despite a matching upcoming one.",
     ),
+    skill_version: Optional[str] = typer.Option(
+        None, "--skill-version", help="The version in the loaded skill's frontmatter.",
+    ),
+    capability: Optional[List[str]] = typer.Option(
+        None, "--capability", help="A capability the user's request needs; repeatable.",
+    ),
 ) -> None:
     """Initialize a new booking session."""
     store = load_store()
@@ -339,6 +345,11 @@ def init(
             next_command=f"booking-agent flow sessions resume --session-id {active.id}",
         )
         raise typer.Exit(code=1)
+
+    gate = _update_gate(user_request, skill_version, capability or [], allow_duplicate)
+    if gate is not None:
+        emit(gate)
+        return
 
     duplicates = [] if allow_duplicate else _upcoming_duplicate_bookings(store, user_request)
     if duplicates:
@@ -409,6 +420,34 @@ def init(
         )
 
     emit(_agent_out(session, prompt=prompt, data=init_data))
+
+
+def _update_gate(
+    user_request: str, skill_version: Optional[str], capabilities: List[str], allow_duplicate: bool,
+) -> Optional[AgentOutput]:
+    """Ask about an update before a session exists, only for a mismatch or a ready release."""
+    from . import update as update_cmd
+    from .. import updates
+
+    try:
+        decision = update_cmd.current_decision(
+            reported_skill=skill_version,
+            capabilities=capabilities,
+            after_booking=False,
+            check_local=True,
+        )
+    except Exception:
+        return None
+    if decision.action not in updates.PROMPT_ACTIONS:
+        return None
+    rerun = f"booking-agent flow init --user-request {shlex.quote(user_request)}"
+    if skill_version:
+        rerun += f" --skill-version {shlex.quote(skill_version)}"
+    for c in capabilities:
+        rerun += f" --capability {shlex.quote(c)}"
+    if allow_duplicate:
+        rerun += " --allow-duplicate"
+    return update_cmd.consent_output(decision, phase="INIT", continue_command=rerun)
 
 
 _REQUEST_STOPWORDS = frozenset(

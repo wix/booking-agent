@@ -1,5 +1,5 @@
 ---
-version: 0.47.0
+version: 0.48.0
 name: booking-agent
 description: |
   Books time-based services via USP from a Link wallet. Use when the user wants to book, schedule, reserve, or pay for a service from a business (haircut, lesson, repair, class, appointment, consult). The `booking-agent` CLI owns the booking state machine and refuses to proceed when human gates are skipped. Sign the user in to Link on your own, right after install and at the start of every booking (`booking-agent flow link-auth connect`, then start `booking-agent flow link-auth poll` in the background and post the sign-in URL in the same turn, exactly like `pay poll`); never wait for the user to ask to sign in or to say they approved. After `booking-agent flow business use`, follow `next_command` through `use-ucp-checkout-mode`; businesses without native checkout fail closed. Payment uses `booking-agent flow pay request` (default returns immediately with the approval URL), then start `booking-agent flow pay poll` in the background and post the approval URL to the user in the same turn; the poll finishes checkout once they approve. Confirm through `booking-agent flow book poll --wait`; never start an inbound webhook. Surface the approval URL exactly once. Personal identification (name, phone, email, address) must always come from the user's Link account via `link-cli`, never from chat or placeholders. Before any location-based search, the CLI proposes the Link shipping address and the user confirms it or gives another; online services skip this. Talk to the user in plain everyday language only; never expose CLI, UCP, auth, session, or other implementation details unless they explicitly ask.
@@ -248,6 +248,26 @@ for each extra cache folder the runtime asks you to keep (a relative persistent 
 under the root). When the runtime keeps its files anyway, or offers no surviving folder, skip the
 command. Do not tell the user about it. If it fails, continue the booking without it.
 
+### Updates (only with the user's yes)
+
+The CLI decides whether a newer version is worth mentioning; you never decide from version
+numbers or release pages. Pass this skill's version on every `flow init` (`--skill-version
+0.48.0`, from the frontmatter above), so the CLI can tell when these instructions and the
+installed CLI no longer match.
+
+- When a command returns `awaiting_user: update_consent`, ask the question in `prompt` in plain
+  words, using `data.user_summary` as the reason, and **STOP**. On yes, run `next_command`
+  (`booking-agent update --user-confirmed`). On no, run `data.decline_command` (the offer is not
+  made again), then follow the rest of `prompt`.
+- When `booking-agent update --user-confirmed` finishes, run its `next_command` (`booking-agent
+  skill print`). If you know the path of the skill file you loaded, run `booking-agent skill
+  print --output <that path>` to replace it. Otherwise follow `data.skill_text` for the rest of
+  this conversation. Either way, tell the user that starting a new chat loads the updated
+  assistant.
+- Never upgrade or reinstall an installed CLI or this skill yourself, and never offer an update
+  in the middle of a booking. The CLI refuses while a booking is in progress.
+- If the user asks to update, run `booking-agent update check`, then follow it.
+
 **Right after installing, sign the user in to Link** as described in [Link
 sign-in](#link-sign-in-automatic). It works with no booking in progress. Do not wait for the
 user to offer to sign in.
@@ -367,6 +387,8 @@ current state at any time: `booking-agent flow status`.
      set) and **STOP**. On yes, run `next_command` exactly as printed. On no, run
      `booking-agent flow support-report decline`. See
      [Notes to the assistant team](#notes-to-the-assistant-team).
+   - **`update_consent`:** ask the question in `prompt` and **STOP**. On yes, run
+     `next_command`; on no, run `data.decline_command`. See [Updates](#updates-only-with-the-users-yes).
    - **Any other value:** ask the user the question in `prompt` and **STOP**.
 3. If the latest command output has `user_message` set (or a bare `https://` URL as the first
    stdout line), show that URL to the user as the **raw URL** before any other narration
@@ -460,9 +482,15 @@ have it). Do not invent a lookup.
 **Step 1b — Create a new session:**
 
 ```bash
-booking-agent flow init --user-request "<user's exact request>"
+booking-agent flow init --user-request "<user's exact request>" --skill-version 0.48.0
 ```
 
+Add `--capability <name>` once for each part of the request that clearly needs it: `calendar`
+(they mention their calendar), `reschedule`, or `cancel`. Leave it out when unsure.
+
+- If `init` returns `awaiting_user: update_consent`, no booking was started yet. Follow
+  [Updates](#updates-only-with-the-users-yes); after the answer, run `data.continue_command` to
+  start the booking.
 - If `init` returns `awaiting_user: duplicate_booking_confirmation`, the user already has an
   upcoming booking on this device that matches this request (`data.upcoming_matches`). No new
   booking was started. Tell them about it in one sentence (service, business, time from
@@ -1096,6 +1124,17 @@ booking-agent flow calendar create-event
   event to add them.
 - Narrate success in everyday language or surface `data.error` only on unexpected API failure.
 
+### After the booking
+
+Once the user has been told they are booked (and after Step 8 when it ran), run:
+
+```bash
+booking-agent update check --after-booking --skill-version 0.48.0
+```
+
+If it returns `awaiting_user: update_consent`, ask once, as in [Updates](#updates-only-with-the-users-yes).
+If its `prompt` says to mention an update, add one plain sentence. Otherwise say nothing about it.
+
 ## Important
 
 - **Never** use markdown hyperlinks with labels (`[text](url)`). Always post raw URLs for Link
@@ -1205,6 +1244,11 @@ recover.
 | `reschedule_same_slot` | User picked the time the booking already has | Ask for a different slot |
 | `reschedule_failed` | Business refused the move (e.g. slot just taken) | Run `booking-agent flow reschedule availability` again and re-ask |
 | `reschedule_booking_not_active` | Booking was canceled or completed meanwhile | Tell the user plainly; nothing to move |
+| `session_store_too_new` | Saved bookings on this device were written by a newer version of the assistant | Run `next_command` (`booking-agent update check`) and follow it; never delete or edit the saved state |
+| `update_not_confirmed` | `update` ran without `--user-confirmed` | Ask the user first; pass `--user-confirmed` only after they agree |
+| `update_session_in_progress` | `update` ran while a booking is unfinished | Finish or cancel the booking first, then offer the update again |
+| `update_failed` / `update_not_verified` | The update did not install or did not start | Tell the user the update did not take; carry on with the installed version |
+| `skill_output_refused` | `skill print --output` named a file that is not the loaded skill | Follow `data.skill_text` from `booking-agent skill print` instead |
 
 ### Notes to the assistant team
 
