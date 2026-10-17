@@ -80,18 +80,89 @@ Product code has no test shortcuts. Do not add environment flags, mock branches,
 
    Optional live registry check: set `BOOKING_AGENT_STAGING_REGISTRY_TEST=1` to run `packages/cli/tests/e2e/test_staging_registry_integration.py`. It searches `haircut` and `AC repair Yuma` and resolves the HVAC test business profile by default; override with `USP_REGISTRY_URL`, `BOOKING_AGENT_STAGING_SEARCH_QUERY` (comma-separated), or `BOOKING_AGENT_STAGING_UCP_PROFILE_URL`. See [`packages/cli/tests/.env.tests`](packages/cli/tests/.env.tests).
 4. If you changed `platform_profile_doc()`, regenerate the artifact (`uv run python scripts/generate_platform_profile.py`) and follow the profile flow in the [root CONTRIBUTING.md](../CONTRIBUTING.md).
-5. If you changed shipped code (`packages/cli/src/`, or the dependencies or other distribution metadata in `packages/cli/pyproject.toml`), raise the version (see [Releasing](#releasing)) and check it with `uv run python scripts/check_version.py --base origin/master`.
-6. Open the PR against `master`. The CI workflow at [`.github/workflows/ci.yml`](../.github/workflows/ci.yml) must be green, and a repository or `wix` org admin merges it.
+5. If you changed shipped code (`packages/cli/src/`, or the dependencies or other distribution metadata in `packages/cli/pyproject.toml`), raise the version, add its release metadata, and fill in the PR's rollout section (see [Releasing](#releasing)). Check with `uv run python scripts/check_version.py --base origin/master` and `uv run python scripts/release_notes.py --check`.
+6. Open the PR against `master` with exactly one release label (see [Pull request title and label](#pull-request-title-and-label)). The CI workflows at [`.github/workflows/ci.yml`](../.github/workflows/ci.yml) and [`.github/workflows/release-pr.yml`](../.github/workflows/release-pr.yml) must be green, and a repository or `wix` org admin merges it.
 
 ## Releasing
 
-Merging a PR into `master` that raises the `booking-agent-cli` version publishes that version to PyPI automatically ([`.github/workflows/release.yml`](../.github/workflows/release.yml)), then tags the commit `v<version>` and creates a GitHub Release. There is no release to cut and no deployment to approve.
+Merging a PR into `master` that raises the `booking-agent-cli` version publishes that version to PyPI automatically ([`.github/workflows/release.yml`](../.github/workflows/release.yml)), then tags the commit `v<version>` and creates a GitHub Release. There is no release to cut and no deployment to approve. This section is the whole policy; `AGENTS.md` points agents here.
 
-- Every PR that changes shipped code must raise the version above the one on `master`; the CI `version` job fails otherwise. Docs, CI, test, script, and skill changes need no bump.
-- Choose the bump with semantic versioning. Below `1.0.0`, use a patch bump for fixes and invisible internal changes, and a minor bump for new features and for breaking changes (removed or renamed commands, flags, or environment variables, changed JSON output or exit codes, a raised minimum Python). From `1.0.0` on, breaking changes take a major bump. Going to `1.0.0` is the release owner's decision. CI rejects a version that is not exactly one step after `master`'s, for example `0.1.0` to `0.1.2` or `0.3.0`.
+A release answers three separate questions, and each has its own place:
+
+| Question | Where it is decided |
+|---|---|
+| What number? | Semantic versioning, below |
+| What does it say to readers? | The PR title and label, which become the GitHub Release notes, plus the `CHANGE_LOG.md` entry |
+| Should an installed assistant tell its user about it? | `release-notes/<version>.json`, which the installed CLI reads |
+
+### Version number
+
+- Every PR that changes shipped code must raise the version above the one on `master`; the CI `version` job fails otherwise. Docs, CI, test, and script changes need no bump.
+- Choose the bump with semantic versioning. A breaking change is anything a user or the `booking-agent` skill depends on that stops working: a removed or renamed command, flag, or environment variable, a changed JSON output field or exit code, a changed flow step order, or a raised minimum Python.
+  - Below `1.0.0`: patch (`0.1.0` to `0.1.1`) for fixes and internal changes users cannot notice; minor (`0.1.0` to `0.2.0`) for new features **and** for breaking changes.
+  - From `1.0.0` on: patch for fixes, minor for backwards-compatible features, major for breaking changes.
+  - Going to `1.0.0` is the release owner's decision.
+  - A PR that mixes kinds uses the largest bump it needs. CI rejects a version that is not exactly one step after `master`'s, for example `0.1.0` to `0.1.2` or `0.3.0`.
+- Because a minor bump below `1.0.0` can be either a feature or a breaking change, the number alone never tells anyone which. `change_type` in the release metadata does.
 - To bump, change `version` in `packages/cli/pyproject.toml` and `__version__` in both `packages/cli/src/booking_agent/__init__.py` and `packages/cli/src/booking_agent_cli/__init__.py`, then run `uv lock`. CI checks that all four agree.
 - PyPI versions are permanent and cannot be re-uploaded. Work that should ship as one version goes into one PR with one bump; each merged bump is its own release.
 - `.devN` versions go to TestPyPI only, by publishing a GitHub Release tagged `v<version>` on a commit already on `master`.
+
+### Pull request title and label
+
+`release.yml` creates each GitHub Release with `--generate-notes`, which lists the title of every PR merged since the previous `v*` tag, unchanged. [`.github/release.yml`](../.github/release.yml) groups them by label.
+
+- **Label.** Every PR carries exactly one of `fix`, `feature`, or `breaking` when it raises the version (matching `change_type` in its release metadata), or `internal` when it does not. `internal` PRs are left out of the release notes.
+- **Title.** For a PR that raises the version, the title is the release note. Write what users get, in plain words: `Recover safely when payment confirmation times out`, `Add calendar conflict checking`. Not mechanics: no "Bump to 0.2.0", "Sync files", `feat:` prefixes, file or module names, version numbers, or issue numbers. If several changes ship together, name the largest user-visible outcome and describe the rest in the PR body and the changelog.
+- **Changelog.** The PR's `CHANGE_LOG.md` entry names the version it releases, for example `Released as 0.2.0`, and says what changed for users and why.
+
+`release-pr.yml` checks the label, the title, and the rollout section on every PR edit.
+
+### Rollout: should users be told?
+
+Each published version has `release-notes/<version>.json`. From `booking-agent-cli` 0.2.0, an installed assistant reads the generated `release-notes/index.json` and decides from it whether to mention a newer version to its user. A patch should not interrupt anyone, and a release that businesses or the registry are not ready for must stay quiet even though it is on PyPI. Regenerate the index with `uv run python scripts/release_notes.py` after editing any entry.
+
+```json
+{
+  "schema_version": 1,
+  "cli_version": "0.2.0",
+  "skill_version": "0.48.0",
+  "change_type": "feature",
+  "update_status": "deferred",
+  "ecosystem_ready": false,
+  "relevant_capabilities": ["booking"],
+  "user_summary": "Lets the assistant tell you when an update is ready.",
+  "details_url": "https://github.com/wix/booking-agent/releases/tag/v0.2.0",
+  "readiness_evidence": []
+}
+```
+
+- `skill_version` is the skill frontmatter version this release ships.
+- `relevant_capabilities` is any of `search`, `sign_in`, `calendar`, `booking`, `payment`, `cancel`, `reschedule`.
+- `user_summary` is one plain sentence the assistant may repeat to a user: no commands, flags, links, or issue numbers.
+- `replacement_version` is required for, and only for, `withdrawn`.
+
+Decide `change_type`, `update_status`, and `ecosystem_ready` in this order. Do not infer any of them from the version number.
+
+1. **Classify `change_type`** (`fix`, `feature`, or `breaking`) with the rules under [Version number](#version-number). Below `1.0.0`, say explicitly whether a minor release is a backwards-compatible feature or a breaking change.
+2. **List every compatibility surface the change touches:** CLI commands and JSON output, the skill's instructions, saved session files, USP, UCP, and platform-profile versions, registry requests and responses, and business requests and responses.
+3. **Start from `update_status: deferred` and `ecosystem_ready: false`** whenever an external contract changes or readiness is unproven. Silence is the safe default.
+4. **Set `ecosystem_ready: true` only with evidence**, recorded in `readiness_evidence` and in the PR body:
+   - existing businesses stay compatible, through unchanged contracts, version negotiation, or a tested fallback;
+   - the registry in use today accepts and returns the shapes and versions the release needs;
+   - saved session files stay safe across the upgrade (and a downgrade, where one is possible);
+   - integration or staging tests cover the affected path.
+5. **Choose `update_status`:**
+   - `available`: a normal fix or internal improvement. Users are not prompted.
+   - `recommended`: a ready feature with a clear benefit to users, or a broadly useful fix. Mentioned after a booking, or before one when it is relevant to it. A ready breaking release is offered before the next booking.
+   - `urgent`: only for a security, data-loss, payment-safety, or severe correctness problem, and only with the release owner's approval written in the PR as `Release-owner approval: <who, why>`. Offered before the next booking.
+   - `deferred`: the rollout is not finished or evidence is missing. Never offered, and a newer version is not offered past it either, because installing it would bring this release's changes too.
+   - `withdrawn`: a released version that must not be installed any more. Needs a newer, installable `replacement_version`.
+6. **Green CI is not readiness.** A newer version, passing tests, or a schema that validates does not show that the registry and live businesses work with the release.
+
+To roll a deferred release out later, open an `internal` PR that changes only its entry (for example `deferred` to `recommended`, with evidence) and the regenerated index. That ships no code and needs no version bump. Never edit a published GitHub Release body to change the decision: the release's attached copy of its metadata records what was decided at release time.
+
+The PR body's `## Release and rollout` section (in the [pull request template](../.github/pull_request_template.md)) repeats the version, change type, update status, affected capabilities, interoperability impact, and readiness evidence. CI checks that it is filled in and matches the metadata file, that `recommended` and `urgent` have evidence and `ecosystem_ready: true`, and that `urgent` has the release owner's approval. Whether the evidence is good enough is for the admin who merges.
 
 ## Outbound HTTP: timeouts, retries, circuit breaker
 

@@ -55,16 +55,23 @@ Merging a pull request into `master` that raises `version` in `booking-agent/pac
 
 - `.github/workflows/release.yml` runs on every push to `master`. If tag `v<version>` does not exist and the version is not on PyPI, it runs the tests, builds, publishes with Trusted Publishing (environment `pypi`), then creates tag `v<version>` and a GitHub Release with generated notes on the merged commit. Otherwise it does nothing.
 - Every pull request that changes shipped code must raise the version above the version on `master`. Shipped code is what the wheel contains: `booking-agent/packages/cli/src/booking_agent/`, `booking-agent/packages/cli/src/booking_agent_cli/` (including `defaults.env`), and the distribution metadata in `booking-agent/packages/cli/pyproject.toml` (dependencies, entry points, build config). Docs, CI, tests, scripts, the skill, and `uv.lock`-only changes need no bump. The `version` job in `ci.yml` enforces this with `booking-agent/scripts/check_version.py`.
-- **Pick the bump with semantic versioning.** A breaking change is anything a user or the `booking-agent` skill can depend on that stops working: a removed or renamed command, flag, or environment variable, a changed JSON output field or exit code, a changed flow step order, or a raised minimum Python version.
-  - While the version is below `1.0.0`: **patch** (`0.1.0` to `0.1.1`) for bug fixes and internal changes users cannot notice; **minor** (`0.1.0` to `0.2.0`) for new features **and** for breaking changes.
-  - From `1.0.0` on: patch for fixes, minor for backwards-compatible features, **major** for breaking changes.
-  - Moving to `1.0.0` is a deliberate decision to promise a stable CLI. Do not make it on your own; ask the release owner.
-  - When one pull request mixes kinds, use the largest bump it needs. The `version` job rejects any other change: the new version must be `MAJOR.MINOR.PATCH` (optionally `.devN`) and exactly one step after `master` (next patch, next minor with patch `0`, or next major with minor and patch `0`), never skipping numbers.
+- **The versioning, release-note, and rollout policy is "Releasing" in `booking-agent/CONTRIBUTING.md`.** Read it before opening any pull request; it is the one copy humans and agents both follow. Do not move to `1.0.0` on your own; ask the release owner.
 - A bump changes four places that must agree (the `version` job checks this on every run): `version` in `booking-agent/packages/cli/pyproject.toml`, `__version__` in `booking_agent/__init__.py` and in `booking_agent_cli/__init__.py`, and the `booking-agent-cli` entry in `booking-agent/uv.lock` (run `uv lock` from `booking-agent/`).
 - PyPI versions are permanent. A published version can never be re-uploaded or replaced, even after deletion, so a broken release is fixed only by merging a new, higher version.
 - **One PyPI version, one pull request.** Each merged bump becomes its own permanent PyPI release. If you have several pieces of work that should ship as one version, combine them into a single pull request with one version bump and merge that. Do not merge several pull requests that each bump the version, and do not merge un-bumped shipped changes (CI blocks them) planning to bump later.
 - `.devN` versions are never published from `master`. To test a build on TestPyPI, set a `.devN` version and publish a GitHub Release whose tag is `v<version>` on a commit already on `master`; `release.yml` sends it to TestPyPI (environment `testpypi`). A manually published non-`.devN` release still goes to PyPI if that version is not there yet.
 - `.github/workflows/release-watch.yml` runs daily. If the version on `master` is not on PyPI or has no `v<version>` tag (a release run failed), it fails and opens or updates an issue assigned to the release owner. Re-run the failed `release.yml` run, or merge a new version.
+
+### When you open a pull request
+
+`release-pr.yml` enforces most of this, but the judgment is yours:
+
+1. **Label it.** Exactly one of `fix`, `feature`, `breaking` (the PR raises the version) or `internal` (it does not).
+2. **Title it for users when it raises the version.** The title is published unchanged as that version's GitHub Release note. Say what users get ("Recover safely when payment confirmation times out"), never the mechanics ("Bump to 0.2.0", "Update flow.py", `feat:`, an issue number, a version number). Several changes in one version: name the largest user-visible outcome; put the rest in the body and `CHANGE_LOG.md`.
+3. **Add `booking-agent/release-notes/<version>.json`** and run `uv run python scripts/release_notes.py` from `booking-agent/` to regenerate `index.json`.
+4. **Decide the rollout with the decision order in "Rollout: should users be told?"**, not from the version number or green CI. Default to `update_status: deferred` and `ecosystem_ready: false`. Set `ecosystem_ready: true` only with concrete evidence that existing businesses, the registry in use today, and saved session files work with the release, and write that evidence in `readiness_evidence` and the PR body. Never set `urgent` without the release owner's written approval in the PR (`Release-owner approval: <who, why>`). If you are unsure, leave it `deferred` and say so in the PR; rolling out later is a small `internal` PR.
+5. **Fill in `## Release and rollout`** in the PR body (see `.github/pull_request_template.md`) with the same values as the metadata file.
+6. **Name the version in `CHANGE_LOG.md`** (`Released as <version>`).
 
 ## Platform profile
 

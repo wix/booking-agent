@@ -1,0 +1,20 @@
+{
+  "releases": [
+    {
+      "change_type": "feature",
+      "cli_version": "0.1.0",
+      "details_url": "https://github.com/wix/booking-agent/releases/tag/v0.1.0",
+      "ecosystem_ready": true,
+      "readiness_evidence": [
+        "First release on PyPI; there is no earlier installed version to be compatible with.",
+        "A paid booking passed end to end on 16/10/2026 with the release candidate: Link sign-in, search area, discovery, native checkout, slot selection, buyer from Link, booking, spend approval, and confirmation."
+      ],
+      "relevant_capabilities": [],
+      "schema_version": 1,
+      "skill_version": "0.46.0",
+      "update_status": "available",
+      "user_summary": "First public release of the booking assistant."
+    }
+  ],
+  "schema_version": 1
+}

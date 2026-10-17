@@ -3,7 +3,7 @@
 Development of the Booking Agent happens in this repository. Open pull requests against `master`; only repository and `wix` org admins can merge into `master` or `main`.
 
 - **Product changes** (CLI, library, skill, tests) live under `booking-agent/`. See [booking-agent/CONTRIBUTING.md](booking-agent/CONTRIBUTING.md) for setup, tests, and conventions.
-- **Releases:** merging a PR into `master` that raises the `booking-agent-cli` version publishes it to PyPI automatically; PRs that change shipped code must raise it. See [Releasing](booking-agent/CONTRIBUTING.md#releasing).
+- **Releases:** merging a PR into `master` that raises the `booking-agent-cli` version publishes it to PyPI automatically; PRs that change shipped code must raise it. Every PR needs exactly one release label, a version-raising PR's title becomes its public release note, and its release metadata decides whether installed assistants tell users about it. [Releasing](booking-agent/CONTRIBUTING.md#releasing) has the full policy: how to pick the version number, write the title, and decide the rollout.
 - **Branches:** `master` is the default and development branch. `main` is the GitHub Pages branch and contains only the profile, its vendored schemas, validators, and docs; its `validate` check rejects any other path. Never merge `master` into `main`, and never reset or fast-forward `master` to `main`.
 
 ## Changing the platform profile

@@ -135,4 +135,4 @@ Per-step latency budgets and the soak harness: [`ops/latency.md`](ops/latency.md
 
 ## Development
 
-See [CONTRIBUTING.md](CONTRIBUTING.md).
+See [CONTRIBUTING.md](CONTRIBUTING.md). Version numbers, release notes, and when an installed assistant offers a user an update are covered under [Releasing](CONTRIBUTING.md#releasing). What changed in each version is on the [releases page](https://github.com/wix/booking-agent/releases).
