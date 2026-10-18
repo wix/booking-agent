@@ -11,6 +11,7 @@ deleted, so file modes on credentials and keys stay as they were.
 from __future__ import annotations
 
 import os
+import shutil
 import sys
 import time
 from pathlib import Path
@@ -74,6 +75,12 @@ def _is_empty_dir(path: Path) -> bool:
     return path.is_dir() and not any(path.iterdir())
 
 
+def _move_children(src: Path, dst: Path) -> None:
+    dst.mkdir(parents=True, exist_ok=True)
+    for child in src.iterdir():
+        shutil.move(str(child), str(dst / child.name))
+
+
 def link_one(runtime: Path, persistent: Path, *, private: bool) -> Dict[str, str]:
     """Make ``runtime`` a symlink to ``persistent``. Returns what happened."""
     out = {"runtime": str(runtime), "persistent": str(persistent)}
@@ -82,11 +89,22 @@ def link_one(runtime: Path, persistent: Path, *, private: bool) -> Dict[str, str
     else:
         persistent.mkdir(parents=True, exist_ok=True)
 
+    relinked = False
     if runtime.is_symlink():
         if Path(os.readlink(runtime)) == persistent or runtime.resolve() == persistent.resolve():
             out["result"] = "already_linked"
             return out
+        # Linked into another root (a different conversation chose a different folder).
+        # Bring that root's saved state along when this one has none; otherwise leave it alone.
+        previous = runtime.resolve()
+        if previous.is_dir() and not _is_empty_dir(previous):
+            if _is_empty_dir(persistent):
+                _move_children(previous, persistent)
+                out["moved_existing_contents"] = "true"
+            else:
+                out["previous_root_left_at"] = str(previous)
         runtime.unlink()
+        relinked = True
     elif runtime.exists():
         if not runtime.is_dir():
             raise PrepareError(f"{runtime} is a file; only folders can be linked.")
@@ -105,15 +123,54 @@ def link_one(runtime: Path, persistent: Path, *, private: bool) -> Dict[str, str
 
     runtime.parent.mkdir(parents=True, exist_ok=True)
     os.symlink(persistent, runtime, target_is_directory=True)
-    out["result"] = "linked"
+    out["result"] = "relinked" if relinked else "linked"
     return out
 
 
-def prepare(persistent_root: str, raw_links: List[str]) -> List[Dict[str, str]]:
+def normalized_root(persistent_root: str) -> Path:
+    """The folder both state and the sign-in live under.
+
+    Agents often pass the state folder itself (``.../booking-agent``) as the root. Because
+    ``prepare`` adds its own subfolders, that used to create ``.../booking-agent/booking-agent``
+    and a second sign-in folder, splitting the saved state. A root already named after the
+    state folder means its parent.
+    """
     root = _absolute(persistent_root, what="--persistent-root")
+    if root.name == STATE_SUBDIR:
+        root = root.parent
+    return root
+
+
+def _lift_nested_layout(root: Path) -> Dict[str, str]:
+    """Undo the old nested layout (``<root>/booking-agent/{booking-agent,link-cli}``)."""
+    state = root / STATE_SUBDIR
+    lifted: Dict[str, str] = {}
+    nested_state = state / STATE_SUBDIR
+    if nested_state.is_dir():
+        for child in list(nested_state.iterdir()):
+            if not (state / child.name).exists():
+                os.replace(child, state / child.name)
+                lifted["lifted_from_nested_layout"] = "true"
+        if _is_empty_dir(nested_state):
+            nested_state.rmdir()
+    nested_link = state / LINK_SUBDIR
+    if nested_link.is_dir():
+        target = root / LINK_SUBDIR
+        if not target.exists() or _is_empty_dir(target):
+            if target.exists():
+                target.rmdir()
+            os.replace(nested_link, target)
+            lifted["lifted_from_nested_layout"] = "true"
+    return lifted
+
+
+def prepare(persistent_root: str, raw_links: List[str]) -> List[Dict[str, str]]:
+    root = normalized_root(persistent_root)
     root.mkdir(parents=True, exist_ok=True)
     if not root.is_dir():
         raise PrepareError(f"--persistent-root {root} is not a folder.")
+    ensure_private_dir(root / STATE_SUBDIR)
+    lifted = _lift_nested_layout(root)
     plan: List[Tuple[Path, Path, bool]] = [
         (settings.booking_agent_home(), root / STATE_SUBDIR, True),
         (link_cli_config_dir(), root / LINK_SUBDIR, True),
@@ -126,4 +183,52 @@ def prepare(persistent_root: str, raw_links: List[str]) -> List[Dict[str, str]]:
             results.append({"runtime": str(runtime), "persistent": str(runtime), "result": "already_persistent"})
             continue
         results.append(link_one(runtime, persistent, private=private))
+    if lifted and results:
+        results[0].update(lifted)
     return results
+
+
+def _describe(path: Path) -> Dict[str, object]:
+    linked = path.is_symlink()
+    return {
+        "path": str(path),
+        "linked_to": str(path.resolve()) if linked else None,
+        "exists": path.exists(),
+    }
+
+
+def diagnose() -> Dict[str, object]:
+    """Read-only report of where state lives and anything left behind by an earlier layout."""
+    state = settings.booking_agent_home()
+    link = link_cli_config_dir()
+    state_info, link_info = _describe(state), _describe(link)
+    findings: List[Dict[str, str]] = []
+    problems = False
+    root_hint = ""
+
+    if state_info["linked_to"]:
+        target = Path(str(state_info["linked_to"]))
+        root_hint = str(target.parent)
+        for sub, kind in ((STATE_SUBDIR, "nested_state_folder"), (LINK_SUBDIR, "nested_link_folder")):
+            if (target / sub).is_dir():
+                problems = True
+                findings.append({"kind": kind, "path": str(target / sub), "severity": "problem"})
+    else:
+        findings.append({"kind": "not_persistent", "path": str(state), "severity": "info"})
+    if state_info["linked_to"] and link_info["linked_to"]:
+        if Path(str(state_info["linked_to"])).parent != Path(str(link_info["linked_to"])).parent:
+            problems = True
+            findings.append({"kind": "state_and_sign_in_in_different_roots", "path": str(link), "severity": "problem"})
+    for runtime in (state, link):
+        for aside in sorted(runtime.parent.glob(f"{runtime.name}.before-prepare-*")) if runtime.parent.is_dir() else []:
+            findings.append({"kind": "runtime_copy_kept_aside", "path": str(aside), "severity": "info"})
+
+    return {
+        "state": state_info,
+        "link_sign_in": link_info,
+        "findings": findings,
+        "healthy": not problems,
+        "fix_command": (
+            f"booking-agent runtime prepare --persistent-root {root_hint}" if problems and root_hint else None
+        ),
+    }

@@ -209,6 +209,32 @@ FORBIDDEN = [
 ]
 
 
+def _resync_link_auth_gate(session: Session) -> None:
+    """Trust link-cli over the cached flag.
+
+    The flag is only recorded when the sign-in poll reports back. If that poll was killed after
+    the user approved (or the session file was restored), the user is signed in but the flag is
+    False; refusing here would make them sign in again for nothing.
+    """
+    if session.link_auth_gate_completed:
+        return
+    try:
+        signed_in = get_auth_status().authenticated
+    except Exception:
+        return
+    if signed_in:
+        session.link_auth_gate_completed = True
+        save_session(session)
+
+
+def _after_booking_command() -> str:
+    """The quick update check that closes every confirmed booking (the CLI hands it over, so no
+    skill text has to remember it)."""
+    from ..skill_bundle import SKILL_VERSION
+
+    return f"booking-agent update check --after-booking --skill-version {SKILL_VERSION}"
+
+
 def _agent_out(
     session: Session,
     *,
@@ -380,6 +406,11 @@ def init(
     # flow state, so a changed file is never masked by session_active.
     loaded_version = _require_verified_skill(store, "INIT", skill_path)
     active = get_active_session(store)
+    unfinished_payment = (
+        active is not None
+        and active.flow_phase not in TERMINAL_PHASES
+        and _cancel_open_kind(active)[0] == "held"
+    )
     if active is not None and active.flow_phase not in TERMINAL_PHASES and not force:
         emit_error(
             "INIT",
@@ -388,6 +419,12 @@ def init(
                 f"Active session '{active.id}' is in phase '{active.flow_phase}' "
                 "(not yet completed). Pass --force to start a new session anyway, "
                 f"or resume with `booking-agent flow sessions resume --session-id {active.id}`."
+                + (
+                    " It has a payment in progress: resume it (or check it with "
+                    "`booking-agent flow status`) rather than starting over, or the user may "
+                    "pay twice."
+                    if unfinished_payment else ""
+                )
             ),
             next_command=f"booking-agent flow sessions resume --session-id {active.id}",
         )
@@ -424,8 +461,34 @@ def init(
         ))
         return
 
+    unfinished = [] if force else _unfinished_similar_sessions(store, user_request)
+    if unfinished:
+        # The CLI asks, so the skill does not have to remember to look.
+        newest = unfinished[0]
+        emit(AgentOutput(
+            phase="INIT",
+            awaiting_user="resume_or_fresh",
+            prompt=(
+                "The user has an earlier request that looks like this one and was never "
+                f"finished ('{newest['user_request']}'). Ask in plain words whether to pick up "
+                "where they left off or start a new booking, and STOP for their answer; never "
+                "decide for them. To continue run data.resume_command. To start fresh re-run "
+                "this same init command with --force added."
+            ),
+            next_command=None,
+            data={
+                "unfinished": unfinished,
+                "resume_command": (
+                    f"booking-agent flow sessions resume --session-id {newest['session_id']}"
+                ),
+            },
+        ))
+        return
+
     try:
         init_data: dict = {"agent_profile_url": require_fetchable_profile_url()}
+        if unfinished_payment:
+            init_data["abandoned_session_with_payment"] = active.id
     except ProfileUrlError as e:
         emit_error("INIT", code="platform_profile_url_invalid", message=str(e))
         raise typer.Exit(code=1)
@@ -550,6 +613,25 @@ def _upcoming_duplicate_bookings(store: Any, user_request: str) -> List[Dict[str
     return matches
 
 
+def _unfinished_similar_sessions(store: Any, user_request: str) -> List[Dict[str, Any]]:
+    """Unfinished sessions whose request covers most of this one's key terms, newest first."""
+    wanted = _request_terms(user_request)
+    if not wanted:
+        return []
+    matches = []
+    for s in reversed(store.sessions):
+        if s.flow_phase in TERMINAL_PHASES or s.booking.id:
+            continue
+        if len(wanted & _request_terms(s.user_request)) / len(wanted) < 0.6:
+            continue
+        matches.append({
+            "session_id": s.id,
+            "user_request": s.user_request,
+            "flow_phase": s.flow_phase,
+        })
+    return matches
+
+
 @app.command("status")
 def status() -> None:
     session = load_session()
@@ -570,6 +652,7 @@ def status() -> None:
     prompt = None
     next_cmd = None
     awaiting = None
+    status_message: Optional[str] = None
     extra_data: dict = {}
     if session.payment.captured_unconfirmed:
         next_cmd = "booking-agent flow book poll --wait"
@@ -580,10 +663,38 @@ def status() -> None:
         )
     elif session.flow_phase == "PAYMENT_PENDING" and session.payment.spend_request_id:
         sr_id = session.payment.spend_request_id
-        approval_url = resolve_spend_approval_url(sr_id)
         next_cmd, prompt = _payment_pending_next(session, sr_id)
+        approval_url = resolve_spend_approval_url(sr_id)
         if approval_url:
             extra_data["approval_url"] = approval_url
+        if session.payment.spend_approval_user_surfaced:
+            # The user already has the link (it stays in data only to recover a lost one).
+            status_message = (
+                "Still waiting for your approval in Link. The booking finishes as soon as "
+                "it goes through."
+            )
+    elif session.flow_phase == "PREREQ_OK" and session.discover_services:
+        # Results were already found (possibly in an earlier conversation): hand them back
+        # instead of making the agent search again and risk a reordered list.
+        awaiting = "business_choice"
+        next_cmd = (
+            "booking-agent flow business use --profile-url <selected profile_url> "
+            "--service-id <selected service_id> --name '<selected business_name>' "
+            "[--less-direct '<label shown>']"
+        )
+        prompt = (
+            "A search was already run for this request; do not search again. Present every "
+            "service in data.services in the exact order returned, one numbered line each "
+            "showing that row's display_line verbatim, and wait for the user to pick one."
+        )
+        extra_data["services"] = session.discover_services
+        extra_data["discover_query"] = session.discover_query
+    elif session.flow_phase == "CONFIRMED" and not session.reschedule_slot_id \
+            and not session.reschedule_original_slot_id:
+        from ..booking_summary import booked_message
+
+        status_message = booked_message(session)
+        prompt = "The booking is confirmed. If the user asked how it is going, post user_message as written."
     elif session.flow_phase == "CONFIRMED" and session.reschedule_slot_id:
         awaiting = "reschedule_confirm"
         prompt = _reschedule_confirm_prompt(session)
@@ -595,6 +706,7 @@ def status() -> None:
     emit(_agent_out(
         session,
         awaiting_user=awaiting,
+        user_message=status_message,
         prompt=prompt,
         next_command=next_cmd,
         data={"session": _session_data(session), **extra_data},
@@ -1761,6 +1873,11 @@ def discover(
         "--prefer-sooner-availability-slots/--no-prefer-sooner-availability-slots",
         help="Explicitly enable or disable earlier-opening preference",
     ),
+    asap: bool = typer.Option(
+        False,
+        "--asap",
+        help="First available: the CLI uses the current time as the open lower bound",
+    ),
 ) -> None:
     """Search the USP registry for services."""
     session = must_load()
@@ -1834,6 +1951,10 @@ def discover(
                 ),
             )
             raise typer.Exit(code=1)
+
+    if asap:
+        # The agent never has to read a clock or format a timestamp for "as soon as possible".
+        desired_from = [*(desired_from or []), datetime.now(timezone.utc).isoformat()]
 
     try:
         from booking_agent.headless import build_desired_service_time_preferences
@@ -2631,6 +2752,126 @@ def link_auth_poll(
 
 
 # ---------------------------------------------------------------------------
+# connections: one check for everything a booking depends on
+# ---------------------------------------------------------------------------
+
+connections_app = typer.Typer(help="Check Link and Google Calendar together, so gaps surface at once.")
+app.add_typer(connections_app, name="connections")
+
+
+def _calendar_events_lost(session: Session) -> Optional[dict]:
+    """Connection status when this booking needs calendar events but the access is gone."""
+    if session.calendar_state != "connected" or session.calendar_mode != CALENDAR_MODE_EVENTS:
+        return None
+    try:
+        refresh_host_token(session, CALENDAR_MODE_EVENTS)
+        status = calendar_connection_status()
+    except Exception:
+        return None
+    return None if status.get("connected") else status
+
+
+def _calendar_reconnect_for(session: Session, status: dict) -> Optional[str]:
+    route, token_env = _session_route(session)
+    if route == ROUTE_CONNECTOR and valid_token_env_name(token_env):
+        return _connect_command(CALENDAR_MODE_EVENTS, route, token_env)
+    route, token_env = _reconnect_route(status)
+    if route is None:
+        return None
+    return _connect_command(CALENDAR_MODE_EVENTS, route, token_env)
+
+
+def _connection_gaps(session: Session, *, check_link: bool = True) -> List[Dict[str, Any]]:
+    """What the user must (re)connect before this booking can finish. Empty when all is well."""
+    gaps: List[Dict[str, Any]] = []
+    try:
+        link = get_auth_status() if check_link else None
+    except Exception:
+        link = None
+    if link is not None and not link.authenticated:
+        url = link.verification_url
+        if not url:
+            try:
+                url = initiate_auth_login().verification_url
+            except Exception:
+                url = None
+        gaps.append({
+            "name": "link", "state": "needs_sign_in", "url": url,
+            "background_command": LINK_AUTH_POLL,
+        })
+        session.link_auth_gate_completed = False
+    lost = _calendar_events_lost(session)
+    if lost is not None:
+        command = _calendar_reconnect_for(session, lost)
+        if command is None:
+            # Nothing can renew it on this device: finish the booking without the calendar entry.
+            skip_calendar_gate_session_only(session)
+            gaps.append({"name": "calendar", "state": "unavailable_continuing_without"})
+        else:
+            gaps.append({
+                "name": "calendar", "state": "needs_reconnect", "command": command,
+                "skip_command": _CALENDAR_SKIP_SESSION_ONLY,
+            })
+    return gaps
+
+
+def _emit_connection_gaps(session: Session, gaps: List[Dict[str, Any]], *, resume: str) -> bool:
+    """Emit the one combined message for every gap that needs the user. True when it did."""
+    needs_user = [g for g in gaps if g["state"] in ("needs_sign_in", "needs_reconnect")]
+    if not needs_user:
+        return False
+    save_session(session)
+    link = next((g for g in needs_user if g["name"] == "link"), None)
+    calendar = next((g for g in needs_user if g["name"] == "calendar"), None)
+    steps = []
+    if link:
+        steps.append(
+            "Start `booking-agent flow link-auth poll` in the background now."
+        )
+    if calendar:
+        steps.append(
+            f"Run `{calendar['command']}` and post any sign-in link it returns in the same "
+            f"message. If the user would rather skip the calendar entry, run "
+            f"`{calendar['skip_command']}` instead."
+        )
+    what = " and ".join(
+        label for label, gap in (("Link", link), ("Google Calendar", calendar)) if gap
+    )
+    emit(_agent_out(
+        session,
+        awaiting_user="connections",
+        user_message=link["url"] if link and link.get("url") else None,
+        prompt=(
+            f"{what} must be reconnected before this booking can finish. Tell the user in "
+            "one short message what to do, with every link in that same message"
+            + (" (user_message is the Link sign-in link, post it as the raw URL)." if link else ".")
+            + " " + " ".join(steps)
+            + f" When each connection is back, run `{resume}` without asking the user again."
+        ),
+        next_command=LINK_AUTH_POLL if link else calendar["command"],
+        data={"connections": gaps, "resume_command": resume},
+    ))
+    return True
+
+
+@connections_app.command("ensure")
+def connections_ensure() -> None:
+    """Check Link sign-in and calendar access together and report every gap in one message."""
+    session = must_load()
+    resume = recommend_next(session) or "booking-agent flow status"
+    gaps = _connection_gaps(session)
+    if _emit_connection_gaps(session, gaps, resume=resume):
+        return
+    save_session(session)
+    emit(_agent_out(
+        session,
+        prompt="Link and calendar are ready. Continue the booking without telling the user.",
+        next_command=resume,
+        data={"connections": gaps},
+    ))
+
+
+# ---------------------------------------------------------------------------
 # calendar gate
 # ---------------------------------------------------------------------------
 
@@ -2999,6 +3240,15 @@ def _emit_calendar_connected(session: Session, *, mode: str, data: dict) -> None
         if mode == CALENDAR_MODE_EVENTS
         else "Calendar connected for conflict checking (free/busy only)."
     )
+    if session.flow_phase == "SLOT_SELECTED":
+        # Reconnected late (after the slot was chosen): pick the booking up where it stopped.
+        emit(_agent_out(
+            session,
+            prompt=f"{prompt} Continue the booking without asking the user again.",
+            next_command="booking-agent flow buyer resolve",
+            data={**data, "mode": mode},
+        ))
+        return
     emit(_agent_out(
         session,
         prompt=f"{prompt} Ready to query availability.",
@@ -4202,6 +4452,7 @@ def buyer_resolve(
     try:
         require_phase(session, "SLOT_SELECTED", code="no_slot_selected",
                       next_command="booking-agent flow slots select --slot-id <id> --user-confirmed")
+        _resync_link_auth_gate(session)
         require_link_auth_gate(session)
     except GateError as e:
         raise _handle_gate(session, e)
@@ -4241,6 +4492,10 @@ def buyer_resolve(
 
     session.buyer = Buyer(name=name, email=email, phone=phone)
     session.buyer_source = BUYER_SOURCE_LINKCLI
+    # Surface a lost calendar before the user is asked to confirm, not after they said yes.
+    gaps = _connection_gaps(session, check_link=False)
+    if _emit_connection_gaps(session, gaps, resume="booking-agent flow buyer resolve"):
+        return
     if notes is not None:
         session.booking_notes = " ".join(notes.split())[:BOOKING_NOTES_MAX_CHARS] or None
     _ensure_buyer_timezone(session, link_cli_bin=link_cli_bin)
@@ -4786,6 +5041,7 @@ def pay_request(
             )
             raise typer.Exit(code=1)
     try:
+        _resync_link_auth_gate(session)
         require_link_auth_gate(session)
     except GateError as e:
         raise _handle_gate(session, e)
@@ -4999,18 +5255,23 @@ def _finish_post_payment_steps(session: Session) -> None:
     elif session.calendar_mode == CALENDAR_MODE_EVENTS:
         result = create_calendar_event(session, user_key=_CALENDAR_SESSION_ID)
         if not result.get("ok"):
-            emit_error(
-                session.flow_phase,
-                code=result.get("code", "calendar_write_failed"),
-                message=result.get("message", "Failed to create calendar event."),
-            )
-            raise typer.Exit(code=1)
-        calendar_data = {
-            "skipped": False,
-            "event_id": result.get("event_id"),
-            "html_link": result.get("html_link"),
-            "idempotent": result.get("idempotent", False),
-        }
+            # The booking is confirmed and paid. A calendar failure must not hide that.
+            calendar_data = {
+                "skipped": False,
+                "calendar_not_added": True,
+                "code": result.get("code", "calendar_write_failed"),
+                "message": result.get("message", "Failed to create calendar event."),
+            }
+        else:
+            calendar_data = {
+                "skipped": False,
+                "event_id": result.get("event_id"),
+                "html_link": result.get("html_link"),
+                "idempotent": result.get("idempotent", False),
+            }
+            session.calendar_event_id = result.get("event_id")
+            session.calendar_event_html_link = result.get("html_link")
+            save_session(session)
 
     html_link = calendar_data.get("html_link")
     booking_url = session.booking.booking_url
@@ -5040,9 +5301,21 @@ def _finish_post_payment_steps(session: Session) -> None:
         if html_link:
             prompt += " That link is already in the calendar event description."
 
+    from ..booking_summary import booked_message
+
+    message = booked_message(session)
+    if calendar_data.get("calendar_not_added"):
+        message += "\nI couldn't add it to your Google Calendar, so please add it yourself."
     emit(_agent_out(
         session,
-        prompt=prompt,
+        user_message=message,
+        next_command=_after_booking_command(),
+        prompt=(
+            "Payment complete and booking confirmed: the user is booked. Post user_message to the "
+            "user as written (raw URLs, never markdown links) and add nothing about commands, "
+            "phases, or payment internals. Then run next_command (a quick check for a newer "
+            "assistant) and follow it."
+        ),
         data={
             "booking_id": session.booking.id,
             "booking_url": booking_url,
@@ -5265,6 +5538,7 @@ def _pay_ucp_complete_impl(
     approval_timeout: int = 600,
     poll_interval: float = 2.0,
     continue_on_captured: bool = False,
+    emit_result: bool = True,
 ) -> None:
     _refuse_charge_after_capture(session)
     sr_ucp = spend_request_id or session.payment.spend_request_id
@@ -5382,6 +5656,11 @@ def _pay_ucp_complete_impl(
     session.payment.status = "paid"
     transition(session, to="CONFIRMED")
     save_session(session)
+    if not emit_result:
+        # The caller finishes the booking and emits the one terminal object. An intermediate
+        # "checkout completed, now poll the booking" object would send the agent after a
+        # step that is already done.
+        return
     emit(_agent_out(
         session,
         prompt="UCP checkout completed. Poll booking or validate compliance.",
@@ -5707,6 +5986,7 @@ def _run_payment_completion(
         handler_id=None,
         spend_request_id=spend_request_id,
         continue_on_captured=continue_on_captured,
+        emit_result=False,
     )
 
 
@@ -5803,6 +6083,20 @@ def book_poll(
     if was_captured_unconfirmed and status_val in ("canceled", "no_show"):
         raise _emit_captured_payment_handoff(session, canceled=True)
 
+    if session.flow_phase == "CONFIRMED" and status_val == "confirmed":
+        from ..booking_summary import booked_message
+
+        emit(_agent_out(
+            session,
+            user_message=booked_message(session),
+            next_command=_after_booking_command(),
+            prompt=(
+                "The booking is confirmed. Post user_message to the user as written, then run "
+                "next_command (a quick check for a newer assistant) and follow it."
+            ),
+            data={"booking_id": bid, "status": status_val},
+        ))
+        return
     emit(_agent_out(
         session,
         prompt=f"Booking {bid} status: {status_val}.",

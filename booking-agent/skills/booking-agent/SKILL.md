@@ -1,5 +1,5 @@
 ---
-version: 0.52.0
+version: 0.53.0
 name: booking-agent
 description: |
   Books time-based services via USP from a Link wallet. Use when the user wants to book, schedule, reserve, or pay for a service from a business (haircut, lesson, repair, class, appointment, consult). The `booking-agent` CLI owns the booking state machine and refuses to proceed when human gates are skipped. Sign the user in to Link on your own, right after install and at the start of every booking (`booking-agent flow link-auth connect`, then start `booking-agent flow link-auth poll` in the background and post the sign-in URL in the same turn, exactly like `pay poll`); never wait for the user to ask to sign in or to say they approved. After `booking-agent flow business use`, follow `next_command` through `use-ucp-checkout-mode`; businesses without native checkout fail closed. Payment uses `booking-agent flow pay request` (default returns immediately with the approval URL), then start `booking-agent flow pay poll` in the background and post the approval URL to the user in the same turn; the poll finishes checkout once they approve. Confirm through `booking-agent flow book poll --wait`; never start an inbound webhook. Surface the approval URL exactly once. Personal identification (name, phone, email, address) must always come from the user's Link account via `link-cli`, never from chat or placeholders. Before any location-based search, the CLI proposes the Link shipping address and the user confirms it or gives another; online services skip this. Talk to the user in plain everyday language only; never expose CLI, UCP, auth, session, or other implementation details unless they explicitly ask.
@@ -19,7 +19,7 @@ metadata:
         - link-cli
     install:
       - kind: uv
-        package: "booking-agent-cli==0.4.2"
+        package: "booking-agent-cli==0.5.0"
         bins: [booking-agent]
 user-invocable: true
 ---
@@ -53,20 +53,13 @@ or orchestrator.
    first message: never open with lines like "I'll read the booking skill first" or "checking
    for an earlier booking". The first thing the user sees is the message from rule 5.
 5. **One short opening message, then silence until the next required question or results.**
-   When the user first asks to book something, run Step 1 setup (`sessions list`, `flow init`,
-   `prereq check` when needed) silently. If they are not signed in to Link, the only thing
-   you send before that is the sign-in link (see [Link sign-in](#link-sign-in-automatic));
-   when the background sign-in poll exits, carry on without waiting for a reply. When the service happens at a place (at home, at a
-   shop, in a named city), the opening message **asks the user to confirm the search area**
-   that `flow search-area propose` returned, for example "Should I look for AC repair
-   technicians near 3194 West Rome Street, Yuma AZ, or somewhere else?" Nothing is searched until
-   they confirm (see [Search area](#search-area)). Online or remote services skip the area
-   question; the opening line then just mirrors the request ("Understood, looking for an
-   online Spanish tutor..."). Before Step 2, apply the required time-preference gate: if time
-   intent is unknown, ask when they want the service in the same message and stop. Do not post
-   progress updates like "checking the environment", "tools are ready", or "no previous
-   bookings". Send the opening message **once per booking**. If the user's next reply only
-   answers a question (for example the area or the time), do not repeat or rephrase it; go
+   Run Step 1 setup (`sessions list`, `flow init`, `prereq check` when needed) silently. The only
+   thing you may send before the opening message is the Link sign-in link (see [Link
+   sign-in](#link-sign-in-automatic)). When the service happens at a place, the opening message
+   asks the user to confirm the search area `flow search-area propose` returned (see [Search
+   area](#search-area)); nothing is searched until they confirm. Online or remote services skip
+   the area question. If the time they want is unknown, ask it in the same message and stop.
+   Send the opening message **once per booking**; if the next reply only answers a question, go
    straight to the next question or result.
 6. **Never use markdown hyperlinks with labels** (`[text](https://...)`). Many chat clients
    (including WhatsApp) do not render them; the trailing `)` is included in the URL and breaks
@@ -158,26 +151,16 @@ results yourself.
 
 ### Opening response (first booking request)
 
-When the user asks to book a service for the first time in the conversation:
-
-1. **Silent setup** - run session check, init, and prereq without chat. When `init` returns
-   `next_command: booking-agent flow link-auth connect`, sign the user in first (see [Link
-   sign-in](#link-sign-in-automatic)). The sign-in link is the only message before the opening
-   message, and you never ask whether they want to sign in.
-2. **Area, when the service happens at a place** - run `flow search-area propose` before your
-   first chat message. Do not narrate it.
-3. **One opening message** - mirror the request and ask what is still unknown in one message:
-   the area question from `propose`, plus the time question when time intent is unknown.
-   Examples:
-   - Home AC repair, no time given -> "Should I look for AC repair technicians near 3194 West
-     Rome Street, Yuma AZ, or somewhere else? And when would you like them to come?"
-   - Haircut in Austin -> run `search-area set --address 'Austin'` first, then "Should I look
-     for haircuts in Austin, TX?"
-   - Online tutoring next week -> "Understood, looking for online Spanish tutors next week..."
-     and run discover with no area.
-4. **Next message** - after they confirm the area (and the time is known), show the service
-   options from discover, or ask whether to resume an incomplete booking.
-   Never explain what you did behind the scenes to get there.
+1. Silent setup: session check, `init`, prereq. If `init` returns `link-auth connect`, sign the user
+   in first (the only message before the opening one; never ask whether they want to).
+2. For a service at a place, run `flow search-area propose` before your first chat message.
+3. One opening message that mirrors the request and asks what is still unknown: the area question
+   from `propose`, plus the time question when time intent is unknown (for example "Should I look
+   for AC repair technicians near 3194 West Rome Street, Yuma AZ, or somewhere else? And when
+   would you like them to come?"). An online service just says "Understood, looking for online
+   Spanish tutors next week..." and runs discover with no area.
+4. After they confirm the area and time, show the discover results, or ask whether to resume an
+   unfinished booking. Never explain what you did behind the scenes.
 
 ### Narration pattern (every turn)
 
@@ -190,17 +173,23 @@ When waiting on them, ask one clear question. Do not explain how you got the inf
 
 Say each fact once. Do not restate a recap, a price, or a status the user already saw unless it
 changed. Do not narrate progress between gates ("now checking availability", "still
-working").
+working"); the one-line notes under Background commands are the only exception.
 
-### Background commands
+### Background commands and never going quiet
 
 - When a background command finishes, report only its **final** outcome. If a newer command
-  already superseded it (for example an older poll failed but a later one confirmed the
-  booking), say nothing about the older one.
-- Never run `sleep`, a fixed wait, or a timer loop next to a foreground `next_command`, and
-  never poll a background command on a fixed schedule. Wait for the command itself to exit;
-  its final JSON is the result.
-- Relay each `user_message` once. A later output with the same message is not news.
+  already superseded it, say nothing about the older one. Relay each `user_message` once.
+- Never run `sleep`, a fixed wait, or a timer loop next to a foreground `next_command`; wait for
+  the command itself to exit.
+- Never leave the user guessing. After they say yes to a booking, send one short line ("Booking it
+  now.") before running `flow book`. While a background command waits on them, one line saying
+  what they are waiting on is enough ("Waiting for your approval in Link; I'll confirm here as
+  soon as it goes through."). If something blocks the booking, say what it is and what you need
+  from them in that same turn.
+- If you cannot tell whether a background command finished (no exit notice, or the user wrote
+  again, even just "well?" or "what's going on?"), run `booking-agent flow status` and answer
+  from its `user_message`. Do not ask them to wait or to check for themselves. If this runtime
+  cannot run background commands, run the poll in the foreground; it has its own time limit.
 
 ### When they explicitly ask technical questions
 
@@ -231,7 +220,7 @@ To take a fixed, published version instead of the latest, fetch it at the releas
 workflow signs it under, and check the signature before you follow it:
 
 ```bash
-curl -fsSLO https://raw.githubusercontent.com/wix/booking-agent/skill-v0.52.0/booking-agent/skills/booking-agent/SKILL.md
+curl -fsSLO https://raw.githubusercontent.com/wix/booking-agent/skill-v0.53.0/booking-agent/skills/booking-agent/SKILL.md
 gh attestation verify SKILL.md \
   --repo wix/booking-agent \
   --signer-workflow wix/booking-agent/.github/workflows/release.yml
@@ -256,17 +245,17 @@ before installing:
 
 ```bash
 dir="$HOME/.booking-agent/verified-wheels"
-uvx pip download "booking-agent-cli==0.4.2" --no-deps --only-binary :all: -d "$dir"
+uvx pip download "booking-agent-cli==0.5.0" --no-deps --only-binary :all: -d "$dir"
 uvx pypi-attestations==0.0.30 verify pypi --repository https://github.com/wix/booking-agent \
-  "$dir/booking_agent_cli-0.4.2-py3-none-any.whl"
-uv tool install --force "$dir/booking_agent_cli-0.4.2-py3-none-any.whl"
+  "$dir/booking_agent_cli-0.5.0-py3-none-any.whl"
+uv tool install --force "$dir/booking_agent_cli-0.5.0-py3-none-any.whl"
 
 booking-agent --help
 ```
 
 Install only the wheel whose verify step passed, never one that failed it. If `uvx` is not
-available, install the same pinned release with `uv tool install booking-agent-cli==0.4.2` or
-`pipx install booking-agent-cli==0.4.2`; the CLI checks its own files against the signed release
+available, install the same pinned release with `uv tool install booking-agent-cli==0.5.0` or
+`pipx install booking-agent-cli==0.5.0`; the CLI checks its own files against the signed release
 on the first `booking-agent flow init` and refuses to book or pay if they do not match.
 
 Harnesses that read the `install` block in this skill's metadata do this for you. Do not go on
@@ -286,21 +275,22 @@ npm install -g @stripe/link-cli
 
 ### After installing
 
-**Keep state between conversations (only when this runtime needs it).** Inspect the runtime you
-are in. When its filesystem starts fresh in each conversation and it gives you a folder that
-survives between conversations, run this once per conversation, before `booking-agent flow
-sessions list`:
+**Keep state between conversations (only when this runtime needs it).** When this runtime's
+filesystem starts fresh in each conversation and it gives you a folder that survives between
+conversations, run this once per conversation, before `booking-agent flow sessions list`:
 
 ```bash
 booking-agent runtime prepare --persistent-root <absolute folder that survives>
 ```
 
 It links the booking state and the Link sign-in into that folder, so saved bookings, calendar
-preferences, and the sign-in carry over. Add `--link <runtime folder>=<persistent folder>` once
-for each extra cache folder the runtime asks you to keep (a relative persistent folder is placed
-under the root). Skipping it on a runtime that needs it loses all of that silently, with no error.
-When the runtime keeps its files anyway, or offers no surviving folder, skip the command. Do not
-tell the user about it. If it fails, continue the booking without it.
+preferences, and the sign-in carry over. Use the same folder every time; a different one, or one
+already named `booking-agent`, moves the existing state along instead of splitting it. Add `--link
+<runtime folder>=<persistent folder>` for each extra cache folder the runtime asks you to keep (a
+relative persistent folder is placed under the root). If the user is asked to sign in or reconnect
+right after a restart, run `booking-agent runtime doctor` and follow its `next_command`. When the
+runtime keeps its files anyway, or offers no surviving folder, skip the command. Do not tell the
+user about it. If it fails, continue the booking without it.
 
 **Sign the user in to Link**, as described in [Link sign-in](#link-sign-in-automatic). It works
 with no booking in progress. Do not wait for the user to offer to sign in.
@@ -319,7 +309,7 @@ prints each effective setting and where it came from; `booking-agent config init
 
 The CLI decides whether a newer version is worth mentioning; you never decide from version
 numbers or release pages. Pass this skill's version on every `flow init` (`--skill-version
-0.52.0`, from the frontmatter above), so the CLI can tell when these instructions and the
+0.53.0`, from the frontmatter above), so the CLI can tell when these instructions and the
 installed CLI no longer match.
 
 - When a command returns `awaiting_user: update_consent`, ask the question in `prompt` in plain
@@ -337,46 +327,29 @@ installed CLI no longer match.
 
 ## Link sign-in (automatic)
 
-Every booking needs the user signed in to their Link account, because their name, contact
-details, saved addresses, and payment all come from it. **You start the sign-in yourself.**
-The user never has to ask for it, and you never ask them to tell you when they have approved.
+Every booking needs the user signed in to Link: their name, contact details, saved addresses, and
+payment all come from it. **You start the sign-in yourself.** The user never asks for it and never
+has to tell you they approved.
 
-Sign the user in:
+Run `booking-agent flow link-auth connect` right after installing, and whenever `flow init` or any
+other command returns it as `next_command`. It returns at once: `data.authenticated: true` means say
+nothing and run `next_command`; otherwise it returns `awaiting_user: link_auth_approval` with the
+sign-in URL in `user_message`. In the **same turn**:
 
-- right after installing this skill,
-- at the start of every booking, when `flow init` returns `next_command: booking-agent flow
-  link-auth connect` (it does whenever the user is signed out), before any question or search,
-- whenever any command returns `next_command: booking-agent flow link-auth connect` (for
-  example `link_auth_gate_not_completed` or `link_auth_expired`).
+1. Start `booking-agent flow link-auth poll` **in the background** (`run_in_background`). It exits
+   the moment the user approves.
+2. Post the raw URL with one short sentence, for example "Please sign in to your Link account here
+   so I can use your saved details: <url> I'll continue as soon as you approve." and end the turn so
+   the message is delivered. Never run the first `poll` in the foreground.
+3. When the poll exits, run its `next_command` and carry on, without waiting for a reply and
+   without repeating the link.
+4. On `link_auth_timeout`: if `next_command` is `link-auth poll`, the same link still works (poll
+   again in the background, do not re-post it); if it is `link-auth connect`, the link expired (run
+   it, post the new link once, poll in the background).
+5. If the user says they signed in and no poll is running, run `link-auth poll` in the foreground;
+   it returns at once when they are signed in.
 
-Do it in **one turn**:
-
-1. Run `booking-agent flow link-auth connect`. It returns at once.
-   - Already signed in (`data.authenticated: true`): say nothing, run `next_command`.
-   - Otherwise it returns `awaiting_user: link_auth_approval` and the sign-in URL in
-     `user_message`.
-2. In the same turn, start `booking-agent flow link-auth poll` **in the background**
-   (`run_in_background`), the same way as `pay poll`. It waits until the user approves in Link
-   and exits with `data.authenticated: true` the moment they do.
-3. Post the raw URL to the user with one short sentence, for example: "Please sign in to your
-   Link account here so I can use your saved details: https://app.link.com/device/setup?code=...
-   I'll continue as soon as you approve." Then end the turn so the message is delivered.
-   **Never** run the first `poll` in the foreground: the turn would block until approval and
-   clients that deliver text only when the turn ends would never show the link.
-4. When the background `poll` exits, run its `next_command` right away and carry on with the
-   booking (for example, propose the search area and send the opening question). Do not wait
-   for a chat reply and do not repeat the link. **Never** ask the user to tell you they signed
-   in.
-5. If `poll` ends with `link_auth_timeout`:
-   - `next_command` is `link-auth poll`: the same link still works. Start `poll` again in the
-     background without posting the link again.
-   - `next_command` is `link-auth connect`: the link expired. Run `connect`, post the new link
-     once, and start `poll` in the background.
-6. If the user says they signed in while no `poll` is running (the link was already shown),
-   run `link-auth poll` in the foreground. It returns at once when they are signed in.
-
-Never call `link-cli auth login` directly, and never use `link-auth connect --wait` (scripts
-only): like `pay request --then-complete`, it blocks before the link reaches the user.
+Never call `link-cli auth login` directly, and never use `link-auth connect --wait` (scripts only).
 
 ## Personal identification (always from Link)
 
@@ -433,19 +406,17 @@ current state at any time: `booking-agent flow status`.
 
 1. `booking-agent flow status` — read `phase`, `awaiting_user`, `prompt`, `next_command`, `forbidden`.
 2. If `awaiting_user` is set:
-   - **`link_spend_approval`:** start `booking-agent flow pay poll` **in the background**
-     (`run_in_background`) and, in the **same turn**, post `user_message` to the user as the
-     raw URL (before any other narration; never markdown `[label](url)`). Never block the turn
-     on the poll before the user has seen the URL: a foreground poll keeps the link hidden
-     until approval, so the booking looks stuck. The poll waits for Link approval, completes
-     checkout, validates skill compliance, and creates a calendar event when needed. When it
-     exits, tell the user they are booked. Do not wait for a chat reply. The user approves in
-     the Link app, not in chat.
-   - **`link_auth_approval`:** start `booking-agent flow link-auth poll` **in the background**
-     (`run_in_background`) and, in the **same turn**, post `user_message` to the user as the
-     raw URL (never markdown `[label](url)`). Never run the first poll in the foreground. When
-     it exits, run its `next_command` without waiting for a chat reply. See [Link
-     sign-in](#link-sign-in-automatic).
+   - **`link_spend_approval`** or **`link_auth_approval`:** start the matching poll (`pay poll` or
+     `link-auth poll`) **in the background** (`run_in_background`) and, in the **same turn**, post
+     `user_message` as the raw URL before any other narration. Never block the turn on the poll
+     first: the user would never see the link and the booking would look stuck. When the poll
+     exits, post its `user_message` (after `pay poll` it is the booked answer) and run its
+     `next_command` without waiting for a chat reply. The user approves in Link, not in chat.
+   - **`connections`:** something this booking needs was disconnected (Link, Google Calendar, or
+     both). Post one short message with every link (`user_message` is the Link sign-in link when
+     Link is listed). When Link is listed, start `link-auth poll` in the background. Run the
+     calendar `command` from `data.connections` and post any link it returns in that same
+     message. Then run `data.resume_command` once they are back. Ask nothing else.
    - **`support_report_consent`:** show `user_message` to the user word for word (when it is
      set) and **STOP**. On yes, run `next_command` exactly as printed. On no, run
      `booking-agent flow support-report decline`. See
@@ -466,86 +437,41 @@ current state at any time: `booking-agent flow status`.
    sessions, auth, or checkout internals.
 6. Repeat.
 
-**Payment is two steps for agents.** Default `pay request` returns immediately (it does not
-block on polling).
-
-1. Run `pay request`.
-2. In the same turn, start `booking-agent flow pay poll` **in the background**
-   (`run_in_background`) and post `user_message` to the user as the raw URL (never markdown
-   `[label](url)`). Do not wait for the user to reply in chat, and never block the turn on the
-   poll before the URL is visible to the user.
-
-`pay poll` acks that the URL was shown, polls Link until approved, completes checkout, runs
-`validate-skill-compliance`, and `calendar create-event` when applicable — then emits a final
-prompt to tell the user they are booked.
-`pay ucp-complete` refuses to run until `pay poll` (or
-`pay ack-surface`) has started — use `pay poll` instead of calling them directly. Never use
-`--then-complete` in interactive agent flows.
-
-If the user already approved but checkout did not finish (the URL was already shown), run
-`booking-agent flow pay poll` in the foreground to resume polling and finish the booking.
+**Payment is two steps for agents:** `pay request` returns at once with the approval URL; start
+`pay poll` in the background and post the URL in the same turn (Step 6c). Use `pay poll`, never
+`pay ucp-complete` or `--then-complete`. If the user already approved but checkout did not finish,
+run `booking-agent flow pay poll` in the foreground to resume and finish the booking.
 
 ## Core flow
 
 Copy this checklist and track progress:
 
-- Step 1: Initialize (check unfinished or upcoming local sessions, then init)
+- Step 1: Initialize
 - Step 2: Discover services
 - Step 3: Select business and resolve calendar gate
 - Step 4: Check availability and select a slot
 - Step 5: Authenticate Link wallet and resolve buyer
 - Step 6: Book and pay
-- Step 7: Validate compliance
-- Step 8: Add booking to Google Calendar (when user chose events mode)
+- Step 7: Finish (validation, calendar event, update check)
 
 ### Step 1: Initialize
 
-**Step 1a — Check for an existing session:**
+**Step 1a — Existing requests.** `flow init` asks for you: when an unfinished request similar to
+this one exists it returns `awaiting_user: resume_or_fresh` (or errors with `session_active` for the
+active one, or `duplicate_booking_confirmation` for an upcoming booking). Ask the user the question
+in plain words (never say "session" or a phase name) and **STOP**; never answer for them or "peek"
+with `flow status` and carry on. On continue run `data.resume_command` (if it fails with
+`session_not_found`, ask again); on fresh re-run the same `init` with `--force`.
 
-```bash
-booking-agent flow sessions list
-```
-
-Scan `data.sessions` for any entry where `flow_phase` is **not** `CONFIRMED` or `FAILED`
-and whose `user_request` is semantically similar to the current request. If such a session
-exists, **STOP** and ask the user in plain language (translate `flow_phase` internally; never
-say "session" or phase names aloud). For example:
-
-> "I found an earlier booking request for '[user_request]' that we didn't finish. Would you
-> like to pick up where we left off, or start a new booking?"
-
-**Do not skip this question under any circumstances.** Do not infer the answer from context,
-do not treat a matching request as implicit consent to continue, and do not use
-`booking-agent flow status` to "peek" at the active session and proceed silently. The user must
-answer explicitly every time.
-
-- **Continue**: run `booking-agent flow sessions resume --session-id <id>`, then skip ahead to the
-  step that matches the resumed `flow_phase`.
-  - If `resume` fails with `session_not_found`, tell the user and ask again whether they want
-    to continue with the currently active session (use `booking-agent flow status` to show it) or
-    start fresh with `--force`.
-- **Start fresh**: proceed to Step 1b with `--force`.
-
-If `flow init` itself fails with `session_active` (you skipped the list check or the active
-session wasn't in the list), **STOP immediately** — do not continue with the active session
-without asking. Show the user the blocked session details from the error and ask the same
-continue-or-fresh question before taking any further action.
-
-`sessions list` is **local and operational**, not a booking history API. Use it only to
-resume an unfinished flow or to find **upcoming** bookings on this device (`actionable:
-true`, with `booking_id` and slot times) that you can still cancel or move. Do not present the list
-as the user's past bookings, do not say you looked them up with the business, and do not
-rebuild a history from old rows. Past appointments are not queryable here.
-
-If the user asks what they booked last week, for a past appointment list, or for live
-status of a finished visit: say you can see upcoming appointments you booked here. Older ones
-live in their confirmation email or on the business's own page (`booking_url` if you still
-have it). Do not invent a lookup.
+`sessions list` is local and operational, not booking history. Use it only to find upcoming
+bookings on this device (`actionable: true`, with `booking_id` and slot times) to cancel or move.
+For past appointments say you can only see upcoming ones booked here; older ones live in their
+confirmation email or on the business's page (`booking_url`). Do not invent a lookup.
 
 **Step 1b — Create a new session:**
 
 ```bash
-booking-agent flow init --user-request "<user's exact request>" --skill-version 0.52.0 \
+booking-agent flow init --user-request "<user's exact request>" --skill-version 0.53.0 \
   --skill-path "<absolute path of the SKILL.md you loaded>"
 ```
 
@@ -590,23 +516,17 @@ booking. If not, **STOP** and ask in plain language when they want it. Offer exa
 as soon as possible, a day or time window, a deadline, several alternatives, or that any time
 is fine. Do not run discover and do not invent a range before they answer.
 
-Pass time flags on every discover for this booking only when the user has a real time
-constraint:
+Pass time flags on every discover for this booking only when the user has a real time constraint:
 
-- First available, ASAP, or soonest: `--desired-from <current RFC3339 time>`. Leave sooner
-  preference unset or explicitly true.
-- Any time is fine, whenever, or no time window: omit all `--desired-*` flags. This is not
-  ASAP and must not be encoded as a range starting now. Leave sooner preference unset unless
-  the user also says earlier versus later does not matter, then pass
-  `--no-prefer-sooner-availability-slots`.
-- A specific clock time where the next grid tick is acceptable: `--desired-at <RFC3339>`.
-- A calendar date, time window, deadline, or specific time with a strict latest acceptable
-  start: `--desired-range <startRfc3339>,<endRfc3339>`. The end is the latest acceptable
-  start, not the end of the appointment.
-- After a date or event: `--desired-from <RFC3339>`.
-- Several alternative windows: repeat `--desired-range` once per window.
-- A later period such as after payday or during a trip: encode that period directly. Do not
-  disable sooner preference to mean later is better.
+- First available or soonest: `--asap` (the CLI fills in the current time).
+- Any time is fine: omit all `--desired-*` flags (this is not ASAP). Add
+  `--no-prefer-sooner-availability-slots` only if they also say earlier versus later does not
+  matter.
+- A specific clock time: `--desired-at <RFC3339>`. A date, window, or deadline:
+  `--desired-range <startRfc3339>,<endRfc3339>` (the end is the latest acceptable start, not the
+  end of the appointment); repeat it once per alternative window. After a date or event:
+  `--desired-from <RFC3339>`. Encode a later period directly; never disable sooner preference
+  to mean "later is better".
 
 For date-only preferences, use that date's bounds in the service timezone when known.
 Otherwise use the search-area or buyer-local date. Ask if the timezone or wording is
@@ -629,53 +549,23 @@ returns that data**. Do not invent location restrictions. If a business defined 
 service area (online course, remote mentoring), do not tell the user location is "missing"; just
 omit location from the recap.
 
-**STOP.** Show the returned services to the user and wait for them to choose one before
-continuing. Show each row's `display_line` verbatim, one numbered line per row (it names the
-service, the business, price, duration, and where, for example "AC Repair by HVAC-Koby, $1.00,
-1 hr, comes to your address"). Never drop the business name. Present `data.services` in the
-exact order returned by default (option 1 is the top registry hit). Never re-sort by price, distance, perceived fit, raw
-`next_available_date`, hint age, or bitmap contents.
+**STOP.** Show the returned services and wait for the user to pick one. `prompt` says how: each
+row's `display_line` verbatim, one numbered line each, in the exact order returned, business name
+always shown, never filtered or re-sorted. Label a result a less-direct alternative only when its
+returned data objectively mismatches the request (for example `channel.type: at_business_location`
+for a home visit), keeping its position. Values come from the live catalog when `field_sources`
+says `live_catalog`; with `discovery_mismatches` the live value is what will be booked, so never
+present the search-index value as current.
 
-**Less-direct results:** Never omit, filter, or reorder results, even when some look
-irrelevant. Present direct matches plainly. When a result's returned data objectively
-mismatches the request, keep it in its registry position and label it as a less-direct
-alternative with the specific mismatch, for example "(at the business location, not a home
-visit)" for `channel.type: at_business_location` when the user needs a home visit, or
-"(duct cleaning, not AC repair)" when the service name is clearly a different service. Base
-labels only on returned fields such as `channel.type` and `service_name`. Do not infer
-categories, add filters, or compute your own relevance score.
+When the user picks a result you labeled less-direct, pass the label on `business use
+--less-direct '<label shown>'`. The CLI answers `awaiting_user: intent_mismatch_confirmation`: say
+the mismatch plainly, **STOP**, and run `next_command` (it adds `--mismatch-confirmed`) only after
+they agree.
 
-**Where each value comes from.** Each row's `field_sources` says whether price, duration,
-channel, and locations come from the business's live catalog (`live_catalog`) or only from the
-search index (`registry`). Present the row's values as returned. When `discovery_mismatches`
-is present, the search index and the live catalog disagree (for example a different price);
-the live value is what the business will book. Never guess which is right and never present
-the search-index value as current.
-
-**Choosing a less-direct result.** When the user picks a row you labeled as a less-direct
-alternative, pass the label you showed on `business use`:
-
-```bash
-booking-agent flow business use --profile-url <url> --service-id <id> --less-direct '<label shown>'
-```
-
-The CLI returns `awaiting_user: intent_mismatch_confirmation` without selecting it. Ask the
-user to confirm that this service still works for them despite the mismatch (say the mismatch
-plainly, e.g. "they work at their shop, not at your home") and **STOP**. Run `next_command`
-(it adds `--mismatch-confirmed`) only after they agree.
-
-Availability hints are advisory and never replace a live availability query:
-
-- If `rank_signals` is omitted, do not infer availability from result order.
-- If `hint_usable` is false and coverage, density, and soonness are null, availability was
-  unknown for ranking. Keep the result. It is not unavailable.
-- If `hint_usable` is true and coverage is null, the result is neither a known time match nor
-  a known mismatch.
-- Coverage zero means known non-overlap in the snapshot, but live availability must still be
-  checked before telling the user their requested time cannot be booked.
-- Never collapse null into zero or derive scores from a prose summary.
-- A page-local re-order is optional only when using the returned `rank_signals`. Keep
-  `hint_usable: false` results. A changed global policy requires a new discover.
+Availability hints are advisory and never replace a live availability query. Never infer
+availability from result order, never collapse a null hint into zero, and keep `hint_usable: false`
+results (unknown is not unavailable). Even a coverage of zero only means no overlap in the snapshot:
+check live availability before telling the user their time cannot be booked.
 
 ### Step 3: Select business and resolve calendar gate
 
@@ -732,26 +622,19 @@ The CLI stores the route and the variable name for later commands and later book
 never guesses one: `calendar connect` without `--route` fails with `calendar_route_required`,
 and `--route connector` without a valid `--token-env` fails with `calendar_token_env_required`.
 
-`calendar ask` outcomes:
+`calendar ask` outcomes (each carries its own `prompt`; ask only what it says):
 
-- **Connected or remembered preference:** The CLI auto-applies conflict checking (or a saved
-  skip) and advances to availability. Briefly tell the user you are using their calendar when
-  conflict checking is active.
-- **Saved calendar access expired** (`awaiting_user: calendar_reconnect`): The user previously
-  connected Google Calendar but that access is no longer valid. Do **not** ask the three
-  calendar questions again. Ask only the two choices in `data.calendar_reconnect_choices`:
-  reconnect for the same use (`data.remembered_calendar_mode`), or continue this booking
-  without calendar checking. Run the matching `command` exactly as printed (it already carries
-  the stored route) or `booking-agent flow calendar skip
-  --session-only`, which keeps the saved preference.
-- **Saved access expired and reconnect unavailable** (`data.calendar_checking_unavailable`):
-  The CLI already skipped calendar checking for this booking only. Tell the user in one plain
-  sentence that calendar checking was unavailable, then continue.
-- Never quote calendar access tokens or Google token URLs. `data.connection_problem` holds
-  only sanitized codes (`invalid_token`, `tokeninfo_http_error`, `tokeninfo_unavailable`).
-- **Not connected yet** (`awaiting_user: calendar_consent`): When a route is available, ask the
-  user which they prefer and run the matching command with your route. With no route, skip
-  as above without asking.
+- **Connected, or a saved preference:** the CLI applies it and advances to availability. Say
+  briefly that you are using their calendar when conflict checking is on.
+- **`awaiting_user: calendar_reconnect`:** the saved access expired. Do **not** ask the three
+  calendar questions again. Ask only the two choices in `data.calendar_reconnect_choices`
+  (reconnect for the same use, or continue without calendar checking) and run the matching
+  `command` exactly as printed, or `booking-agent flow calendar skip
+  --session-only`. With `data.calendar_checking_unavailable` the CLI already skipped it for
+  this booking: say so in one plain sentence and continue.
+- **`awaiting_user: calendar_consent`:** not connected yet. With a route available, ask which they
+  prefer and run the matching command with your route; with none, skip as above without asking.
+- Never quote calendar access tokens or Google token URLs.
 
 ```bash
 booking-agent flow calendar skip                                                     # neither
@@ -761,48 +644,32 @@ booking-agent flow calendar connect --mode freebusy --route local-oauth         
 booking-agent flow calendar connect --mode events --route local-oauth
 ```
 
-The CLI remembers explicit user choices (`last_calendar_state` / `last_calendar_mode`) for
-future bookings when Google Calendar stays connected.
+**Connector route.** `calendar connect` returns at once. Connected: the gate completes. With
+`awaiting_user: calendar_connector` (`data.error: calendar_not_connected`) the variable holds no
+valid token yet: connect Google Calendar through your platform's own way, asking for the access in
+`data.scope_request`, then rerun `data.retry_command`. Never show a sign-in link from this CLI for
+this route; if your platform cannot connect it, run `booking-agent flow calendar skip
+--session-only`. `calendar_insufficient_scope`: reconnect with `data.scope_request`, then rerun
+the same command.
 
-**Connector route.** `calendar connect` returns at once:
+**Local OAuth route.** `calendar connect` returns at once with `awaiting_user: oauth_approval` and
+`data.auth_url`. The CLI never opens a browser itself.
 
-- Connected: it completes the gate and `next_command` is `booking-agent flow availability`.
-- `awaiting_user: calendar_connector` (`data.error: calendar_not_connected`): the variable is
-  empty or holds no valid token, so the user has not connected Google Calendar to you yet. Use
-  your platform's own way of connecting Google Calendar, ask for the access in
-  `data.scope_request`, and when the connection is in place rerun `data.retry_command` (the same
-  command). Never show a sign-in link from this CLI for this route. If your platform cannot
-  connect it, run `booking-agent flow calendar skip --session-only`.
-- `calendar_insufficient_scope`: the connection lacks the access the chosen mode needs.
-  Reconnect through your platform with `data.scope_request`, then rerun the same command.
-
-**Local OAuth route.** `calendar connect` returns at once with `awaiting_user: oauth_approval`
-and `data.auth_url`. The CLI does **not** open a browser itself.
-
-1. **Present the raw `auth_url` to the user** (never markdown `[label](url)`) and ask them to
-   open it and approve the Google Calendar access described in the CLI `prompt` (free/busy only
-   vs events). Never open the browser for them; always relay the URL. Tell them how long the
-   link works (`data.link_valid_minutes`, about 10 minutes by default).
+1. Post the raw `auth_url` (never markdown `[label](url)`), ask them to approve the access the
+   CLI `prompt` describes, and say how long it works (`data.link_valid_minutes`).
 2. In the same turn, run `booking-agent flow calendar poll` without blocking your turn (in the
-   background when you can). Each `poll` returns within its `--wait` budget (2 minutes by
-   default). While it returns `awaiting_user: oauth_approval` with `data.status: pending`, run
-   `poll` again without posting the link again. When it connects, run `next_command`.
+   background when you can). While it returns `awaiting_user: oauth_approval` with `data.status:
+   pending`, run it again without re-posting the link. When it connects, run `next_command`.
 3. On `calendar_oauth_timeout` or `calendar_oauth_failed`, post the error's `user_message` and
-   **STOP**. Do not start a new link on your own. Run the `new_link` command from
-   `data.choices` only if the user asks for a new link, or `booking-agent flow calendar skip
-   --session-only` if they want to continue without calendar checking.
-4. `calendar_insufficient_scope` from `poll` means the user approved less access than the mode
-   needs. Ask whether they want a new link; do not start one on your own.
-5. `calendar_oauth_not_started` means no sign-in is waiting. Run `booking-agent flow calendar ask`.
+   **STOP**; offer a new link (`new_link` in `data.choices`) or `calendar skip --session-only`
+   only if the user asks. `calendar_insufficient_scope`: ask whether they want a new link.
+   `calendar_oauth_not_started`: run `booking-agent flow calendar ask`.
 
-The sign-in listener stops by itself when the link expires. `calendar skip` stops it too, and
-`booking-agent flow calendar cleanup` stops it when the user abandons the sign-in.
+`calendar_oauth_not_configured` or `calendar_callback_port_busy`: run `booking-agent flow calendar
+skip --session-only` (or use the connector route when your platform has one).
 
-If `calendar connect` fails with `calendar_oauth_not_configured`, local sign-in is not set up on
-this device: use the connector route when your platform has one, otherwise run
-`booking-agent flow calendar skip --session-only`. If it fails with
-`calendar_callback_port_busy`, no link was created; run `booking-agent flow calendar skip
---session-only`.
+If Google Calendar drops later in the booking, the CLI notices before the final confirmation and
+returns `awaiting_user: connections` (see the Agent loop); you do not check it yourself.
 
 ### Step 4: Check availability and select a slot
 
@@ -838,44 +705,13 @@ table with `|` pipes). Example:
 
 Then ask which number or time works best.
 
-**Timezones (show both, ask once).** Availability windows and every slot time are in the
-**business's** timezone (`data.business_timezone`). The user's timezone comes only from the
-default shipping address on their Link account; **never** take it from this device, the agent
-host, a VPN, a browser, or a cloud region, and never guess it from chat.
-
-- Show each slot from its `business_range_display` (for example "Tue, Oct 13, 10:00 - 11:00 AM
-  MST"). Never re-convert the raw `start` / `end` yourself.
-- When `data.timezone_notice` is present, the user's address is in a different timezone. Post
-  the notice **once**, right above the list, then show each slot as the business time first with
-  the user's time in parentheses (`buyer_range_display`; the full `buyer_start_display` is there
-  too). Example:
-
-  ```
-  I'm detecting a timezone difference: this business books in Jerusalem time (Asia/Jerusalem)
-  and your address is in Phoenix time (America/Phoenix), so please note that the times below are
-  the business's local time, with your local time in parentheses.
-
-  1. Tue, Oct 6, 5:00 - 6:00 PM IDT (7:00 - 8:00 AM MST)
-  2. Tue, Oct 6, 5:30 - 6:30 PM IDT (7:30 - 8:30 AM MST)
-  ```
-
-- When a slot has `calendar_display`, the user's Google Calendar uses yet another timezone. Add
-  it in parentheses as "(8:00 - 9:00 PM on your Google Calendar)".
-
-- There is no separate timezone question. Picking a slot from that list, plus the one booking
-  confirmation in Step 5b, covers it. The only exception is the time confirmation below.
-- When `data.timezone_fallback_note` is present, the user's timezone could not be found. Add the
-  note as one line under the list and continue in the business's time; do not ask the user for
-  their timezone.
-
-**Time confirmation (when the CLI asks for it).** When `slots list` returns
-`data.timezone_conflict` (the business's published timezone does not match where the service
-is), or `data.buyer_timezone_unresolved_for_home_visit` (a home visit and the user's local time
-is unknown), `next_command` includes `--timezone-confirmed`. Say above the list that the times
-are in the business's timezone as published and, for a conflict, that this looks inconsistent
-with the service location. When the user picks a slot, ask them to confirm that exact time and
-**STOP**. Pass `--timezone-confirmed` only after they confirm. Without it, `slots select`
-returns `timezone_confirmation_required`.
+**Timezones.** Slot times are the business's (`data.business_timezone`). The user's zone comes only
+from their Link default address, never from this device, the host, a VPN, or chat. `slots list`'s
+`prompt` says exactly how to show each slot (business time first, theirs in parentheses, the
+one-time notice, the calendar zone, any fallback note); follow it. There is no separate timezone
+question. When the CLI asks for a time confirmation (`next_command` includes
+`--timezone-confirmed`), ask the user to confirm that exact time and **STOP**; without it `slots
+select` returns `timezone_confirmation_required`.
 
 Each listed time is one choice. When a slot has `resource_options`, several staff or resources
 can take that time; do not list it more than once and do not ask the user to choose between
@@ -889,16 +725,9 @@ booking-agent flow slots select --slot-id <chosen by user> --user-confirmed
 
 ### Step 5: Authenticate Link wallet and resolve buyer
 
-**Step 5a — Link wallet sign-in (required before buyer resolve)**
-
-```bash
-booking-agent flow link-auth connect
-```
-
-The user is normally already signed in from Step 1, so this returns at once with
-`data.authenticated: true`. If it returns `awaiting_user: link_auth_approval` instead, follow
-[Link sign-in](#link-sign-in-automatic): start `booking-agent flow link-auth poll` in the
-background and post the URL in the same turn.
+**Step 5a — Link sign-in.** `slots select` hands you `link-auth connect`. The user is normally
+already signed in, so it returns at once. If it returns `awaiting_user: link_auth_approval`, follow
+[Link sign-in](#link-sign-in-automatic).
 
 **Step 5b — Resolve buyer**
 
@@ -920,28 +749,10 @@ confirmation**. If the user corrects the note, re-run `buyer resolve --notes '<c
 note>'`; if they correct the address, run `booking-agent flow search-area propose --purpose
 service-address`.
 
-Word the question for `data.payment_route` (`data.payment_summary` has the amounts). Never use
-raw `amount_minor_units`; quote `data.price_display`.
-
-- **`free`:** say the service is free and ask only whether to book it. Never mention charging,
-  a card, or the Link wallet.
-  > I'll book Tue, Oct 6, 5:00 PM IDT (7:00 AM MST your time) with Koby's Studio as Ran
-  > Yahalom (email, phone from Link). This consultation is free. Shall I book it?
-- **`at_service`:** say `data.price_display` is paid to the business at the appointment and
-  nothing is charged now; ask only whether to book it. Never ask to charge the Link wallet.
-  > ... The AC Repair is $40.00, paid to the business at the appointment; nothing is charged
-  > now. Shall I book it?
-- **`at_booking`:** ask to book and charge the exact `data.price_display` to their Link wallet.
-  Before checkout exists, `data.quote_caveat` means the amount is from the catalog, not the
-  merchant checkout total yet; say it is an estimate and that the final total comes from the
-  business at booking time.
-  > I'll book the 10:30 AM - 11:30 AM slot on Tuesday July 21 with HVAC-Koby as Ran Yahalom
-  > (email, phone from Link). The total for the AC Repair appointment is $1.00. Shall I go ahead
-  > and book it and charge that to your Link wallet?
-- **`deposit_required`:** say a deposit is due at booking and the rest of `data.price_display`
-  later; the exact deposit and its terms come from the business at checkout and are shown
-  before anything is charged. Ask to book and charge **only the deposit due now** to their Link
-  wallet. Do not compute a percentage deposit yourself.
+Ask the one question `prompt` describes for `data.payment_route` (free, pay at the appointment,
+charge now, or deposit) and quote `data.price_display`, never raw `amount_minor_units`. For a free or
+pay-at-appointment service never mention charging or the Link wallet. When `data.quote_caveat` is
+set the amount is an estimate until the business's checkout total.
 
 Do not run `flow book` until they approve. Do not send a separate price-only or timezone
 confirmation after booking.
@@ -1010,43 +821,20 @@ link-cli payment-methods list --format json
 
 Take the `id` of the default card. Pass it to `pay request` in Step 6c.
 
-**Step 6c — Create spend request, surface approval URL, then poll in background**
-
-**Step 6c-i — Create spend request (returns immediately)**
+**Step 6c — Ask for approval, then wait in the background**
 
 ```bash
 booking-agent flow pay request --payment-method-id <id-from-6b>
 ```
 
-The CLI writes the note the user reads when approving in Link (service, business, time, where,
-and total). Never write or pass that note yourself.
-
-This command:
-
-1. Creates the spend request and emits `user_message` with the bare approval URL as the
-   **first stdout line** (exactly once per booking).
-2. Sets `awaiting_user` to `link_spend_approval` and returns immediately.
-
-In the same turn, start `pay poll` **in the background** (`run_in_background`):
-
-```bash
-booking-agent flow pay poll
-```
-
-Then **post `user_message` to the user as the raw URL before any other narration** (never
-markdown `[label](url)`). Do not read stderr for the URL. Do not wait for the user to reply in
-chat before starting `pay poll`.
-
-**Step 6c-ii — Poll and complete (background, same turn)**
-
-`pay poll` waits until the user approves in Link and checkout finishes, then runs skill
-compliance validation and calendar create-event when needed. **Never** run it in the foreground
-before the user has seen the URL: the turn blocks until approval, the user never receives the
-link, and the booking looks stuck. When the background poll exits, tell the user they are booked
-(or relay its error `user_message`). **Do not** re-surface the approval URL from this command's
-output.
-
-Use `--then-complete` on `pay request` only for scripts/CI (not interactive agents).
+The CLI writes the note the user reads when approving in Link. Never write or pass that note yourself.
+It returns at once with `awaiting_user: link_spend_approval` and the approval URL in
+`user_message` (shown once per booking). In the **same turn**, start `booking-agent flow pay poll`
+in the background, then post `user_message` as the raw URL before any other narration. `pay poll`
+waits for the user to approve in Link, finishes checkout, validates the booking, and adds the
+calendar event; when it exits, follow [Step 7](#step-7-finish). Do not read stderr for the URL, do
+not wait for a chat reply, and never run this first `pay poll` in the foreground: the turn would
+block and the user would never see the link.
 
 **Step 6c-iii - Bank verification and declined payments**
 
@@ -1071,16 +859,21 @@ the checkout status or from whether a `continue_url` exists. Every one of these 
 plain-language `user_message` that tells the user what happened and what happens next. **Always
 post it as is** (raw URLs, never markdown `[label](url)`) before running `next_command`:
 
-| `data.error.code` | Meaning | What you do |
-|---|---|---|
-| `payment_declined` (any severity, including `recoverable` before the charge) | The card was declined or needed verification the agent cannot complete. The spend request is used up. | Post `user_message` (the business's explanation plus the request to pick a different card). When the user picks a **different** Link card, run `next_command`: `booking-agent flow pay request --payment-method-id <id>` with that card's id from `link-cli payment-methods list`, then follow the normal approval steps. |
-| `payment_failed` with severity `recoverable`, or `payment_authentication_unsupported` / `payment_not_processed` | Same as `payment_declined` (newer business responses for bank verification and for a payment that could not be processed) | Same as `payment_declined` |
-| `payment_unrecoverable` | The business sent `payment_failed` with severity `unrecoverable`. This checkout can no longer be completed, and the session is `FAILED`. The response does not say whether a charge was made or whether another payment method would work. | Post `user_message`, then stop. There is no `next_command`. Do not retry this checkout. |
-| `complete_in_progress` / `checkout_already_in_progress` | The business is still finishing this checkout | Not a decline. Post `user_message`, then run `next_command` (same spend request, same checkout). Never create a new spend request or a new charge. |
-| `payment_captured_booking_unconfirmed` | The money was taken but the booking is not confirmed | Not a decline. See "Payment taken, booking not confirmed" below. |
-| `mandatory_acceptance_pending` | The business needs a policy acceptance or other non-payment step | Not a decline. Post `user_message` (it holds `continue_url` and the policy links), wait until the user says they finished, then run `next_command`. Never accept for the user. |
-| `approval_timeout` / `spend_request_not_approved` | Link approval has not arrived | Post `user_message`, then run `next_command` |
-| anything else (for example `ucp_complete_failed`) | Transport or other error | Post `user_message`, then run `next_command` as returned (it may retry the same spend request). If it fails again, tell the user the booking could not be completed right now. |
+Every one of these carries a plain `user_message` and a `next_command`: post the message as is (raw
+URLs), then run the command.
+
+- `payment_declined`, `payment_failed` (recoverable), `payment_authentication_unsupported`,
+  `payment_not_processed`: the card was declined and the spend request is used up. When the user
+  picks a **different** Link card, run `next_command` (`booking-agent flow pay request --payment-method-id <id>`).
+- `payment_unrecoverable`: the checkout can no longer be completed (session `FAILED`). Post the
+  message and stop; there is no `next_command`. Never retry this checkout.
+- `complete_in_progress`, `checkout_already_in_progress`: not a decline. Same spend request and
+  checkout; never a new spend request or charge.
+- `payment_captured_booking_unconfirmed`: money taken, booking not confirmed. See below.
+- `mandatory_acceptance_pending`: a policy or other non-payment step. The message holds
+  `continue_url` and the policy links; wait until the user says they finished. Never accept for them.
+- `approval_timeout`, `spend_request_not_approved`, `ucp_complete_failed`, and anything else: run
+  `next_command` as returned; if it fails again, tell the user it could not be completed right now.
 
 **Payment taken, booking not confirmed, during `pay poll`.** The background `pay poll` does not
 fail here. It prints one output with `data.status: waiting_for_business_confirmation` and a
@@ -1131,11 +924,7 @@ UCP `complete_checkout` (CLI builds this internally): `handler_id: "stripe_payme
 `type: "link"`, `credential.type: "stripe_payment_token"`, `credential.token` = SPT from
 `link-cli` after approval (`--credential-type shared_payment_token` on spend-request create only).
 
-**Step 6d — Validate** (after `pay request` succeeds)
-
-```bash
-booking-agent flow validate-skill-compliance
-```
+**Step 6d** (validation) is part of `pay poll`; see Step 7.
 
 **Payment notes (error recovery only):**
 
@@ -1151,14 +940,16 @@ booking-agent flow validate-skill-compliance
 - After payment, follow `next_command` to `booking-agent flow book poll --wait`. Confirmation is GET
   polling only. Never start or request an inbound booking webhook.
 
-### Step 7: Validate compliance
+### Step 7: Finish
 
-```bash
-booking-agent flow validate-skill-compliance
-```
-
-If this exits non-zero, read `data.error.message` and fix the missing gate. Do **not** claim
-the booking is done until it passes.
+`pay poll` (and `book poll --wait` for free or pay-at-appointment bookings) validates the booking,
+adds the calendar event when the user chose events mode, and exits with the final answer. Post its
+`user_message` exactly as written: it holds the booked sentence, the raw calendar link when an
+event was added, and the link to manage the booking. Then run its `next_command` (a quick check
+for a newer assistant) and follow it as in [Updates](#updates-only-with-the-users-yes). If
+`data.calendar.calendar_not_added` is true the message already says so; run `booking-agent flow
+calendar create-event` only if the user wants another try. If `validate-skill-compliance` ever
+exits non-zero, read `data.error.message` and fix the missing gate before calling it done.
 
 ### Authorization trail (when the user asks)
 
@@ -1171,60 +962,20 @@ booking-agent flow evidence
 Share the join keys in plain language (booking reference, payment reference). Never expose card
 data, credentials, or shared payment tokens.
 
-### Step 8: Add booking to Google Calendar
+### Step 8 and after the booking
 
-After Step 7 passes and `phase == "CONFIRMED"`:
-
-```bash
-booking-agent flow calendar create-event
-```
-
-- Runs only when the user chose **option 2** (`calendar connect --mode events`) at the gate.
-- If the user skipped calendar or chose free/busy only, this command no-ops (`data.skipped: true`).
-- On success, when `data.html_link` is set, show the user the **raw `html_link` URL** (never
-  markdown `[View on Google Calendar](url)` or any other labeled link).
-- The event description is written by the CLI. It is a summary of the booking: the request,
-  service, who it is for, where it happens, payment (free, pay when they receive the service,
-  deposit already paid plus the amount still due, or paid in full), booking and order
-  references, the business site, and how to cancel or reschedule. That last part uses the
-  manage booking link when the business provided one, otherwise the fallback links saved on
-  the session (checkout page, business website, and checkout links). Do not edit the Google
-  event to add them.
-- Narrate success in everyday language or surface `data.error` only on unexpected API failure.
-
-### After the booking
-
-Once the user has been told they are booked (and after Step 8 when it ran), run:
-
-```bash
-booking-agent update check --after-booking --skill-version 0.52.0
-```
-
-If it returns `awaiting_user: update_consent`, ask once, as in [Updates](#updates-only-with-the-users-yes).
-If its `prompt` says to mention an update, add one plain sentence. Otherwise say nothing about it.
+Nothing to run: `pay poll` (and `book poll --wait` for free or pay-at-appointment bookings) adds the
+calendar event and returns the final answer. See Step 7.
 
 ## Important
 
-- **Never** use markdown hyperlinks with labels (`[text](url)`). Always post raw URLs for Link
-  approval, Link sign-in, Google Calendar OAuth, and post-booking calendar links.
-- **Never** format user-facing messages as markdown tables (`| ... |`). Use numbered or bulleted
-  lists instead (especially for available slots and booking recaps).
-- **Never** use technical jargon with the user (CLI, UCP, auth, session, OAuth, checkout
-  mode, symlink, polling, orchestrator, flow phase, etc.) unless they explicitly ask how
-  something works. Always describe booking progress in everyday language.
+- **Never** break the [Talking to the user](#talking-to-the-user-required) rules: raw URLs only,
+  no tables, no technical jargon.
 - **Never** substitute a different payment command than `next_command` after `pay request`.
-- **Never** re-surface the Link approval URL after `pay request` has emitted it once. Commands
-  like `flow status` and `pay ucp-complete` poll silently.
-- **Never** use `pay request --then-complete` in interactive agent flows — it blocks the shell
-  until checkout finishes, so the agent cannot show the approval URL until after the user may
-  have already approved via a mobile notification.
-- **Never** run the first `pay poll` after `pay request` in the foreground. Start it in the
-  background and post the approval URL in the same turn; otherwise the turn blocks until
-  approval and the user never sees the link.
-- **Never** run the first `link-auth poll` after `link-auth connect` in the foreground, and never
-  use `link-auth connect --wait` in interactive flows. Start the poll in the background and post
-  the sign-in URL in the same turn, exactly like `pay poll`.
-- **Never** ask the user to reply "approved" or "done" after showing a Link approval URL.
+- **Never** run the first `pay poll` or `link-auth poll` in the foreground, use `pay request
+  --then-complete` or `link-auth connect --wait` in interactive flows, ask the user to reply
+  "approved" or "done", or show the Link approval URL more than once. Start the poll in the
+  background and post the URL in the same turn.
 - **Never** continue an existing session without asking the user first. When `sessions list`
   shows an incomplete session that matches the request, or when `flow init` returns
   `session_active`, you must stop and ask the user whether to continue or start fresh.
@@ -1261,14 +1012,19 @@ All errors exit with code 1 and a JSON body containing `data.error.code` and
 `data.error.message`. Always read `next_command` in the error body — the CLI tells you how to
 recover.
 
+Every error exits 1 with `data.error.code`, `data.error.message`, and a `next_command`; a code not
+listed here recovers by following `next_command`. These gate errors need nothing more: `approval_not_surfaced_to_user`, `booking_canceled_after_payment`, `buyer_email_invalid`, `buyer_not_from_link_cli`, `calendar_gate_not_completed`, `checkout_prereq_not_completed`, `context_required`, `discover_radius_required`, `link_address_not_found`, `missing_network_id_for_spt`, `payment_already_captured`, `reschedule_at_business`, `reschedule_booking_not_active`, `reschedule_failed`, `reschedule_fee_unsupported`, `reschedule_price_changed`, `reschedule_price_unknown`, `reschedule_same_slot`, `reschedule_unauthorized`, `search_area_input_invalid`, `search_area_not_user_confirmed`, `search_area_unconfirmed`, `service_address_unconfirmed`, `service_details_changed`, `slot_not_selected`, `spend_request_replacement_required`, `timezone_confirmation_required`.
+Payment codes are in Step 6c; the `reschedule_*`
+codes all end the same way: show the raw `booking_url` and say the user can change it on the
+business's own page (`reschedule_price_changed` and `reschedule_same_slot`: ask for another slot;
+`reschedule_failed`: run `reschedule availability` again).
+
 | Error code | Cause | Recovery |
 |---|---|---|
-| `calendar_gate_not_completed` | `availability` called before calendar step | Run `booking-agent flow calendar ask` and follow [the calendar gate](#step-3-select-business-and-resolve-calendar-gate) |
 | `link_auth_gate_not_completed` | `search-area propose` or `buyer resolve` while signed out of Link | Sign the user in (`link-auth connect`, then `link-auth poll` in the background and post the URL in the same turn), then retry |
 | `link_auth_expired` | Link session expired before payment | Sign the user in the same way, then retry |
 | `link_auth_timeout` | User did not approve the Link sign-in in time | Run `next_command`: `link-auth poll` again in the background (same link, do not re-post it) or `link-auth connect` (new link, post it once, then poll in the background) |
 | `link_auth_not_started` | `link-auth poll` with no sign-in waiting | Run `booking-agent flow link-auth connect`, start `link-auth poll` in the background, and post the URL |
-| `checkout_prereq_not_completed` | Calendar step before native checkout validation | Run `next_command` from `business use` (`use-ucp-checkout-mode`) |
 | `ucp_native_required` | Business does not support the native v2 checkout path | Tell the user this business cannot be booked here yet and offer another result |
 | `disclosures_unconfirmed` | Deposit checkout returned terms or disclosures the user has not acknowledged | Show due now, due at the appointment, and every disclosure, then re-run `pay request` with `--disclosures-confirmed` |
 | `shared_payment_token_not_issued` | Link approved the spend request but returned no shared payment token, so nothing was charged | Post `user_message`, re-run `pay ucp-complete` once; if it fails again, tell the user this business cannot take a Link payment right now and do not ask them to approve again |
@@ -1277,41 +1033,10 @@ recover.
 | `payment_timing_not_supported` | Live catalog declares another unsupported timing | Stop and explain that this service cannot be booked here yet |
 | `mandatory_acceptance_pending` | Merchant requires policy acceptance or another non-payment step before checkout | Show `continue_url` / policy links from the error; wait; retry `flow book` (or run `next_command` when it came from `pay ucp-complete`); never accept for the user |
 | `service_not_available_in_area` | Service coordinates are farther than the `--radius-km` you sent | Widen search or pick another result; do not bypass with direct profile URL |
-| `slot_not_selected` | `book` called before slot selection | Run `booking-agent flow slots list`, ask user, then `slots select --user-confirmed` |
-| `buyer_not_from_link_cli` | Buyer details not sourced from Link wallet | Run `booking-agent flow buyer resolve` |
-| `buyer_email_invalid` | Placeholder or malformed email detected | Run `booking-agent flow buyer resolve` — never hand-enter |
 | `profile_unreachable` | Business profile URL unreachable | Surface the URL from `data.error.message` to the user |
 | `agent_profile_unresolvable` | The business could not fetch the booking assistant's platform profile, so nothing was booked | Post `user_message`, then run `next_command` once (it reuses the same idempotency key, so it cannot double-book); if it fails again, offer another time or business |
-| `spend_request_not_approved` | Spend request was denied, canceled, expired, or remained pending | Re-run `pay ucp-complete` with the same spend id, or create a new spend request |
-| `missing_network_id_for_spt` | UCP checkout lacked `com.stripe.payments` Link instrument `config.network_id` | `booking-agent flow pay rebook --service-id <id>` for a fresh checkout, or stop if the merchant omitted `link.config.network_id` |
-| `approval_not_surfaced_to_user` | `pay ucp-complete` ran before the approval URL was shown | Start `booking-agent flow pay poll` in the background and post `user_message` in the same turn |
-| `approval_timeout` | User did not approve within the wait window | Re-run `pay ucp-complete` with the same spend id, or run `pay request` again |
-| `payment_declined` / `payment_failed` (recoverable) / `payment_authentication_unsupported` / `payment_not_processed` | `pay ucp-complete` charge was declined; the spend request is used up | Post `user_message`, ask for a different Link card, run `next_command` (`booking-agent flow pay request ...`). Never show `continue_url` or a bank `action_url`. See Step 6c-iii |
-| `payment_unrecoverable` | `pay ucp-complete` got `payment_failed` with severity `unrecoverable`, so this checkout can no longer be completed and the session is `FAILED` | Post `user_message` and stop. Do not retry this checkout. See Step 6c-iii |
-| `complete_in_progress` / `checkout_already_in_progress` | Business is still completing the same checkout | Run `next_command` (same spend request); no new spend request |
-| `payment_captured_booking_unconfirmed` | Payment captured, booking not confirmed | Post `user_message`; never retry or ask for another card; run `next_command` (`booking-agent flow book poll --wait`). See Step 6c-iii |
-| `booking_canceled_after_payment` | Business canceled a booking it was paid for | Post `user_message` (how to reach the business and ask for a refund); never retry or ask for another card |
-| `payment_already_captured` | A payment command ran after a capture without a confirmed booking | Do not charge again; run `next_command` (`booking-agent flow book poll --wait`) |
-| `service_details_changed` | The live catalog differs from the discover row the user picked (`data.changes`) | Tell the user what changed, ask, then run `next_command` (`--details-confirmed`) only if they agree |
-| `timezone_confirmation_required` | Slot time unverified: business timezone conflicts with the service location, or a home visit with unknown local time | Ask the user to confirm the exact time in the business's timezone, then run `next_command` (`--timezone-confirmed`) |
-| `context_required` | `pay request` got both `--context` and `--context-file` | Run `pay request` with neither; the CLI writes the note |
-| `search_area_unconfirmed` | Place search (`--radius-km`) with no confirmed area | Run `next_command` (`flow search-area propose`) and confirm the area with the user |
-| `discover_radius_required` | Confirmed area but no `--radius-km` | Re-run discover with `--radius-km` (see [Search area](#search-area)) |
-| `service_address_unconfirmed` | Home visit with no confirmed street address | Run `next_command` and confirm the address with the user |
-| `search_area_not_user_confirmed` | `search-area confirm` without `--user-confirmed` | Ask the area question; pass `--user-confirmed` only after they agree |
-| `search_area_input_invalid` | `search-area set` got neither or both of `--address` and `--link-address-id` | Pass exactly one |
-| `link_address_not_found` | `--link-address-id` is not one of the user's saved addresses | Run `next_command` (`search-area propose`) |
-| `spend_request_replacement_required` | Link cannot resume this spend request (for example `three_d_secure_retry`) | Show `user_message`, then run `next_command` to create a new spend request |
 | `reschedule_not_actionable` | Session is not a confirmed upcoming booking from this device | Resume the right booking from `sessions list`; past or other-device appointments move only on the business's page |
 | `reschedule_not_allowed` | Business policy does not allow moving this booking | Show the raw `booking_url` and say they can change it with the business |
-| `reschedule_fee_unsupported` | Business charges a reschedule fee | Show the raw `booking_url`; never offer to pay the fee here |
-| `reschedule_at_business` | Saved booking credential is missing, expired, or for another business | Show the raw `booking_url`; do not retry |
-| `reschedule_unauthorized` | Business rejected the booking credential | Show the raw `booking_url`; do not retry |
-| `reschedule_price_changed` | Chosen slot has a different price than the booked one | Ask the user to pick another slot, or query a different window |
-| `reschedule_price_unknown` | Paid booking and the old or new price is unknown | Show the raw `booking_url`; the move cannot be priced here |
-| `reschedule_same_slot` | User picked the time the booking already has | Ask for a different slot |
-| `reschedule_failed` | Business refused the move (e.g. slot just taken) | Run `booking-agent flow reschedule availability` again and re-ask |
-| `reschedule_booking_not_active` | Booking was canceled or completed meanwhile | Tell the user plainly; nothing to move |
 | `session_store_too_new` | Saved bookings on this device were written by a newer version of the assistant | Run `next_command` (`booking-agent update check`) and follow it; never delete or edit the saved state |
 | `update_not_confirmed` | `update` ran without `--user-confirmed` | Ask the user first; pass `--user-confirmed` only after they agree |
 | `update_session_in_progress` | `update` ran while a booking is unfinished | Finish or cancel the booking first, then offer the update again |
@@ -1339,39 +1064,18 @@ with the question in `user_message`.
 
 ## Booking authorization
 
-USP splits every operation into two tiers, and the CLI handles both without you doing anything.
-It matters here only because it changes what you can promise the user.
+The CLI authenticates every privileged step (booking, changing, cancelling, payment) and refuses
+rather than falling back to anonymous requests. Searching, catalogs, and availability are public.
 
-**Public — no authentication.** Searching for businesses, reading a catalog, and checking
-availability. The agent browses anonymously; nothing identifies it.
+- A business can be browsable but not bookable. If booking is refused for that reason, say plainly
+  that this business cannot be booked through you yet and offer the alternatives. Do not retry or
+  describe the mechanism.
+- Cancelling uses a credential scoped to that one booking, kept on this device. If it has expired
+  or the business rejects it, there is nothing to retry: give the user the `booking_url` and say
+  they finish the cancellation on the business's own page.
 
-**Privileged — always authenticated.** Creating, changing, confirming or cancelling a booking,
-holding a slot, anything payment-adjacent, and anything that returns the buyer's personal
-details. The business publishes which authentication mechanisms it accepts, and the CLI picks
-one it supports. If it recognizes none, it refuses rather than falling back to browsing
-anonymously — an unauthenticated booking attempt would either fail or, worse, succeed without
-anyone being accountable for it.
-
-**A business can be browsable but not bookable.** Search, catalog and availability still work
-against a business that does not support authenticated booking; only the booking itself refuses.
-If that happens the CLI returns an error rather than a booking, and the honest thing to tell the
-user is that this particular business cannot be booked through you yet and they will need to book
-it directly. Do not retry, and do not describe policies or mechanisms — just say it plainly and
-offer the alternatives you found.
-
-**What this means for cancelling.** When a booking is created the business hands back a
-credential scoped to that one booking, tied to a key the agent keeps locally and never sends.
-`booking-agent flow book cancel` uses it. Two consequences worth knowing:
-
-- The credential works for **that booking at that business only**. It is not an account and not
-  a login.
-- If it has expired, or the business rejects it, there is **nothing to retry** — the agent has no
-  standing identity there. The CLI returns a `booking_url` instead. Give the user that link and
-  tell them, in plain words, that they will need to finish the cancellation on the business's own
-  page. Do not describe credentials, keys, or proofs.
-
-Never mention any of this machinery to the user. "I've cancelled that for you" or "you'll need to
-cancel this one on their website — here's the link" is the whole of what they need.
+Never mention any of this machinery. "I've cancelled that for you" or "you'll need to cancel this
+one on their website, here's the link" is all they need.
 
 ## Cancel upcoming bookings
 
@@ -1500,15 +1204,12 @@ booking-agent flow sessions forget --session-id <id>
 Use `booking-agent flow sessions list` only to find unfinished flows or upcoming bookings
 (`actionable: true`, `booking_id`, slot times). Do not use it as a past-booking list.
 
-## Environment variables (UCP-native and auth stubs)
+## Settings
 
-| Variable | Role |
-|----------|------|
-| `USP_REGISTRY_URL` | Optional registry `search_services` POST URL or API-base override. Live discovery defaults to the public Wix USP registry. |
-| `USP_AGENT_PROFILE_URL` | D2 platform identity URI used for both `USP-Agent` and `UCP-Agent`. Defaults to `https://profile.booking-agent.dev/platform-profile.json`; businesses and the client fetch this document over HTTP. A staging or loopback override uses this same variable. Loopback is non-conformant because production businesses must reject RFC 6890 special-use addresses and defend against DNS rebinding, so `init` refuses a non-`https` value (`platform_profile_url_invalid`) unless the host is a literal loopback address, which is for local development only. |
-| `BOOKING_AGENT_HTTP_TRACE` | Set to `1` to opt in to redacted HTTP trace logging under `~/.booking-agent/http_trace.log` (off by default in production). |
-| `BOOKING_AGENT_BUYER_DEVICE_IP` | Set by a hosting surface that observed the buyer's device IP. Sent as `dev.ucp.buyer_ip`; an invalid address stops checkout. The user agent and `dev.usp-protocol.agent_host_ip` are always sent and cannot be turned off. |
-| `BOOKING_AGENT_USP_AUTH_SCOPED_CREDENTIAL` | `required` \| `preferred`. How strictly to enforce authentication on privileged operations. Default `required` (the conformant setting). See [Booking authorization](#booking-authorization) below. |
+Nothing needs configuring. `booking-agent config show` lists every setting and where it came from.
+Two matter to a hosting surface: `BOOKING_AGENT_BUYER_DEVICE_IP` (the buyer's device IP when it
+observed one) and `BOOKING_AGENT_USP_AUTH_SCOPED_CREDENTIAL` (`required` by default; see [Booking
+authorization](#booking-authorization)).
 
 ## Further docs
 

@@ -56,7 +56,9 @@ def write_token_cache(user_key: str, access_token: str, expires_in: int = 3600) 
 
 
 def _sidecar_path() -> str:
-    return os.path.join(os.path.expanduser("~"), ".booking-agent", SIDECAR_NAME)
+    from booking_agent.settings import booking_agent_home
+
+    return os.path.join(str(booking_agent_home()), SIDECAR_NAME)
 
 
 def _load_sidecar() -> Dict[str, Any]:

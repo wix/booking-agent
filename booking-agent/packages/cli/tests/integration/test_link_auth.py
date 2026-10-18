@@ -234,12 +234,32 @@ def test_buyer_resolve_requires_link_auth_gate(runner, isolated_session, monkeyp
 
     _seed_slot_selected(isolated_session)
     monkeypatch.setattr(flow.shutil, "which", lambda _: "/usr/bin/link-cli")
+    monkeypatch.setattr(flow, "get_auth_status", lambda: AuthStatus(authenticated=False))
 
     r = _invoke(runner, "flow", "buyer", "resolve")
     assert r.exit_code == 1
     body = _stdout_json(r)
     assert body["data"]["error"]["code"] == "link_auth_gate_not_completed"
     assert body["next_command"] == "booking-agent flow link-auth connect"
+
+
+def test_buyer_resolve_trusts_link_when_the_sign_in_poll_never_reported(
+    runner, isolated_session, monkeypatch
+):
+    """The user approved, but the poll that records it was killed: do not ask them to sign in again."""
+    import booking_agent_cli.commands.flow as flow
+    from booking_agent_cli.session import load_session
+
+    _seed_slot_selected(isolated_session)
+    monkeypatch.setattr(flow.shutil, "which", lambda _: "/usr/bin/link-cli")
+    monkeypatch.setattr(flow, "get_auth_status", lambda: AuthStatus(authenticated=True))
+    assert load_session().link_auth_gate_completed is False
+
+    r = _invoke(runner, "flow", "buyer", "resolve")
+
+    body = _stdout_json(r)
+    assert body["data"].get("error", {}).get("code") != "link_auth_gate_not_completed"
+    assert load_session().link_auth_gate_completed is True
 
 
 def test_slots_select_points_at_link_auth_connect(runner, isolated_session, monkeypatch):
@@ -318,3 +338,159 @@ def test_poll_auth_until_authenticated_timeout(monkeypatch):
     monkeypatch.setattr(link_cli.subprocess, "run", lambda *a, **k: FakeCompleted())
     with pytest.raises(TimeoutError):
         poll_auth_until_authenticated(poll_interval=0.1, timeout=5)
+
+
+# --- One batched message when Link and the calendar are both gone (reset regression) -----------
+
+def _seed_events_calendar(session_phase="SLOT_SELECTED"):
+    store = SessionStore()
+    session = Session(
+        user_request="Book AC repair",
+        flow_phase=session_phase,
+        calendar_gate_completed=True,
+        calendar_state="connected",
+        calendar_mode="events",
+        calendar_route="connector",
+        calendar_token_env="GCAL_TOKEN",
+        checkout_prereq_completed=True,
+        slot_id="slot-1",
+        slot_user_confirmed=True,
+        link_auth_gate_completed=True,
+    )
+    add_session(store, session)
+    save_store(store)
+    return session
+
+
+def _calendar_gone(monkeypatch):
+    import booking_agent_cli.commands.flow as flow
+
+    monkeypatch.setattr(flow, "refresh_host_token", lambda *_a, **_k: None)
+    monkeypatch.setattr(flow, "calendar_connection_status", lambda *_a, **_k: {"connected": False})
+
+
+def test_connections_ensure_reports_link_and_calendar_in_one_message(runner, isolated_session, monkeypatch):
+    import booking_agent_cli.commands.flow as flow
+
+    _seed_events_calendar()
+    _calendar_gone(monkeypatch)
+    monkeypatch.setattr(flow, "get_auth_status", lambda: AuthStatus(authenticated=False, verification_url=URL))
+
+    r = _invoke(runner, "flow", "connections", "ensure")
+
+    assert r.exit_code == 0, r.stdout
+    body = _stdout_json(r)
+    assert body["awaiting_user"] == "connections"
+    assert body["user_message"] == URL
+    gaps = {g["name"]: g for g in body["data"]["connections"]}
+    assert gaps["link"]["state"] == "needs_sign_in"
+    assert gaps["calendar"]["command"].startswith("booking-agent flow calendar connect --mode events")
+    assert "GCAL_TOKEN" in gaps["calendar"]["command"]
+    assert "same message" in body["prompt"]
+
+
+def test_connections_ensure_is_silent_when_everything_is_connected(runner, isolated_session, monkeypatch):
+    import booking_agent_cli.commands.flow as flow
+
+    _seed_events_calendar()
+    monkeypatch.setattr(flow, "refresh_host_token", lambda *_a, **_k: None)
+    monkeypatch.setattr(flow, "calendar_connection_status", lambda *_a, **_k: {"connected": True})
+
+    r = _invoke(runner, "flow", "connections", "ensure")
+
+    body = _stdout_json(r)
+    assert r.exit_code == 0, r.stdout
+    assert body["awaiting_user"] is None
+    assert body["data"]["connections"] == []
+
+
+def test_buyer_resolve_catches_a_lost_calendar_before_the_confirmation(runner, isolated_session, monkeypatch):
+    import booking_agent_cli.commands.flow as flow
+    from booking_agent_cli.session import load_session
+
+    _seed_events_calendar()
+    _calendar_gone(monkeypatch)
+    monkeypatch.setattr(flow.shutil, "which", lambda _: "/usr/bin/link-cli")
+
+    r = _invoke(runner, "flow", "buyer", "resolve")
+
+    body = _stdout_json(r)
+    assert body["awaiting_user"] == "connections"
+    assert "booking_recap_lines" not in body["data"]
+    assert load_session().flow_phase == "SLOT_SELECTED"
+
+
+def test_status_hands_back_saved_search_results_instead_of_a_new_search(runner, isolated_session):
+    rows = [{"service_id": "s1", "display_line": "AC Repair, HVAC-Koby, $1.00", "profile_url": "https://b.test"}]
+    store = SessionStore()
+    add_session(store, Session(
+        user_request="Fix my AC", flow_phase="PREREQ_OK",
+        discover_services=rows, discover_query="ac repair",
+    ))
+    save_store(store)
+
+    body = _stdout_json(_invoke(runner, "flow", "status"))
+
+    assert body["awaiting_user"] == "business_choice"
+    assert body["data"]["services"] == rows
+    assert "do not search again" in body["prompt"]
+
+
+def test_the_default_next_step_after_listing_slots_carries_the_confirmation_flag():
+    from booking_agent_cli.engine import recommend_next
+
+    session = Session(user_request="x", flow_phase="SLOTS_PRESENTED")
+    assert recommend_next(session).endswith("--user-confirmed")
+
+
+def test_init_warns_before_abandoning_a_session_with_a_payment_in_progress(runner, isolated_session):
+    from booking_agent_cli.session import PaymentRef
+
+    store = SessionStore()
+    session = Session(user_request="Fix my AC", flow_phase="PAYMENT_PENDING")
+    session.payment = PaymentRef(spend_request_id="lsrq_1")
+    add_session(store, session)
+    save_store(store)
+
+    r = _invoke(runner, "flow", "init", "--user-request", "Fix my AC")
+
+    assert r.exit_code == 1
+    assert "pay twice" in _stdout_json(r)["data"]["error"]["message"]
+
+
+# --- Rules that used to live only in the skill, now asked or filled in by the CLI ----------------
+
+def test_init_asks_whether_to_resume_a_similar_unfinished_request(runner, isolated_session):
+    store = SessionStore()
+    unfinished = Session(user_request="Fix my AC next Tuesday please", flow_phase="PREREQ_OK")
+    finished = Session(user_request="Fix my AC next Tuesday", flow_phase="CONFIRMED")
+    add_session(store, unfinished)
+    add_session(store, finished)  # the newest session is finished, so nothing is "active"
+    save_store(store)
+
+    r = _invoke(runner, "flow", "init", "--user-request", "Fix my AC next Tuesday")
+
+    body = _stdout_json(r)
+    assert body["awaiting_user"] == "resume_or_fresh", body
+    assert body["data"]["resume_command"].endswith(unfinished.id)
+    assert "--force" in body["prompt"]
+
+
+def test_discover_asap_fills_in_the_current_time(runner, isolated_session, monkeypatch):
+    import booking_agent.headless as headless
+
+    seen = {}
+    real = headless.build_desired_service_time_preferences
+
+    def spy(**kwargs):
+        seen.update(kwargs)
+        return real(**kwargs)
+
+    monkeypatch.setattr(headless, "build_desired_service_time_preferences", spy)
+    store = SessionStore()
+    add_session(store, Session(user_request="Fix my AC", flow_phase="PREREQ_OK"))
+    save_store(store)
+
+    _invoke(runner, "flow", "discover", "--asap")
+
+    assert len(seen["desired_from"]) == 1 and "T" in seen["desired_from"][0]

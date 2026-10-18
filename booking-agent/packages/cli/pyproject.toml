@@ -1,6 +1,6 @@
 [project]
 name = "booking-agent-cli"
-version = "0.4.2"
+version = "0.5.0"
 description = "The Booking Agent CLI: a stateful USP booking flow with hard gates, plus its USP protocol library."
 readme = "README.md"
 license = "Apache-2.0"

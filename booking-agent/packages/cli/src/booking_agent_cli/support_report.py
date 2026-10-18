@@ -88,36 +88,35 @@ SEND_FAILED_MESSAGE = (
 # already explain, plus codes its prose documents. Kept equal to the skill by
 # test_support_report.py.
 SKILL_TABLE_CODES = frozenset({
-    "agent_profile_unresolvable", "approval_not_surfaced_to_user", "approval_timeout", "booking_canceled_after_payment",
-    "buyer_email_invalid", "buyer_not_from_link_cli", "calendar_gate_not_completed",
-    "cancel_failed", "cancel_forbidden", "cancel_open_selection_conflict",
-    "cancel_open_selection_required", "cancel_unauthorized", "checkout_already_in_progress",
-    "checkout_prereq_not_completed", "checkout_total_unconfirmed", "complete_in_progress",
-    "context_required", "disclosures_unconfirmed", "discover_radius_required",
-    "installation_unverified", "link_address_not_found", "link_auth_expired",
-    "link_auth_gate_not_completed", "link_auth_not_started", "link_auth_timeout",
-    "mandatory_acceptance_pending", "missing_network_id_for_spt", "payment_already_captured",
-    "payment_authentication_unsupported", "payment_captured_booking_unconfirmed",
-    "payment_declined", "payment_failed", "payment_not_processed", "payment_timing_changed",
-    "payment_timing_not_supported", "payment_unrecoverable", "profile_unreachable",
-    "reschedule_at_business",
-    "reschedule_booking_not_active", "reschedule_failed", "reschedule_fee_unsupported",
-    "reschedule_not_actionable", "reschedule_not_allowed", "reschedule_price_changed",
-    "reschedule_price_unknown", "reschedule_same_slot", "reschedule_unauthorized",
-    "search_area_input_invalid", "search_area_not_user_confirmed", "search_area_unconfirmed",
-    "service_address_unconfirmed", "service_details_changed", "service_not_available_in_area",
-    "session_store_too_new", "shared_payment_token_not_issued", "skill_output_refused",
-    "skill_path_invalid", "skill_unverified",
-    "slot_not_selected", "spend_request_not_approved",
-    "spend_request_replacement_required", "timezone_confirmation_required",
-    "ucp_complete_failed", "ucp_native_required", "update_failed", "update_not_confirmed",
+    "agent_profile_unresolvable", "cancel_failed", "cancel_forbidden",
+    "cancel_open_selection_conflict", "cancel_open_selection_required", "cancel_unauthorized",
+    "checkout_total_unconfirmed", "disclosures_unconfirmed", "installation_unverified",
+    "link_auth_expired", "link_auth_gate_not_completed", "link_auth_not_started",
+    "link_auth_timeout", "mandatory_acceptance_pending", "payment_timing_changed",
+    "payment_timing_not_supported", "profile_unreachable", "reschedule_not_actionable",
+    "reschedule_not_allowed", "service_not_available_in_area", "session_store_too_new",
+    "shared_payment_token_not_issued", "skill_output_refused", "skill_path_invalid",
+    "skill_unverified", "ucp_native_required", "update_failed", "update_not_confirmed",
     "update_not_verified", "update_session_in_progress",
 })
 SKILL_PROSE_CODES = frozenset({
-    "calendar_callback_port_busy", "calendar_insufficient_scope", "calendar_oauth_failed",
+    "approval_not_surfaced_to_user", "approval_timeout", "booking_canceled_after_payment",
+    "buyer_email_invalid", "buyer_not_from_link_cli", "calendar_callback_port_busy",
+    "calendar_gate_not_completed", "calendar_insufficient_scope", "calendar_oauth_failed",
     "calendar_oauth_not_configured", "calendar_oauth_not_started", "calendar_oauth_timeout",
-    "calendar_route_required", "calendar_token_env_required",
-    "session_active", "session_not_found",
+    "calendar_route_required", "calendar_token_env_required", "checkout_already_in_progress",
+    "checkout_prereq_not_completed", "complete_in_progress", "context_required",
+    "discover_radius_required", "link_address_not_found", "missing_network_id_for_spt",
+    "payment_already_captured", "payment_authentication_unsupported",
+    "payment_captured_booking_unconfirmed", "payment_declined", "payment_failed",
+    "payment_not_processed", "payment_unrecoverable", "reschedule_at_business",
+    "reschedule_booking_not_active", "reschedule_failed", "reschedule_fee_unsupported",
+    "reschedule_price_changed", "reschedule_price_unknown", "reschedule_same_slot",
+    "reschedule_unauthorized", "search_area_input_invalid", "search_area_not_user_confirmed",
+    "search_area_unconfirmed", "service_address_unconfirmed", "service_details_changed",
+    "session_active", "session_not_found", "slot_not_selected", "spend_request_not_approved",
+    "spend_request_replacement_required", "timezone_confirmation_required",
+    "ucp_complete_failed",
 })
 EXPECTED_CODES = SKILL_TABLE_CODES | SKILL_PROSE_CODES
 # The business is still working; seeing these again is progress, not a failed step.
@@ -517,6 +516,9 @@ SESSION_RULES: Dict[str, FieldRule] = {
     "area_resume_command": EXCLUDE,
     "booking_notes": EXCLUDE,
     "calendar_timezone": ("calendar_timezone", _tz),
+    # The event link opens the user's calendar entry; it never leaves the device.
+    "calendar_event_id": EXCLUDE,
+    "calendar_event_html_link": EXCLUDE,
 }
 
 # Dataclass -> its rules table, for the classification test.

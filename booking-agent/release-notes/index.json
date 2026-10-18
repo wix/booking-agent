@@ -117,6 +117,26 @@
       "skill_version": "0.52.0",
       "update_status": "available",
       "user_summary": "Makes the setup instructions clearer, so an assistant installs the official, verified version the first time."
+    },
+    {
+      "change_type": "feature",
+      "cli_version": "0.5.0",
+      "details_url": "https://github.com/wix/booking-agent/releases/tag/v0.5.0",
+      "ecosystem_ready": false,
+      "readiness_evidence": [
+        "Not yet shown against a live run: the reset-and-reconnect, booked-answer, and calendar-link fixes are covered by new tests but have not been replayed in a real hosted session, so the rollout stays deferred until that run is compared with the two recorded failures.",
+        "No request or response exchanged with the registry or with businesses changes; the platform profile is untouched. The saved booking file keeps format 2 and the only new fields are optional (calendar_event_id, calendar_event_html_link)."
+      ],
+      "relevant_capabilities": [
+        "sign_in",
+        "calendar",
+        "booking",
+        "payment"
+      ],
+      "schema_version": 1,
+      "skill_version": "0.53.0",
+      "update_status": "deferred",
+      "user_summary": "Booking no longer stalls or asks you to sign in again after a restart, and the final message always says you are booked and links your calendar event."
     }
   ],
   "schema_version": 1

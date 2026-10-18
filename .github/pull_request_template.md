@@ -24,4 +24,5 @@ booking-agent/release-notes/<version>.json. Start from `deferred` and
 - Affected capabilities:
 - Interoperability impact:
 - Readiness evidence:
+- Hosted replay: <result, or n/a when the change does not touch sign-in, calendar, or payment>
 - Release-owner approval:

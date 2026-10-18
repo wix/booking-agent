@@ -159,7 +159,7 @@ def recommend_next(session: Session) -> str | None:
         "PREREQ_OK": "booking-agent flow discover",
         "CALENDAR_GATE": "booking-agent flow availability",
         "AVAILABILITY_QUERIED": "booking-agent flow slots list",
-        "SLOTS_PRESENTED": "booking-agent flow slots select --slot-id <id>",
+        "SLOTS_PRESENTED": "booking-agent flow slots select --slot-id <id> --user-confirmed",
         "SLOT_SELECTED": "booking-agent flow link-auth connect",
         "BUYER_RESOLVED": "booking-agent flow book",
         "CONFIRMED": None,

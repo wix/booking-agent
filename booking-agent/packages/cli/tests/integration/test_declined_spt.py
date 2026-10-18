@@ -745,13 +745,18 @@ def test_base_skill_states_the_decline_matrix():
     assert not missing, f"booking-agent SKILL.md is missing {missing}"
 
 
-def test_base_skill_keeps_every_discover_result_in_registry_order():
-    text = _skill("booking-agent")
-    assert "Never omit, filter, or reorder results" in text
-    assert "less-direct" in text
-    assert "alternative with the specific mismatch" in text
-    assert "`channel.type: at_business_location` when the user needs a home visit" in text
-    assert "compute your own relevance score" in text
+def test_discover_keeps_every_result_in_registry_order():
+    """Enforced by the CLI's own instructions, so no skill wording has to carry it."""
+    import inspect
+
+    import booking_agent_cli.commands.flow as flow
+
+    source = inspect.getsource(flow.discover)
+    assert "Never omit, filter, or reorder results" in source
+    assert "less-direct alternative" in source
+    assert "channel.type" in source and "at_business_location" in source
+    assert "relevance score" in source and "Do not infer categories" in source
+    assert "--less-direct" in _skill("booking-agent")
 
 
 def test_base_skill_forbids_repetition_fixed_waits_and_agent_written_context():
