@@ -7,6 +7,15 @@ stale copy, which the update check offers to replace. A same-version mismatch is
 remembered, so ``flow book`` and every ``flow pay`` command refuse until the file is
 replaced (``skill print --output``) or a later ``flow init --skill-path`` matches.
 
+The hash covers what installers leave alone: the instructions, plus ``name`` and
+``version``. It cannot cover the raw bytes, because an installer may write the file in
+its own layout -- refolding ``description``, dropping frontmatter keys it does not
+know, adding or removing the blank line after the frontmatter -- and a genuine install
+must not be refused. ``allowed-tools`` is therefore **not** covered, although it is
+security-relevant: no installer preserves it, so hashing it would refuse every install
+that rewrites it. ``skill-install-check.yml`` installs the skill the way users do and
+fails if a real install ever stops matching.
+
 A skill file that resolves into a source checkout is not checked, so developers can
 edit the skill in place. The check cannot catch a copy written to evade it, which can
 omit ``--skill-path`` or point it at a genuine file; the first read is covered by the
@@ -27,28 +36,79 @@ PATH_INVALID_CODE = "skill_path_invalid"
 REPLACE_COMMAND = "booking-agent skill print --output"
 
 _VERSION_LINE = re.compile(r"^version:\s*[\"']?([^\s\"']+)[\"']?\s*$", re.MULTILINE)
+_NAME_VALUE = re.compile(r"^name:\s*[\"']?([^\s\"']+)[\"']?\s*$", re.MULTILINE)
 _NAME_LINE = re.compile(r"^name:\s*booking-agent\s*$", re.MULTILINE)
 
 
+def _split(text: str) -> Tuple[str, str]:
+    """``(frontmatter, body)``, with LF line endings and the terminator line dropped."""
+    text = text.replace("\r\n", "\n").replace("\r", "\n")
+    if not text.startswith("---\n"):
+        return "", text
+    end = text.find("\n---", 4)
+    if end == -1:
+        return "", text
+    rest = text[end + 4:]
+    newline = rest.find("\n")
+    return text[4:end], rest[newline + 1:] if newline != -1 else ""
+
+
 def normalized(text: str) -> bytes:
-    """``text`` with LF line endings and exactly one trailing newline, as UTF-8."""
-    return (text.replace("\r\n", "\n").replace("\r", "\n").rstrip("\n") + "\n").encode("utf-8")
+    """The instructions in ``text``, with LF endings and no blank lines around them."""
+    return (_split(text)[1].strip("\n") + "\n").encode("utf-8")
+
+
+def frontmatter_description(text: str) -> str:
+    """``description`` with every run of whitespace collapsed to one space.
+
+    The value is a block scalar, and an installer may rewrite ``|`` as ``>`` and rewrap
+    the lines. Collapsing whitespace makes every folding of the same sentences equal,
+    so the description is covered even though its layout is not.
+    """
+    lines = _frontmatter(text).split("\n")
+    collected: list = []
+    for index, line in enumerate(lines):
+        if not line.startswith("description:"):
+            continue
+        collected.append(line[len("description:"):].strip().lstrip("|>-+0123456789 "))
+        for following in lines[index + 1:]:
+            if following.strip() and not following.startswith((" ", "\t")):
+                break
+            collected.append(following.strip())
+        break
+    return " ".join(" ".join(collected).split())
+
+
+def canonical(text: str) -> bytes:
+    """The parts of a skill file that every installer leaves alone.
+
+    ``name``, ``version`` and ``description`` as values rather than as written, then the
+    instructions. Anything an installer may re-serialize is normalized away or left out;
+    see the module docstring.
+    """
+    header = (
+        f"name:{frontmatter_name(text) or ''}\n"
+        f"version:{frontmatter_version(text) or ''}\n"
+        f"description:{frontmatter_description(text)}\n\n"
+    )
+    return header.encode("utf-8") + normalized(text)
 
 
 def skill_sha256(text: str) -> str:
-    return hashlib.sha256(normalized(text)).hexdigest()
+    return hashlib.sha256(canonical(text)).hexdigest()
 
 
 def _frontmatter(text: str) -> str:
-    text = text.replace("\r\n", "\n")
-    if not text.startswith("---\n"):
-        return ""
-    end = text.find("\n---", 4)
-    return text[4:end] if end != -1 else ""
+    return _split(text)[0]
 
 
 def frontmatter_version(text: str) -> Optional[str]:
     match = _VERSION_LINE.search(_frontmatter(text))
+    return match.group(1) if match else None
+
+
+def frontmatter_name(text: str) -> Optional[str]:
+    match = _NAME_VALUE.search(_frontmatter(text))
     return match.group(1) if match else None
 
 

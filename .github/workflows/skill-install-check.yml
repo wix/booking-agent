@@ -1,0 +1,169 @@
+name: skill-install-check
+
+# Skill installers copy the directory holding a SKILL.md, and some rewrite the file as
+# they do it: refolding `description`, dropping frontmatter keys they do not know,
+# moving the blank line after the frontmatter. The CLI's skill check is built to survive
+# exactly that (skill_integrity.canonical), so what matters is not that the bytes match
+# but that a genuinely installed copy is still accepted. If an installer ever changes
+# something the hash does cover, every genuine install would report skill_unverified and
+# refuse to book or pay; this catches that the morning it starts.
+# Lives on master only; never add it to main (the Pages branch allow-list rejects it).
+# The wix org allows only GitHub-owned actions pinned by SHA, so uv is installed with pip.
+
+on:
+  pull_request:
+    paths:
+      - "booking-agent/skills/booking-agent/SKILL.md"
+      - "booking-agent/packages/cli/src/booking_agent_cli/skill_integrity.py"
+      - ".github/workflows/skill-install-check.yml"
+  schedule:
+    - cron: "37 6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  UV_VERSION: "0.13.0"
+  SKILL_DIR: booking-agent/skills/booking-agent
+
+jobs:
+  skills-cli:
+    name: skills CLI
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Node
+        uses: actions/setup-node@2028fbc5c25fe9cf00d9f06a71cc4710d4507903 # v7.0.0
+        with:
+          node-version: "22"
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        run: python -m pip install "uv==${UV_VERSION}"
+
+      # The documented command is interactive; CI has no TTY, so it names the agents.
+      # '*' installs into every layout the CLI knows, which is what we want to check.
+      - name: Install the skill the way the docs tell users to
+        run: npx --yes skills add wix/booking-agent --skill booking-agent --agent '*' --yes
+
+      - name: The CLI accepts every installed copy
+        working-directory: booking-agent
+        run: |
+          # It installs into .agents/skills/ and agent-specific directories under the
+          # working directory, so only this repository's own source copy is excluded.
+          mapfile -t copies < <(find "$HOME" -name SKILL.md -path '*booking-agent*' \
+            -not -path "${GITHUB_WORKSPACE}/${SKILL_DIR}/SKILL.md" \
+            -not -path '*/.npm/*' -not -path '*/.git/*' 2>/dev/null | sort -u)
+          if [ "${#copies[@]}" -eq 0 ]; then
+            echo "::error::skills add installed no SKILL.md"
+            exit 1
+          fi
+          uv sync --all-packages --quiet
+          # The installer fetches the default branch, so that is the text it rewrote.
+          # Comparing canonical hashes against it tests the property directly, and keeps
+          # working on a pull request that raises the skill version, where flow init
+          # would otherwise take the stale-version path and never reach the hash.
+          curl -fsSL -o "${RUNNER_TEMP}/published.md" \
+            "https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/master/${SKILL_DIR}/SKILL.md"
+          failed=0
+          for copy in "${copies[@]}"; do
+            if ! uv run python -c "
+          import sys
+          from booking_agent_cli import skill_integrity as si
+          installed, published = (open(p, encoding='utf-8').read() for p in sys.argv[1:])
+          sys.exit(0 if si.skill_sha256(installed) == si.skill_sha256(published) else 1)
+          " "$copy" "${RUNNER_TEMP}/published.md"; then
+              echo "  REWROTE  ${copy}  (canonical hash differs from the published skill)"
+              failed=1
+              continue
+            fi
+            session="$(mktemp -d)"
+            # A genuine copy may return session_active or an update offer; only
+            # skill_unverified means the installed file was not recognised.
+            BOOKING_AGENT_SESSION_DIR="$session" uv run booking-agent flow init \
+              --user-request "haircut" --skill-path "$copy" > out.json 2>&1 || true
+            if grep -q skill_unverified out.json; then
+              echo "  REFUSED  ${copy}"
+              failed=1
+            elif cmp -s "$copy" "${RUNNER_TEMP}/published.md"; then
+              echo "  ok       ${copy}"
+            else
+              echo "  ok       ${copy}  (rewritten by the installer, still accepted)"
+            fi
+          done
+          if [ "$failed" -ne 0 ]; then
+            echo "::error::the CLI reports skill_unverified for a genuine installed copy; an installer now changes something skill_integrity.canonical covers, and every install of this skill would refuse to book or pay"
+            exit 1
+          fi
+          echo "::notice::${#copies[@]} installed copies, all accepted"
+
+  openclaw:
+    name: OpenClaw
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Node
+        uses: actions/setup-node@2028fbc5c25fe9cf00d9f06a71cc4710d4507903 # v7.0.0
+        with:
+          node-version: "22"
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        run: python -m pip install "uv==${UV_VERSION}"
+
+      - name: Install the OpenClaw CLI
+        run: npm i -g openclaw
+
+      # OpenClaw's git source expects SKILL.md at the repository root, which this layout
+      # does not have (CI enforces exactly one, under skills/booking-agent/), and the
+      # skill is not on ClawHub. The local directory source is the route that applies.
+      - name: Install this repository's skill from a local directory
+        id: installed
+        run: |
+          openclaw skills install "./${SKILL_DIR}" --as booking-agent
+          installed="$HOME/.openclaw/workspace/skills/booking-agent/SKILL.md"
+          if [ ! -f "$installed" ]; then
+            echo "::error::openclaw skills install produced no SKILL.md at ${installed}"
+            find "$HOME/.openclaw" -name SKILL.md 2>/dev/null | head || true
+            exit 1
+          fi
+          echo "path=${installed}" >> "$GITHUB_OUTPUT"
+
+      - name: The CLI accepts the installed copy
+        working-directory: booking-agent
+        env:
+          BOOKING_AGENT_SESSION_DIR: ${{ runner.temp }}/session
+          INSTALLED: ${{ steps.installed.outputs.path }}
+        run: |
+          mkdir -p "$BOOKING_AGENT_SESSION_DIR"
+          uv sync --all-packages --quiet
+          uv run booking-agent flow init --user-request "haircut" --skill-path "$INSTALLED" > out.json 2>&1 || true
+          cat out.json
+          if grep -q skill_unverified out.json; then
+            echo "::error::the CLI reports skill_unverified for a genuine installed copy"
+            exit 1
+          fi
+          if cmp -s "$INSTALLED" "${GITHUB_WORKSPACE}/${SKILL_DIR}/SKILL.md"; then
+            echo "::notice::OpenClaw installs the skill unchanged"
+          else
+            echo "::notice::OpenClaw rewrites the skill, and the CLI still accepts it"
+          fi
