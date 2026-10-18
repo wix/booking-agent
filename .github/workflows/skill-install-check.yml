@@ -5,6 +5,7 @@ name: skill-install-check
 # fail the CLI's skill_unverified check and refuse to book or pay. This installs the
 # skill the way users do and proves the installed bytes still match the published skill.
 # Lives on master only; never add it to main (the Pages branch allow-list rejects it).
+# The wix org allows only GitHub-owned actions pinned by SHA, so uv is installed with pip.
 
 on:
   pull_request:
@@ -20,6 +21,7 @@ permissions:
   contents: read
 
 env:
+  UV_VERSION: "0.13.0"
   # Installers fetch the default branch, so this is the copy they should reproduce.
   SKILL_URL: https://raw.githubusercontent.com/wix/booking-agent/master/booking-agent/skills/booking-agent/SKILL.md
 
@@ -68,7 +70,7 @@ jobs:
           python-version: "3.12"
 
       - name: Install uv
-        uses: astral-sh/setup-uv@b75a909f75acd358c2196fb9a5f1299a9a8868a4 # v7.1.0
+        run: python -m pip install "uv==${UV_VERSION}"
 
       - name: The CLI accepts the installed copy
         working-directory: booking-agent
