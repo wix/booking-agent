@@ -6,13 +6,14 @@ import os
 import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 from typing import List, Optional, Tuple
 
 import typer
 
 from .. import __version__ as CLI_VERSION
-from .. import updates
+from .. import provenance, updates
 from ..output import AgentOutput, emit, emit_error
 from ..session import (
     TERMINAL_PHASES,
@@ -31,6 +32,7 @@ DECLINE_COMMAND = "booking-agent update decline --prompt-key"
 SKILL_PRINT_COMMAND = "booking-agent skill print"
 INSTALL_TIMEOUT_SECONDS = 600
 VERIFY_TIMEOUT_SECONDS = 60
+VERIFIED_WHEELS_DIR = "verified-wheels"
 _MAX_ANSWERED = 50
 
 
@@ -313,6 +315,22 @@ def update(
         ))
         return
 
+    try:
+        wheel = verified_wheel(target.cli_version)
+    except provenance.ProvenanceError as exc:
+        emit_error(
+            "UPDATE",
+            code="update_not_verified",
+            message=(
+                "The update could not be shown to come from the official Booking Agent "
+                "release, so nothing was installed. Tell the user in plain words that the "
+                "update was not installed, and carry on with the installed version."
+            ),
+            data={"target_version": target.cli_version, "reason": exc.reason, "detail": exc.message},
+        )
+        raise typer.Exit(code=1)
+
+    commands = install_commands(target.cli_version, newest=target.key == newest, wheel=wheel)
     ok, detail = _run(commands[installer], timeout=INSTALL_TIMEOUT_SECONDS)
     if not ok:
         emit_error(
@@ -340,6 +358,7 @@ def update(
         )
         raise typer.Exit(code=1)
 
+    _drop_other_wheels(wheel)
     _remember(store, f"release:{target.cli_version}")
     emit(AgentOutput(
         phase="UPDATE",
@@ -370,19 +389,31 @@ def _remember(store, key: Optional[str]) -> None:
 
 
 def is_editable_install() -> bool:
-    try:
-        from importlib.metadata import distribution
+    return provenance.install_source() == provenance.INSTALL_EDITABLE
 
-        raw = distribution(PACKAGE).read_text("direct_url.json")
-    except Exception:
-        return False
-    if not raw:
-        return False
-    try:
-        info = json.loads(raw)
-    except ValueError:
-        return False
-    return bool((info.get("dir_info") or {}).get("editable"))
+
+def verified_wheel(version: str) -> Path:
+    """The PyPI wheel for ``version``, kept only once its PEP 740 provenance verifies.
+
+    It stays under the booking-agent home because uv and pipx record the file they
+    installed from.
+    """
+    from booking_agent import settings
+    from booking_agent.secure_file import ensure_private_dir
+
+    folder = settings.booking_agent_home() / VERIFIED_WHEELS_DIR
+    ensure_private_dir(folder)
+    with tempfile.TemporaryDirectory(dir=folder) as tmp:
+        downloaded = provenance.download_verified_wheel(version, Path(tmp))
+        wheel = folder / downloaded.name
+        os.replace(downloaded, wheel)
+    return wheel
+
+
+def _drop_other_wheels(keep: Path) -> None:
+    for old in keep.parent.glob("*.whl"):
+        if old != keep:
+            old.unlink(missing_ok=True)
 
 
 def detect_installer() -> Optional[str]:
@@ -397,9 +428,16 @@ def detect_installer() -> Optional[str]:
     return None
 
 
-def install_commands(version: str, *, newest: bool) -> dict:
-    # ">=" leaves later upgrades free; "==" holds back a newer release that is not ready.
-    spec = f"{PACKAGE}>={version}" if newest else f"{PACKAGE}=={version}"
+def install_commands(version: str, *, newest: bool, wheel: Optional[Path] = None) -> dict:
+    """Install the verified ``wheel`` itself, so nothing is resolved from the index again.
+
+    Without a wheel (commands shown to the user to run by hand): ">=" leaves later
+    upgrades free; "==" holds back a newer release that is not ready.
+    """
+    if wheel is not None:
+        spec = str(wheel)
+    else:
+        spec = f"{PACKAGE}>={version}" if newest else f"{PACKAGE}=={version}"
     return {
         "uv": ["uv", "tool", "install", "--force", spec],
         "pipx": ["pipx", "install", "--force", spec],

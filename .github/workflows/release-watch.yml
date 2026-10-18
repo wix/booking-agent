@@ -1,7 +1,8 @@
 name: release-watch
 
 # Safety net for release.yml: every version on master should be on PyPI with a matching
-# v<version> tag. If not (a release run failed), fail visibly and open or update an
+# v<version> tag, PEP 740 provenance for its wheel and sdist, and be the version the
+# skill installs. If not (a release run failed), fail visibly and open or update an
 # issue assigned to the release owner. Closes that issue once the release exists.
 # Lives on master only; never add it to main (the Pages branch allow-list rejects it).
 
@@ -66,6 +67,23 @@ jobs:
           esac
           if ! git rev-parse -q --verify "refs/tags/v${version}" >/dev/null; then
             problems="${problems}- Tag v${version} does not exist.\n"
+          fi
+
+          # The skill installs exactly this version, so it must be the one that is published.
+          pinned="$(sed -n 's/^ *package: *"\{0,1\}booking-agent-cli==\([^"]*\)"\{0,1\} *$/\1/p' booking-agent/skills/booking-agent/SKILL.md)"
+          if [ "$pinned" != "$version" ]; then
+            problems="${problems}- SKILL.md installs booking-agent-cli==${pinned:-<none>}, not ${version}.\n"
+          fi
+
+          # Releases from 0.3.0 on carry PEP 740 attestations; the installed CLI refuses
+          # to update to, or take payments from, a version without them.
+          if [ "$status" = 200 ] && python -c "import sys; v = tuple(map(int, sys.argv[1].split('.'))); sys.exit(0 if v >= (0, 3, 0) else 1)" "$version"; then
+            for file in "booking_agent_cli-${version}-py3-none-any.whl" "booking_agent_cli-${version}.tar.gz"; do
+              code="$(curl -sS -o /dev/null -w '%{http_code}' "https://pypi.org/integrity/${PACKAGE}/${version}/${file}/provenance")"
+              if [ "$code" != 200 ]; then
+                problems="${problems}- PyPI has no provenance for ${file} (HTTP ${code}).\n"
+              fi
+            done
           fi
 
           issue="$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --search "\"${ISSUE_TITLE}\" in:title" \

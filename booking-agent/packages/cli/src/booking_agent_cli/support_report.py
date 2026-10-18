@@ -94,7 +94,7 @@ SKILL_TABLE_CODES = frozenset({
     "cancel_open_selection_required", "cancel_unauthorized", "checkout_already_in_progress",
     "checkout_prereq_not_completed", "checkout_total_unconfirmed", "complete_in_progress",
     "context_required", "disclosures_unconfirmed", "discover_radius_required",
-    "link_address_not_found", "link_auth_expired",
+    "installation_unverified", "link_address_not_found", "link_auth_expired",
     "link_auth_gate_not_completed", "link_auth_not_started", "link_auth_timeout",
     "mandatory_acceptance_pending", "missing_network_id_for_spt", "payment_already_captured",
     "payment_authentication_unsupported", "payment_captured_booking_unconfirmed",

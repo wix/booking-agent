@@ -7,7 +7,9 @@ from pathlib import Path
 
 import pytest
 
+from booking_agent import settings
 from booking_agent_cli import __version__ as CLI_VERSION
+from booking_agent_cli import provenance
 from booking_agent_cli import session as sess
 from booking_agent_cli import updates
 from booking_agent_cli.commands import update as update_cmd
@@ -54,7 +56,18 @@ def no_shell(monkeypatch):
     monkeypatch.setattr(update_cmd, "_run", fake_run)
     monkeypatch.setattr(update_cmd, "is_editable_install", lambda: False)
     monkeypatch.setattr(update_cmd, "detect_installer", lambda: "uv")
+    monkeypatch.setattr(provenance, "download_verified_wheel", _fake_verified_download)
     return calls
+
+
+def _fake_verified_download(version, dest_dir):
+    wheel = Path(dest_dir) / provenance.wheel_filename(version)
+    wheel.write_bytes(b"verified wheel")
+    return wheel
+
+
+def _wheel_path(version):
+    return settings.booking_agent_home() / update_cmd.VERIFIED_WHEELS_DIR / provenance.wheel_filename(version)
 
 
 # ---------------------------------------------------------------------------
@@ -239,17 +252,57 @@ def test_update_installs_the_selected_version_not_the_newest_upload(runner, chec
     ])
     monkeypatch.setattr(update_cmd, "verify_installed", lambda: {"cli_version": _next(1), "skill_version": "9.9.9"})
     out = _stdout_json(_invoke(runner, "update", "--user-confirmed"))
-    assert no_shell == [["uv", "tool", "install", "--force", f"booking-agent-cli=={_next(1)}"]]
+    assert no_shell == [["uv", "tool", "install", "--force", str(_wheel_path(_next(1)))]]
     assert out["data"]["installed_version"] == _next(1)
     assert out["next_command"] == update_cmd.SKILL_PRINT_COMMAND
     assert f"release:{_next(1)}" in sess.load_store().update_prompts_answered
 
 
-def test_update_to_the_newest_release_does_not_pin_it(runner, checks_on, no_shell, monkeypatch):
+def test_update_installs_the_verified_wheel_and_drops_older_ones(runner, checks_on, no_shell, monkeypatch):
     checks_on.append(_release(_next(1)))
+    older = _wheel_path(CLI_VERSION)
+    older.parent.mkdir(parents=True, exist_ok=True)
+    older.write_bytes(b"previous verified wheel")
     monkeypatch.setattr(update_cmd, "verify_installed", lambda: {"cli_version": _next(1), "skill_version": "9.9.9"})
     _invoke(runner, "update", "--user-confirmed")
-    assert no_shell == [["uv", "tool", "install", "--force", f"booking-agent-cli>={_next(1)}"]]
+    assert no_shell == [["uv", "tool", "install", "--force", str(_wheel_path(_next(1)))]]
+    assert _wheel_path(_next(1)).read_bytes() == b"verified wheel"
+    assert not older.exists()
+
+
+def test_a_failed_install_keeps_the_wheel_the_current_install_came_from(runner, checks_on, no_shell, monkeypatch):
+    checks_on.append(_release(_next(1)))
+    older = _wheel_path(CLI_VERSION)
+    older.parent.mkdir(parents=True, exist_ok=True)
+    older.write_bytes(b"previous verified wheel")
+    monkeypatch.setattr(update_cmd, "_run", lambda argv, *, timeout: (False, "disk full"))
+    assert _invoke(runner, "update", "--user-confirmed").exit_code == 1
+    assert older.exists()
+
+
+@pytest.mark.parametrize("reason", ["provenance_missing", "wrong_publisher", "digest_mismatch", "network"])
+def test_an_unverified_update_installs_nothing(runner, checks_on, no_shell, monkeypatch, reason):
+    checks_on.append(_release(_next(1)))
+
+    def refuse(version, dest_dir):
+        raise provenance.ProvenanceError(reason, "not the official release")
+
+    monkeypatch.setattr(provenance, "download_verified_wheel", refuse)
+    r = _invoke(runner, "update", "--user-confirmed")
+    out = _stdout_json(r)
+    assert r.exit_code == 1
+    assert out["data"]["error"]["code"] == "update_not_verified"
+    assert out["data"]["target_version"] == _next(1)
+    assert out["data"]["reason"] == reason
+    assert no_shell == []
+    assert f"release:{_next(1)}" not in sess.load_store().update_prompts_answered
+
+
+def test_commands_to_run_by_hand_leave_the_newest_release_unpinned():
+    commands = update_cmd.install_commands("9.9.0", newest=True)
+    assert commands["uv"] == ["uv", "tool", "install", "--force", "booking-agent-cli>=9.9.0"]
+    held = update_cmd.install_commands("9.9.0", newest=False)
+    assert held["pipx"] == ["pipx", "install", "--force", "booking-agent-cli==9.9.0"]
 
 
 def test_a_failed_install_is_reported_without_claiming_success(runner, checks_on, no_shell, monkeypatch):

@@ -22,6 +22,12 @@ pipx install booking-agent-cli
 booking-agent --help
 ```
 
+Every release carries a PEP 740 attestation from the `wix/booking-agent` release
+workflow. Check a downloaded wheel with
+`uvx pypi-attestations verify pypi --repository https://github.com/wix/booking-agent <wheel>`.
+`booking-agent update` installs only verified wheels, and the CLI checks its own installed
+files against the attested release before it books or pays.
+
 Agents use the CLI through the Booking Agent skill:
 https://raw.githubusercontent.com/wix/booking-agent/master/booking-agent/skills/booking-agent/SKILL.md
 
