@@ -43,6 +43,11 @@ SCHEMA_VERSION = 1
 CHANGE_TYPES = ("fix", "feature", "breaking")
 UPDATE_STATUSES = ("available", "recommended", "urgent", "deferred", "withdrawn")
 CAPABILITIES = ("search", "sign_in", "calendar", "booking", "payment", "cancel", "reschedule")
+# From this release on, a change to these capabilities is not "ready" until someone has run it in a
+# real hosted session. Offline tests cannot show how a hosted runtime and its agent behave.
+HOSTED_REPLAY_FROM = "0.5.0"
+HOSTED_REPLAY_CAPABILITIES = frozenset({"sign_in", "calendar", "payment"})
+HOSTED_REPLAY_PREFIX = "Hosted replay:"
 RELEASE_LABELS = CHANGE_TYPES + ("internal",)
 
 REQUIRED = {
@@ -125,6 +130,17 @@ def entry_errors(entry: object, name: str = "entry") -> list[str]:
         errors.append(f"{name}: ecosystem_ready false allows only update_status deferred (or withdrawn)")
     if entry["ecosystem_ready"] and not evidence:
         errors.append(f"{name}: ecosystem_ready true needs readiness_evidence")
+    if (
+        entry["ecosystem_ready"]
+        and Version(entry["cli_version"]) >= Version(HOSTED_REPLAY_FROM)
+        and HOSTED_REPLAY_CAPABILITIES.intersection(entry["relevant_capabilities"])
+        and not any(e.lstrip().lower().startswith(HOSTED_REPLAY_PREFIX.lower()) for e in evidence)
+    ):
+        errors.append(
+            f"{name}: ecosystem_ready true for a change to {sorted(HOSTED_REPLAY_CAPABILITIES & set(entry['relevant_capabilities']))} "
+            f"needs a readiness_evidence line starting {HOSTED_REPLAY_PREFIX!r} "
+            "(see 'Hosted replay' under Releasing in CONTRIBUTING.md)"
+        )
     if status in ("recommended", "urgent") and not (entry["ecosystem_ready"] and evidence):
         errors.append(f"{name}: {status} needs ecosystem_ready true and readiness_evidence")
     if status == "withdrawn" and "replacement_version" not in entry:

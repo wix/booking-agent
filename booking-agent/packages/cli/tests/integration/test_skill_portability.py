@@ -7,7 +7,7 @@ _SKILL = Path(__file__).resolve().parents[4] / "skills" / "booking-agent" / "SKI
 
 # Harness names, sandbox paths, and token variables from the removed platform-specific overlay.
 _HARNESS_SPECIFIC = re.compile(
-    r"base44|superagent|composio|GOOGLECALENDAR|AGENTS_ROOT|restore-sandbox|/app/\.|/root/",
+    r"base44|superagent|composio|GOOGLECALENDAR|AGENTS_ROOT|restore-sandbox|/app/\.|/root/|\.agents/",
     re.IGNORECASE,
 )
 
@@ -48,3 +48,26 @@ def test_the_repository_holds_exactly_one_skill_md():
     assert [p for p in tracked if p.rsplit("/", 1)[-1] == "SKILL.md"] == [
         "booking-agent/skills/booking-agent/SKILL.md"
     ]
+
+
+def test_cli_code_names_no_host_either():
+    """The fixes must hold on any host, so no host's folder layout is baked into the CLI."""
+    src = _SKILL.parents[2] / "packages" / "cli" / "src"
+    host = re.compile(r"base44|superagent|composio|AGENTS_ROOT|restore-sandbox|/app/\.", re.IGNORECASE)
+    offenders = []
+    for path in src.rglob("*.py"):
+        if host.search(path.read_text(encoding="utf-8")):
+            offenders.append(str(path.relative_to(src)))
+    assert offenders == []
+
+
+# Prose is read by a model and can be skipped; behaviour in the CLI cannot. This ceiling can
+# only be raised on purpose, so rules do not creep back into the skill once code enforces them.
+_MAX_SKILL_BYTES = 79_000
+_MAX_SKILL_LINES = 1_225
+
+
+def test_skill_stays_within_its_size_budget():
+    text = _text()
+    assert len(text.encode("utf-8")) <= _MAX_SKILL_BYTES
+    assert text.count("\n") + 1 <= _MAX_SKILL_LINES

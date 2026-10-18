@@ -118,3 +118,113 @@ def test_never_runs_link_login(runner, dirs, monkeypatch):
     monkeypatch.setattr(subprocess, "Popen", _no_subprocess)
     result, _body = _run(runner, "--persistent-root", str(root))
     assert result.exit_code == 0, result.stdout
+
+
+# --- A changed or nested root must never split the saved state (reset regression) ---------------
+
+def _seed(root_state, root_link, *, session="session", link="link"):
+    root_state.mkdir(parents=True, exist_ok=True)
+    root_link.mkdir(parents=True, exist_ok=True)
+    (root_state / "booking-agent-session.json").write_text(session)
+    (root_link / "config.json").write_text(link)
+
+
+def test_a_root_already_named_booking_agent_is_not_nested_again(runner, dirs):
+    home, root, link_dir = dirs
+    nested = root / "booking-agent"
+
+    result, body = _run(runner, "--persistent-root", str(nested))
+
+    assert result.exit_code == 0, result.stdout
+    assert (home / ".booking-agent").resolve() == (root / "booking-agent").resolve()
+    assert link_dir.resolve() == (root / "link-cli").resolve()
+    assert not (root / "booking-agent" / "booking-agent").exists()
+    assert not (root / "booking-agent" / "link-cli").exists()
+    assert body["data"]["root"] == str(root)
+
+
+def test_both_spellings_of_the_same_root_share_one_state(runner, dirs):
+    home, root, link_dir = dirs
+    _run(runner, "--persistent-root", str(root))
+    (root / "booking-agent" / "booking-agent-session.json").write_text("real")
+    (root / "link-cli" / "config.json").write_text("signed-in")
+
+    result, _body = _run(runner, "--persistent-root", str(root / "booking-agent"))
+
+    assert result.exit_code == 0, result.stdout
+    assert (home / ".booking-agent" / "booking-agent-session.json").read_text() == "real"
+    assert (link_dir / "config.json").read_text() == "signed-in"
+
+
+def test_a_state_folder_nested_by_the_old_layout_is_lifted_back_up(runner, dirs):
+    home, root, link_dir = dirs
+    old = root / "booking-agent"
+    _seed(old / "booking-agent", old / "link-cli", session="real", link="signed-in")
+
+    result, body = _run(runner, "--persistent-root", str(old))
+
+    assert result.exit_code == 0, result.stdout
+    assert (home / ".booking-agent" / "booking-agent-session.json").read_text() == "real"
+    assert (link_dir / "config.json").read_text() == "signed-in"
+    assert not (root / "booking-agent" / "booking-agent").exists()
+    assert not (root / "booking-agent" / "link-cli").exists()
+    assert any(link.get("lifted_from_nested_layout") for link in body["data"]["links"])
+
+
+def test_moving_to_a_different_root_brings_the_saved_state_along(runner, dirs, tmp_path):
+    home, root, link_dir = dirs
+    _run(runner, "--persistent-root", str(root))
+    (root / "booking-agent" / "booking-agent-session.json").write_text("real")
+    (root / "link-cli" / "config.json").write_text("signed-in")
+    other = tmp_path / "other-keep"
+
+    result, body = _run(runner, "--persistent-root", str(other))
+
+    assert result.exit_code == 0, result.stdout
+    assert (home / ".booking-agent").resolve() == (other / "booking-agent").resolve()
+    assert (home / ".booking-agent" / "booking-agent-session.json").read_text() == "real"
+    assert (link_dir / "config.json").read_text() == "signed-in"
+    assert [link["result"] for link in body["data"]["links"]][:2] == ["relinked", "relinked"]
+
+
+def test_moving_to_a_root_that_has_its_own_state_leaves_the_old_one_untouched(runner, dirs, tmp_path):
+    home, root, link_dir = dirs
+    _run(runner, "--persistent-root", str(root))
+    (root / "link-cli" / "config.json").write_text("old-sign-in")
+    other = tmp_path / "other-keep"
+    _seed(other / "booking-agent", other / "link-cli", session="newer", link="new-sign-in")
+
+    result, body = _run(runner, "--persistent-root", str(other))
+
+    assert result.exit_code == 0, result.stdout
+    assert (link_dir / "config.json").read_text() == "new-sign-in"
+    assert (root / "link-cli" / "config.json").read_text() == "old-sign-in"
+    assert body["data"]["links"][1]["previous_root_left_at"] == str((root / "link-cli").resolve())
+
+
+def test_doctor_reports_where_state_lives_and_what_is_orphaned(runner, dirs, tmp_path):
+    home, root, link_dir = dirs
+    _run(runner, "--persistent-root", str(root))
+    _seed(root / "booking-agent" / "booking-agent", root / "booking-agent" / "link-cli")
+
+    result = runner.invoke(app, ["runtime", "doctor"])
+    body = json.loads(result.stdout)
+
+    assert result.exit_code == 0, result.stdout
+    assert body["data"]["state"]["linked_to"] == str((root / "booking-agent").resolve())
+    assert body["data"]["link_sign_in"]["linked_to"] == str((root / "link-cli").resolve())
+    kinds = {finding["kind"] for finding in body["data"]["findings"]}
+    assert "nested_state_folder" in kinds
+    assert body["data"]["healthy"] is False
+
+
+def test_doctor_is_quiet_when_everything_is_in_one_place(runner, dirs):
+    _home, root, _link_dir = dirs
+    _run(runner, "--persistent-root", str(root))
+
+    result = runner.invoke(app, ["runtime", "doctor"])
+    body = json.loads(result.stdout)
+
+    assert result.exit_code == 0, result.stdout
+    assert body["data"]["healthy"] is True
+    assert body["data"]["findings"] == []

@@ -149,3 +149,29 @@ def payment_context_text(session: Any, total_display: Optional[str]) -> str:
         text += f" Total {total_display}, paid to the business through its checkout."
     text += " Booked by the booking agent at your request."
     return text
+
+
+def booked_message(session: Any) -> str:
+    """Plain-language "you're booked" text built from saved state.
+
+    Used by every command that can be the last word on a confirmed booking (the payment
+    poll, ``book poll``, ``status``), so the user gets the same answer whichever one runs
+    first, including the calendar link when an event was added.
+    """
+    slot = selected_slot(session)
+    dual = bool(getattr(session, "timezone_difference_shown", False))
+    text = f"You're booked: {service_and_business(session)}"
+    when = when_text(session, slot, dual=dual) if slot is not None else None
+    if when:
+        text += f", {when}"
+    where = where_text(session)
+    if where:
+        text += f". {where}"
+    text = text.rstrip(".") + "."
+    link = getattr(session, "calendar_event_html_link", None)
+    if link:
+        text += f"\nAdded to your Google Calendar: {link}"
+    booking_url = getattr(getattr(session, "booking", None), "booking_url", None)
+    if booking_url:
+        text += f"\nTo view, change, or cancel it later (worth saving): {booking_url}"
+    return text

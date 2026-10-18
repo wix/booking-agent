@@ -268,6 +268,8 @@ class Session:
     area_resume_command: Optional[str] = None  # command to rerun after an address confirmation
     booking_notes: Optional[str] = None  # note for the business, set at buyer resolve
     calendar_timezone: Optional[str] = None  # primary Google Calendar zone (events mode only)
+    calendar_event_id: Optional[str] = None  # event created for this booking, so status can show it
+    calendar_event_html_link: Optional[str] = None
 
 
 @dataclass
@@ -905,6 +907,8 @@ def _session_from_dict(raw: Dict[str, Any]) -> Session:
         area_resume_command=raw.get("area_resume_command"),
         booking_notes=raw.get("booking_notes"),
         calendar_timezone=raw.get("calendar_timezone"),
+        calendar_event_id=raw.get("calendar_event_id"),
+        calendar_event_html_link=raw.get("calendar_event_html_link"),
     )
     return _remember_unknown(session, raw, _SESSION_KEYS)
 

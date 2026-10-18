@@ -151,7 +151,8 @@ Decide `change_type`, `update_status`, and `ecosystem_ready` in this order. Do n
    - existing businesses stay compatible, through unchanged contracts, version negotiation, or a tested fallback;
    - the registry in use today accepts and returns the shapes and versions the release needs;
    - saved session files stay safe across the upgrade (and a downgrade, where one is possible);
-   - integration or staging tests cover the affected path.
+   - integration or staging tests cover the affected path;
+   - for a change to `sign_in`, `calendar`, or `payment` behavior, someone ran it in a real hosted session (see [Hosted replay](#hosted-replay)) and `readiness_evidence` has a line starting `Hosted replay:`. `scripts/release_notes.py --check` fails without it from 0.5.0 on.
 5. **Choose `update_status`:**
    - `available`: a normal fix or internal improvement. Users are not prompted.
    - `recommended`: a ready feature with a clear benefit to users, or a broadly useful fix. Mentioned after a booking, or before one when it is relevant to it. A ready breaking release is offered before the next booking.
@@ -159,6 +160,17 @@ Decide `change_type`, `update_status`, and `ecosystem_ready` in this order. Do n
    - `deferred`: the rollout is not finished or evidence is missing. Never offered, and a newer version is not offered past it either, because installing it would bring this release's changes too.
    - `withdrawn`: a released version that must not be installed any more. Needs a newer, installable `replacement_version`.
 6. **Green CI is not readiness.** A newer version, passing tests, or a schema that validates does not show that the registry and live businesses work with the release.
+
+#### Hosted replay
+
+Offline tests cover the CLI; they cannot show how a hosted runtime and its agent behave. Before a release that touches sign-in, calendar, or payment is marked `ecosystem_ready: true`, run one throwaway booking (a $1 service) in a real hosted session and record what you saw in one `Hosted replay:` evidence line. The person asking for the rollout runs it; the release owner checks the line when reviewing the PR. The check proves the line exists, not that the replay happened, so review it.
+
+1. Start a booking, sign in to Link when asked, and confirm the search area.
+2. Force a restart of the runtime (new conversation, fresh filesystem) after choosing the slot. Expect at most **one** message asking to reconnect anything (Link, calendar, or both together), and no second sign-in unless the Link session really expired.
+3. Say yes at the confirmation. Expect a one-line acknowledgment immediately.
+4. Approve the payment in Link. Expect the "You're booked" message without nudging, with the raw calendar event link.
+5. Ask "what's going on?" at any point. Expect an answer from `flow status`, never "I couldn't confirm".
+6. Run `booking-agent runtime doctor`. Expect no findings.
 
 Saved session files have their own rule. Adding an optional field keeps `STORE_SCHEMA_VERSION` and `SCHEMA_VERSION` in `session.py` as they are: older builds keep fields they do not know when they save. Raising either number makes every older build refuse the file and ask its user to update, so that is a breaking change, and its release cannot be `available`.
 

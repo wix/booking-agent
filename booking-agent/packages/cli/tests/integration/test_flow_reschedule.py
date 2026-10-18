@@ -153,7 +153,10 @@ def _invoke(runner: CliRunner, *args: str, exit_code: int = 0) -> dict:
     result = runner.invoke(app, ["flow", *args])
     text = result.stdout or result.output or ""
     assert result.exit_code == exit_code, f"stdout={text!r} exc={result.exception!r}"
-    obj, _ = json.JSONDecoder().raw_decode(text.strip())
+    text = text.strip()
+    # A user_message is written as bare lines before the JSON object.
+    start = text.find("{")
+    obj, _ = json.JSONDecoder().raw_decode(text[start:])
     return obj
 
 

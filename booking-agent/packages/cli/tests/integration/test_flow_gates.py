@@ -2346,7 +2346,9 @@ def test_flow_status_payment_pending_does_not_resurface_approval_url(
     assert not r.stdout.startswith("https://")
     body = _stdout_json(r)
     assert body["data"]["approval_url"] == "https://link.test/status-approve"
-    assert body["user_message"] is None
+    # The user already has the link, so the message is a plain waiting sentence, never the URL.
+    assert "waiting for your approval" in body["user_message"].lower()
+    assert "https://" not in body["user_message"]
     assert body["awaiting_user"] is None
     assert "foreground" in body["prompt"].lower()
 
@@ -3651,16 +3653,116 @@ def test_direct_booking_recap_and_narration_skip_wallet_language(
         assert "at the appointment" in narration
 
 
-def test_skill_documents_timezone_and_route_aware_confirmation():
+def test_cli_words_the_confirmation_for_each_payment_route_and_timezone():
+    """The route- and timezone-specific wording lives in the CLI prompt, not in skill prose."""
     from pathlib import Path
 
-    text = (
-        Path(__file__).resolve().parents[4] / "skills" / "booking-agent" / "SKILL.md"
-    ).read_text()
-    assert "take it from this device, the agent" in text
-    assert "data.timezone_notice" in text and "buyer_start_display" in text
-    assert "There is no separate timezone question" in text
-    for route in ("`free`", "`at_service`", "`at_booking`", "`deposit_required`"):
-        assert f"- **{route}:**" in text
+    from booking_agent_cli.commands.flow import _buyer_recap
+    from booking_agent_cli.session import Session
+
+    def prompt(route, *, dual=False, notice=False):
+        session = Session(user_request="x", payment_route=route)
+        session.business.timezone = "America/Phoenix"
+        text, _summary = _buyer_recap(session, {"price_display": "$1.00"}, dual=dual, notice_needed=notice)
+        return text
+
+    assert "free" in prompt("free") and "Do not bring up money" in prompt("free")
+    assert "paid to the business at the appointment" in prompt("at_service")
+    assert "charge that total to their Link wallet" in prompt("at_booking")
+    assert "charge only the deposit due now" in prompt("deposit_required")
+    both = prompt("at_booking", dual=True, notice=True)
+    assert "data.timezone_notice" in both and "buyer_display" in both
+    text = (Path(__file__).resolve().parents[4] / "skills" / "booking-agent" / "SKILL.md").read_text()
+    assert "never from this device" in text
+    assert "no separate timezone" in " ".join(text.split())
     assert "data.booking_narration" in text
-    assert "charge **only the deposit due now**" in text
+
+
+# --- The booking never goes quiet: one terminal answer, with the calendar link (stall regression)
+
+def _pay_poll_to_confirmed(runner, monkeypatch, *, calendar_result):
+    import booking_agent_cli.commands.flow as flow
+    import booking_agent_cli.payment_helpers as payment_helpers
+    from booking_agent_cli.link_cli import SpendRequestCreateResult
+    from booking_agent_cli.session import load_session, save_session
+
+    _drive_to_payment_pending(runner)
+    session = load_session()
+    session.checkout_mode = "ucp_native"
+    session.booking.checkout_path = "ucp"
+    session.ucp_checkout_session_id = "chk_test"
+    session.ucp_spt_network_id = "ntwrk_test"
+    session.calendar_state = "connected"
+    session.calendar_mode = "events"
+    save_session(session)
+
+    monkeypatch.setattr(flow, "create_spend_request", lambda **_k: SpendRequestCreateResult(
+        id="lsrq_poll", approval_url="https://link.test/approve",
+        raw={"id": "lsrq_poll"}, command_summary="link-cli spend-request create ...",
+    ))
+    r = _invoke(runner, "flow", "pay", "request", "--payment-method-id", "pm_test", "--context", "x" * 100)
+    assert r.exit_code == 0, r.stdout + r.stderr
+    monkeypatch.setattr(flow, "_poll_spend_approval_or_exit", lambda *_a, **_k: None)
+
+    async def fake_complete(*_a, **_k):
+        return {"complete_checkout": {}, "checkout_id": "chk_test", "order_id": "ord_1",
+                "handler_id_resolved": "com.stripe"}
+
+    monkeypatch.setattr(payment_helpers, "complete_ucp_checkout_async", fake_complete)
+    monkeypatch.setattr(flow, "create_calendar_event", lambda *_a, **_k: calendar_result)
+    return _invoke(runner, "flow", "pay", "poll")
+
+
+def test_pay_poll_emits_one_terminal_booked_object(runner, isolated_session, monkeypatch):
+    link = "https://www.google.com/calendar/event?eid=abc"
+    r = _pay_poll_to_confirmed(runner, monkeypatch, calendar_result={
+        "ok": True, "event_id": "evt1", "html_link": link, "idempotent": False,
+    })
+
+    assert r.exit_code == 0, r.stdout + r.stderr
+    objects = [_stdout_json(r, index=i) for i in range(_object_count(r))]
+    assert len(objects) == 1, "the agent must get exactly one answer, not a 'poll the booking' detour"
+    body = objects[0]
+    assert body["user_message"].startswith("You're booked")
+    assert link in body["user_message"]
+    # The one thing left to do is the update check, handed over by the CLI, not by skill prose.
+    assert body["next_command"].startswith("booking-agent update check --after-booking")
+
+
+def test_status_answers_after_the_booking_is_done_with_the_same_message(runner, isolated_session, monkeypatch):
+    link = "https://www.google.com/calendar/event?eid=abc"
+    _pay_poll_to_confirmed(runner, monkeypatch, calendar_result={
+        "ok": True, "event_id": "evt1", "html_link": link, "idempotent": False,
+    })
+
+    r = _invoke(runner, "flow", "status")
+
+    body = _stdout_json(r)
+    assert body["user_message"].startswith("You're booked")
+    assert link in body["user_message"], "Well? must never get 'I could not confirm the calendar event'"
+
+
+def test_a_calendar_failure_after_payment_still_reports_the_booking(runner, isolated_session, monkeypatch):
+    r = _pay_poll_to_confirmed(runner, monkeypatch, calendar_result={
+        "ok": False, "code": "calendar_write_failed", "message": "nope",
+    })
+
+    assert r.exit_code == 0, r.stdout + r.stderr
+    body = _stdout_json(r)
+    assert body["phase"] == "CONFIRMED"
+    assert body["user_message"].startswith("You're booked")
+    assert "couldn't add it to your Google Calendar" in body["user_message"]
+    assert body["data"]["calendar"]["calendar_not_added"] is True
+
+
+def _object_count(result) -> int:
+    dec = json.JSONDecoder()
+    s, idx, n = result.stdout.strip(), 0, 0
+    while idx < len(s):
+        if s[idx] != "{":
+            nl = s.find("\n", idx)
+            idx = len(s) if nl == -1 else nl + 1
+            continue
+        _obj, end = dec.raw_decode(s, idx)
+        idx, n = end, n + 1
+    return n

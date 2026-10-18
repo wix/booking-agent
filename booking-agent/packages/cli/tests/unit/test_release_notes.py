@@ -194,3 +194,19 @@ def test_entries_are_never_mutated_by_the_check():
     before = copy.deepcopy(entries)
     _pr(entries=entries)
     assert entries == before
+
+
+def test_a_ready_sign_in_calendar_or_payment_change_needs_a_hosted_replay_line():
+    entry = _entry(version="0.5.0", relevant_capabilities=["calendar"])
+    errors = release_notes.entry_errors(entry, "0.5.0.json")
+    assert any("Hosted replay:" in e for e in errors)
+
+    entry["readiness_evidence"] = ["Hosted replay: restart mid-booking, one reconnect message, booked + calendar link."]
+    assert release_notes.entry_errors(entry, "0.5.0.json") == []
+
+
+def test_the_hosted_replay_rule_leaves_other_changes_and_older_releases_alone():
+    assert release_notes.entry_errors(_entry(version="0.5.0", relevant_capabilities=["search"]), "0.5.0.json") == []
+    assert release_notes.entry_errors(_entry(version="0.4.2", relevant_capabilities=["payment"]), "0.4.2.json") == []
+    deferred = _entry(version="0.5.0", relevant_capabilities=["payment"], ecosystem_ready=False, update_status="deferred")
+    assert release_notes.entry_errors(deferred, "0.5.0.json") == []

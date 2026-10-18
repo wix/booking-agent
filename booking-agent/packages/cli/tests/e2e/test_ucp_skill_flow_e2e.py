@@ -232,10 +232,13 @@ def test_ucp_skill_flow_e2e_over_http(runner, offline_http_env, monkeypatch):
     assert r.exit_code == 0, r.stdout + r.stderr
     r = _invoke(runner, "flow", "pay", "poll")
     assert r.exit_code == 0, r.stdout + r.stderr
-    complete = _stdout_json(r, index=-2)
-    assert complete["data"]["spt_source"] == "link-cli spend-request retrieve"
+    # One terminal answer: the booked message, not a "checkout completed, now poll" detour.
+    complete = _stdout_json(r)
     assert complete["phase"] == "CONFIRMED"
-    assert complete["data"].get("order_id")
+    assert complete["user_message"].startswith("You're booked")
+    from booking_agent_cli.session import load_session
+
+    assert load_session().payment.order_id
 
     r = _invoke(runner, "flow", "validate-skill-compliance")
     assert r.exit_code == 0, r.stdout + r.stderr
@@ -286,12 +289,6 @@ def test_offline_full_spt_path_with_checkout_network_id(
         idx = end
         while idx < len(s) and s[idx].isspace():
             idx += 1
-    ucp_complete = next(
-        o
-        for o in objs
-        if o.get("data", {}).get("spt_source") == "link-cli spend-request retrieve"
-    )
-    assert ucp_complete["phase"] == "CONFIRMED"
     final = objs[-1]
     assert final["phase"] == "CONFIRMED"
     assert final["data"].get("skill_compliance_validated") is True
@@ -327,3 +324,46 @@ def test_offline_stack_registry_search_scores_ac_repair():
         assert "AC" in results[0].service_name
     finally:
         stack.stop()
+
+
+def test_a_restart_and_a_changed_persistent_root_mid_booking_lose_nothing(
+    runner, offline_http_env, monkeypatch, tmp_path,
+):
+    """Replays the recorded hosted failure offline: the runtime restarts between steps and later
+    conversations name the persistent folder differently. The booking must finish with the
+    same saved session, with no second state folder and no booking restarted from scratch."""
+    from booking_agent_cli import runtime_prepare
+    from booking_agent_cli.session import load_session
+
+    state = tmp_path / "state"
+    link_dir = tmp_path / "link-config"
+    monkeypatch.setenv("BOOKING_AGENT_SESSION_DIR", str(state))
+    monkeypatch.setattr(runtime_prepare, "link_cli_config_dir", lambda: link_dir)
+    keep_a, keep_b = tmp_path / "keep-a", tmp_path / "keep-b"
+
+    def prepare(root):
+        r = _invoke(runner, "runtime", "prepare", "--persistent-root", str(root))
+        assert r.exit_code == 0, r.stdout + r.stderr
+
+    prepare(keep_a)
+    _drive_offline_ucp_to_payment_pending(runner, offline_http_env)
+    booked_id = load_session().id
+
+    # Restart 1: fresh filesystem, and the new conversation passes the state folder itself.
+    state.unlink(); link_dir.unlink()
+    prepare(keep_a / "booking-agent")
+    assert load_session().id == booked_id
+    # Later in the same runtime a conversation names another folder altogether.
+    prepare(keep_b)
+    assert load_session().id == booked_id
+    assert not (keep_a / "booking-agent" / "booking-agent").exists()
+
+    _stub_link_spend_request(monkeypatch, "lsrq_reset", {})
+    r = _invoke(runner, "flow", "pay", "request", "--payment-method-id", "pm_test")
+    assert r.exit_code == 0, r.stdout + r.stderr
+    r = _invoke(runner, "flow", "pay", "poll")
+    assert r.exit_code == 0, r.stdout + r.stderr
+    final = _stdout_json(r)
+    assert final["phase"] == "CONFIRMED"
+    assert final["user_message"].startswith("You're booked")
+    assert load_session().id == booked_id

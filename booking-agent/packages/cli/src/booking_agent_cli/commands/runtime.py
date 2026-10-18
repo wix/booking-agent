@@ -6,7 +6,7 @@ from typing import List
 import typer
 
 from ..output import AgentOutput, emit
-from ..runtime_prepare import PrepareError, prepare
+from ..runtime_prepare import PrepareError, diagnose, normalized_root, prepare
 
 app = typer.Typer(help="Runtime setup for agents whose filesystem resets between conversations.")
 
@@ -42,5 +42,21 @@ def runtime_prepare(
         phase="INIT",
         prompt="Booking Agent state and the Link sign-in now live in the persistent folder.",
         next_command="booking-agent flow sessions list",
-        data={"links": links},
+        data={"links": links, "root": str(normalized_root(persistent_root))},
+    ))
+
+
+@app.command("doctor")
+def runtime_doctor() -> None:
+    """Report where saved state and the Link sign-in live, and anything an earlier setup left behind."""
+    report = diagnose()
+    fix = report["fix_command"]
+    emit(AgentOutput(
+        phase="INIT",
+        prompt=(
+            "Saved state and the sign-in are in one place." if report["healthy"]
+            else "Saved state or the sign-in is split across folders. Run next_command once to merge them."
+        ),
+        next_command=fix,
+        data=report,
     ))
