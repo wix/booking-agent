@@ -2,14 +2,22 @@
   "change_type": "fix",
   "cli_version": "0.4.1",
   "details_url": "https://github.com/wix/booking-agent/releases/tag/v0.4.1",
-  "ecosystem_ready": false,
-  "readiness_evidence": [],
+  "ecosystem_ready": true,
+  "readiness_evidence": [
+    "PyPI serves PEP 740 provenance for both 0.4.1 files: /integrity/booking-agent-cli/0.4.1/<file>/provenance returns HTTP 200 for booking_agent_cli-0.4.1-py3-none-any.whl and booking_agent_cli-0.4.1.tar.gz (checked 18/10/26).",
+    "Release v0.4.1 carries SKILL.md and SKILL.md.sigstore.json as assets, and tag skill-v0.51.0 points at 56845d9b, the commit that released it.",
+    "gh attestation verify --repo wix/booking-agent --signer-workflow wix/booking-agent/.github/workflows/release.yml succeeds (exit 0) on a copy freshly fetched from the pinned raw URL for skill-v0.51.0, with the attestation naming release.yml at 56845d9b; the same command on a modified copy exits 1 with no attestation for its digest.",
+    "skill-install-check passes on master (run 39118894450, 18/10/26): npx skills add leaves two installed copies, .agents/skills/booking-agent/SKILL.md byte-identical and agent/skills/booking-agent/SKILL.md rewritten by the installer, and the CLI accepts both; OpenClaw installs the skill unchanged and it is accepted.",
+    "A clean uv pip install booking-agent-cli==0.4.1 from PyPI accepts both the attested skill and an installer-rewritten copy (description refolded from | to > and rewrapped, allowed-tools and user-invocable dropped) at flow init --skill-path, and still returns skill_unverified for a tampered copy, which blocks flow pay request.",
+    "No external contract changed: USP and UCP requests and responses, the registry calls, and platform-profile.json are byte-identical to 0.3.0, so existing businesses and the registry in use today are unaffected (git diff v0.3.0..v0.4.1 touches no profile or protocol file).",
+    "Saved session files stay safe both ways: the release adds one optional field (skill_integrity_failure) and leaves SCHEMA_VERSION and STORE_SCHEMA_VERSION at 2, so an older build still opens a file this one wrote."
+  ],
   "relevant_capabilities": [
     "booking",
     "payment"
   ],
   "schema_version": 1,
   "skill_version": "0.51.0",
-  "update_status": "deferred",
+  "update_status": "recommended",
   "user_summary": "Fixes a check that could wrongly stop the assistant from booking or paying when its instructions were installed by some tools."
 }

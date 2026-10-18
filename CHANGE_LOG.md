@@ -1,5 +1,15 @@
 # Change Log
 
+## 18/10/26 at 13:25:51 by [Ran Yahalom](mailto:ranya@wix.com)
+
+- Rolled 0.4.0 and 0.4.1 out to users: both release-notes entries move from `update_status: deferred` to `recommended` with `ecosystem_ready: true`, and `readiness_evidence` now records the facts that were re-confirmed before the flip. Both shipped deliberately quiet, and the skill signing and verification they add is only worth having once users actually run it; nothing is offered while either entry stays deferred, because a release after a deferred one is never offered either
+- Recommended 0.4.0 as well, rather than leaving it deferred or withdrawing it, after reading how the update flow picks a version. `select_target()` takes the newest release that is not deferred or withdrawn and `update --user-confirmed` installs that exact version's verified wheel, so with 0.4.1 recommended the target is always 0.4.1 and no installed assistant can land on the raw-byte-hash bug 0.4.0 shipped with. Leaving 0.4.0 deferred would not protect anyone; it would only hold 0.4.1 back behind it
+- Did not mark 0.4.0 `withdrawn`: it was never offered to anyone, and the only way onto it is a manual pin. Such a user is already carried forward, because 0.4.1 is recommended and lists the booking and payment capabilities, so the move is offered before any request that needs them. `withdrawn` would add an urgent pre-booking interruption for a population that is reached anyway
+- Left `change_type` as released, `feature` for 0.4.0 and `fix` for 0.4.1: it records what shipped in each version and is not a rollout decision to revisit
+- Regenerated `release-notes/index.json`, the single file an installed CLI fetches. No shipped code changes, so no version bump
+
+---
+
 ## 18/10/26 at 13:02:36 by [Ran Yahalom](mailto:ranya@wix.com)
 
 - Released as 0.4.1 (skill 0.51.0). The skill check now hashes what installers leave alone -- the instructions, plus `name`, `version` and a whitespace-collapsed `description` -- instead of the raw bytes, because `skill-install-check.yml` showed that one agent layout written by `npx skills add` re-serializes the file: `description` is refolded from `|` to `>` and rewrapped, and `allowed-tools` and `user-invocable` are dropped. Under the old raw-byte hash every user who installed through that layout would have been told their instructions were tampered with and refused booking and payment. 0.4.0 was never rolled out (`deferred`), so no installed assistant was affected
