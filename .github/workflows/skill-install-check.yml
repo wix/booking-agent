@@ -67,7 +67,32 @@ jobs:
               echo "  ok       ${copy}"
             else
               echo "  REWROTE  ${copy}"
-              diff -u "${RUNNER_TEMP}/published.md" "$copy" | head -20 || true
+              # Which half moved decides the fix: installers may re-serialize the
+              # frontmatter to their own schema while leaving the instructions alone.
+              python3 - "$copy" "${RUNNER_TEMP}/published.md" <<'PY'
+          import sys, hashlib
+
+          def split(path):
+              t = open(path, encoding="utf-8").read().replace("\r\n", "\n")
+              if not t.startswith("---\n"):
+                  return "", t
+              end = t.find("\n---", 4)
+              return (t[4:end], t[end + 4:]) if end != -1 else ("", t)
+
+          def norm(s):
+              return (s.rstrip("\n") + "\n").encode()
+
+          a_fm, a_body = split(sys.argv[1])
+          b_fm, b_body = split(sys.argv[2])
+          print("    frontmatter identical:", a_fm == b_fm)
+          print("    body identical (raw) :", a_body == b_body)
+          print("    body identical (norm):", hashlib.sha256(norm(a_body)).hexdigest()
+                == hashlib.sha256(norm(b_body)).hexdigest())
+          print("    installed frontmatter keys:",
+                sorted({l.split(":")[0] for l in a_fm.splitlines() if l[:1].isalpha()}))
+          print("    published frontmatter keys:",
+                sorted({l.split(":")[0] for l in b_fm.splitlines() if l[:1].isalpha()}))
+          PY
               rewritten=1
             fi
           done
