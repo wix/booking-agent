@@ -28,8 +28,24 @@ workflow. Check a downloaded wheel with
 `booking-agent update` installs only verified wheels, and the CLI checks its own installed
 files against the attested release before it books or pays.
 
-Agents use the CLI through the Booking Agent skill:
+Agents use the CLI through the Booking Agent skill, installed with
+`npx skills add wix/booking-agent --skill booking-agent`, or taken from the canonical raw URL:
 https://raw.githubusercontent.com/wix/booking-agent/master/booking-agent/skills/booking-agent/SKILL.md
+
+Each release also publishes that skill at an immutable `skill-v<version>` tag and signs it with
+the release workflow, so a harness can pin and verify the exact text it follows:
+
+```bash
+curl -fsSLO https://raw.githubusercontent.com/wix/booking-agent/skill-v0.50.0/booking-agent/skills/booking-agent/SKILL.md
+gh attestation verify SKILL.md --repo wix/booking-agent \
+  --signer-workflow wix/booking-agent/.github/workflows/release.yml
+```
+
+`flow init --skill-path <path>` then checks the file the agent actually loaded against the signed
+copy inside the wheel; a modified file claiming the same version fails `skill_unverified` and
+blocks booking and payment until `booking-agent skill print --output <path>` restores it. A copy
+written to evade the check can omit `--skill-path`, so the first read is what the attestation and
+the harness cover.
 
 The skill also needs `link-cli` for buyer identity and payment approval; see the
 skill for details.

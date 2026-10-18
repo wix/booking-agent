@@ -1,5 +1,16 @@
 # Change Log
 
+## 18/10/26 at 11:55:59 by [Ran Yahalom](mailto:ranya@wix.com)
+
+- Released as 0.4.0 (skill 0.50.0). Every release now signs the skill itself: `release.yml` attests `skills/booking-agent/SKILL.md` with GitHub build provenance, attaches that file and its `SKILL.md.sigstore.json` bundle to the GitHub Release, and creates the immutable tag `skill-v<frontmatter version>`, because the wheel was the only thing a harness could verify while the file that actually drives the assistant was fetched from an unpinned `master` URL. A tampered skill could redirect a booking or a payment with every wheel check still passing
+- `flow init` takes `--skill-path` and compares the loaded `SKILL.md` with the signed copy inside the wheel. A file claiming the bundled version that does not match it fails `skill_unverified`, and `flow book` and every `flow pay` command refuse until the user consents to `booking-agent skill print --output <path>` restoring the official text. A file declaring another version stays with the existing update flow, which already offers to replace a stale copy, and skill files resolving into a source checkout are left alone so development edits are not blocked. The saved booking file keeps format 2 with one new optional top-level field
+- The internal bundled copy of the skill is now `booking_agent_cli/bundled_skill.md`, not `SKILL.md`, and CI fails on any second tracked file named `SKILL.md`, because skill installers copy the directory holding a `SKILL.md` and `npx skills add wix/booking-agent --skill booking-agent` would otherwise be able to install the Python package directory in place of the skill
+- `check_version.py` now also fails CI when a skill URL anywhere in the repository is neither the canonical `master` URL nor the pinned URL of the current skill version, when the skill's `metadata.url` or `openclaw.homepage` is not the canonical URL, or when a changed skill does not raise its frontmatter version, because a released `skill-v<version>` tag can never move. `sync_skill_bundle.py` rewrites those pinned URLs from the skill's own frontmatter
+- `release-watch.yml` now also fails when the skill tag, either release asset, or the attestation for the file served at the pinned URL is missing, so a half-finished release is caught the next morning rather than by a harness
+- Rollout is `deferred` with `ecosystem_ready: false`: the pinned tag, the release assets, and the attestation this release describes exist only once it is published, so it should be offered to users only after the published artifacts are confirmed
+
+---
+
 ## 18/10/26 at 09:50:49 by [Ran Yahalom](mailto:ranya@wix.com)
 
 - 0.3.0 is now `recommended` with `ecosystem_ready: true`, because it was held at `deferred` only until its published files were shown to carry attestations, and that is now confirmed: PyPI serves provenance for the wheel and the sdist signed by `wix/booking-agent` `release.yml`, a clean install from PyPI passes its own first-run check, a tampered install is refused, and saved bookings move between 0.2.0 and 0.3.0 in both directions. Installed assistants on 0.2.0 will now offer the update, once, with the user's consent

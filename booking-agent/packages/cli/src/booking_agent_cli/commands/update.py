@@ -13,7 +13,7 @@ from typing import List, Optional, Tuple
 import typer
 
 from .. import __version__ as CLI_VERSION
-from .. import provenance, updates
+from .. import provenance, skill_integrity, updates
 from ..output import AgentOutput, emit, emit_error
 from ..session import (
     TERMINAL_PHASES,
@@ -84,6 +84,10 @@ def skill_print(
         output.chmod(0o644)
     except OSError:
         pass
+    try:
+        skill_integrity.clear(load_store())
+    except SessionStoreTooNew:
+        pass
     emit(AgentOutput(
         phase="UPDATE",
         prompt=(
@@ -99,7 +103,7 @@ def skill_print(
 def _skill_target_error(path: Path) -> Optional[str]:
     if path.name != "SKILL.md":
         return "--output must name a SKILL.md file."
-    if path.is_symlink():
+    if path.is_symlink() or skill_integrity.is_source_checkout(path):
         return (
             "That skill file is a link into a source checkout, which updates with the "
             "checkout; it is never overwritten."

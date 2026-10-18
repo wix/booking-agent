@@ -1,5 +1,5 @@
 ---
-version: 0.49.0
+version: 0.50.0
 name: booking-agent
 description: |
   Books time-based services via USP from a Link wallet. Use when the user wants to book, schedule, reserve, or pay for a service from a business (haircut, lesson, repair, class, appointment, consult). The `booking-agent` CLI owns the booking state machine and refuses to proceed when human gates are skipped. Sign the user in to Link on your own, right after install and at the start of every booking (`booking-agent flow link-auth connect`, then start `booking-agent flow link-auth poll` in the background and post the sign-in URL in the same turn, exactly like `pay poll`); never wait for the user to ask to sign in or to say they approved. After `booking-agent flow business use`, follow `next_command` through `use-ucp-checkout-mode`; businesses without native checkout fail closed. Payment uses `booking-agent flow pay request` (default returns immediately with the approval URL), then start `booking-agent flow pay poll` in the background and post the approval URL to the user in the same turn; the poll finishes checkout once they approve. Confirm through `booking-agent flow book poll --wait`; never start an inbound webhook. Surface the approval URL exactly once. Personal identification (name, phone, email, address) must always come from the user's Link account via `link-cli`, never from chat or placeholders. Before any location-based search, the CLI proposes the Link shipping address and the user confirms it or gives another; online services skip this. Talk to the user in plain everyday language only; never expose CLI, UCP, auth, session, or other implementation details unless they explicitly ask.
@@ -19,7 +19,7 @@ metadata:
         - link-cli
     install:
       - kind: uv
-        package: "booking-agent-cli==0.3.0"
+        package: "booking-agent-cli==0.4.0"
         bins: [booking-agent]
 user-invocable: true
 ---
@@ -214,16 +214,16 @@ before installing:
 
 ```bash
 dir="$HOME/.booking-agent/verified-wheels"
-uvx pip download "booking-agent-cli==0.3.0" --no-deps --only-binary :all: -d "$dir"
+uvx pip download "booking-agent-cli==0.4.0" --no-deps --only-binary :all: -d "$dir"
 uvx pypi-attestations==0.0.30 verify pypi --repository https://github.com/wix/booking-agent \
-  "$dir/booking_agent_cli-0.3.0-py3-none-any.whl"
-uv tool install --force "$dir/booking_agent_cli-0.3.0-py3-none-any.whl"
+  "$dir/booking_agent_cli-0.4.0-py3-none-any.whl"
+uv tool install --force "$dir/booking_agent_cli-0.4.0-py3-none-any.whl"
 
 booking-agent --help
 ```
 
 Install only when the verify step passes. If `uvx` is not available, install the same pinned
-release with `uv tool install booking-agent-cli==0.3.0` or `pipx install booking-agent-cli==0.3.0`;
+release with `uv tool install booking-agent-cli==0.4.0` or `pipx install booking-agent-cli==0.4.0`;
 the CLI checks its own files against the signed release on the first `booking-agent flow init`
 and refuses to book or pay if they do not match.
 
@@ -257,11 +257,37 @@ for each extra cache folder the runtime asks you to keep (a relative persistent 
 under the root). When the runtime keeps its files anyway, or offers no surviving folder, skip the
 command. Do not tell the user about it. If it fails, continue the booking without it.
 
+### This skill file
+
+Harnesses install this file with:
+
+```bash
+npx skills add wix/booking-agent --skill booking-agent
+```
+
+That always takes the latest skill. To take a fixed, published version instead, fetch it at the
+release tag the official workflow signs it under, and check the signature before you follow it:
+
+```bash
+curl -fsSLO https://raw.githubusercontent.com/wix/booking-agent/skill-v0.50.0/booking-agent/skills/booking-agent/SKILL.md
+gh attestation verify SKILL.md \
+  --repo wix/booking-agent \
+  --signer-workflow wix/booking-agent/.github/workflows/release.yml
+```
+
+Follow the file only when the verify step passes. Every release also attaches that same `SKILL.md`
+and its `SKILL.md.sigstore.json` bundle to the GitHub Release, so a runtime without `gh` can verify
+the bundle offline instead.
+
+Then pass the path you loaded this file from on every `flow init` (`--skill-path`, below). The CLI
+compares it with the signed copy inside the installed CLI and refuses to book or pay when a file
+claiming this same version does not match it.
+
 ### Updates (only with the user's yes)
 
 The CLI decides whether a newer version is worth mentioning; you never decide from version
 numbers or release pages. Pass this skill's version on every `flow init` (`--skill-version
-0.49.0`, from the frontmatter above), so the CLI can tell when these instructions and the
+0.50.0`, from the frontmatter above), so the CLI can tell when these instructions and the
 installed CLI no longer match.
 
 - When a command returns `awaiting_user: update_consent`, ask the question in `prompt` in plain
@@ -491,11 +517,16 @@ have it). Do not invent a lookup.
 **Step 1b — Create a new session:**
 
 ```bash
-booking-agent flow init --user-request "<user's exact request>" --skill-version 0.49.0
+booking-agent flow init --user-request "<user's exact request>" --skill-version 0.50.0 \
+  --skill-path "<absolute path of the SKILL.md you loaded>"
 ```
 
 Add `--capability <name>` once for each part of the request that clearly needs it: `calendar`
 (they mention their calendar), `reschedule`, or `cancel`. Leave it out when unsure.
+
+Pass `--skill-path` whenever you know where you loaded this file from, so the CLI can check it
+against the signed copy it ships with. Leave it out when you do not know the path; never guess one
+and never point it at a different file.
 
 - If `init` returns `awaiting_user: update_consent`, no booking was started yet. Follow
   [Updates](#updates-only-with-the-users-yes); after the answer, run `data.continue_command` to
@@ -1138,7 +1169,7 @@ booking-agent flow calendar create-event
 Once the user has been told they are booked (and after Step 8 when it ran), run:
 
 ```bash
-booking-agent update check --after-booking --skill-version 0.49.0
+booking-agent update check --after-booking --skill-version 0.50.0
 ```
 
 If it returns `awaiting_user: update_consent`, ask once, as in [Updates](#updates-only-with-the-users-yes).
@@ -1258,6 +1289,8 @@ recover.
 | `update_session_in_progress` | `update` ran while a booking is unfinished | Finish or cancel the booking first, then offer the update again |
 | `update_failed` / `update_not_verified` | The update did not install, did not start, or could not be shown to come from the official release (`data.reason`); nothing unverified is installed | Tell the user the update did not take; carry on with the installed version |
 | `installation_unverified` | The installed CLI files do not match the signed official release, so it will not book or pay | Tell the user in plain words the assistant needs reinstalling; run `data.reinstall_command` only with their yes, then start the booking again. Never book another way |
+| `skill_unverified` | The SKILL.md you loaded does not match the signed skill this CLI was released with, so it will not book or pay | Follow `data.skill_text` from now on. Tell the user plainly that the assistant's instructions file was changed and ask whether to restore the official one; only with their yes run `data.replace_command`, then run `flow init` again with `--skill-path`. Never book another way |
+| `skill_path_invalid` | `--skill-path` named a file that is missing, unreadable, or not a booking-agent SKILL.md | Run `flow init` again with the real path of the file you loaded, or without `--skill-path` if you do not know it |
 | `skill_output_refused` | `skill print --output` named a file that is not the loaded skill | Follow `data.skill_text` from `booking-agent skill print` instead |
 
 ### Notes to the assistant team

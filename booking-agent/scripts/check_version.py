@@ -17,6 +17,16 @@ Shipped code is what the wheel contains: the packages listed under
 wheel to exactly those) plus the distribution metadata in ``pyproject.toml``. The
 package README, tests, docs, CI, and ``uv.lock`` do not need a bump.
 
+The skill is released as ``skill-v<version>`` (its frontmatter ``version``), so CI also checks:
+
+* layout (always): ``skills/booking-agent/SKILL.md`` is the only tracked file named
+  ``SKILL.md``; skill installers would install any other directory holding one instead;
+* URLs (always): ``metadata.url`` and ``metadata.openclaw.homepage`` are the latest URL, and
+  every other skill URL in the repository is the latest URL or the pinned URL of the
+  current skill version;
+* skill bump (with ``--base REF``): a changed skill raises its frontmatter ``version``,
+  because a released ``skill-v<version>`` tag can never move.
+
 Usage (from anywhere in the repository):
 
     python booking-agent/scripts/check_version.py                     # consistency only
@@ -48,10 +58,24 @@ VERSION_MODULES = (
 
 _DUNDER_VERSION = re.compile(r'^__version__\s*=\s*["\']([^"\']+)["\']', re.MULTILINE)
 # The skill and its bundled copy pin the CLI release they were written for.
+SKILL_SOURCE = Path("skills/booking-agent/SKILL.md")
 SKILL_FILES = (
-    Path("skills/booking-agent/SKILL.md"),
-    Path("packages/cli/src/booking_agent_cli/SKILL.md"),
+    SKILL_SOURCE,
+    Path("packages/cli/src/booking_agent_cli/bundled_skill.md"),
 )
+SKILL_REPO_PATH = "booking-agent/skills/booking-agent/SKILL.md"
+SKILL_LATEST_URL = f"https://raw.githubusercontent.com/wix/booking-agent/master/{SKILL_REPO_PATH}"
+# Files that record past releases keep the URLs they were written with.
+SKILL_URL_HISTORY = ("CHANGE_LOG.md", "booking-agent/release-notes/")
+_URL_CHARS = r"[^\s)\"'<>\]`|]"
+_SKILL_URL = re.compile(
+    rf"https?://{_URL_CHARS}*wix/booking-agent{_URL_CHARS}*?(?:SKILL\.md|skills/booking-agent){_URL_CHARS}*"
+)
+_SKILL_PINNED_URL = re.compile(
+    r"(https://raw\.githubusercontent\.com/wix/booking-agent/skill-v)([^/\s]+)(/booking-agent/skills/booking-agent/SKILL\.md)"
+)
+_FRONTMATTER_VERSION = re.compile(r"^version:\s*[\"']?([^\s\"']+)[\"']?\s*$", re.MULTILINE)
+_FRONTMATTER_URL = re.compile(r"^\s*(url|homepage):\s*(\S+)\s*$", re.MULTILINE)
 _SKILL_PIN = re.compile(r"(booking-agent-cli==)([0-9][0-9A-Za-z.]*[0-9A-Za-z])")
 _SKILL_WHEEL_PIN = re.compile(r"(booking_agent_cli-)([0-9][0-9A-Za-z.]*)(-py3-none-any\.whl)")
 _SKILL_INSTALL = re.compile(
@@ -106,6 +130,93 @@ def skill_pin_errors(text: str, version: str) -> list[str]:
             "(run `uv run python scripts/sync_skill_bundle.py`)"
         )
     return errors
+
+
+def skill_frontmatter(text: str) -> str:
+    if not text.startswith("---\n"):
+        return ""
+    end = text.find("\n---", 4)
+    return text[4:end] if end != -1 else ""
+
+
+def skill_version(text: str) -> str | None:
+    """The skill's own frontmatter ``version`` (not the CLI it pins)."""
+    match = _FRONTMATTER_VERSION.search(skill_frontmatter(text))
+    return match.group(1) if match else None
+
+
+def skill_pinned_url(version: str) -> str:
+    return f"https://raw.githubusercontent.com/wix/booking-agent/skill-v{version}/{SKILL_REPO_PATH}"
+
+
+def pin_skill_urls(text: str, version: str) -> str:
+    """``text`` with every pinned skill URL set to ``skill-v<version>``."""
+    return _SKILL_PINNED_URL.sub(lambda m: f"{m.group(1)}{version}{m.group(3)}", text)
+
+
+def _is_url_template(url: str) -> bool:
+    match = _SKILL_PINNED_URL.fullmatch(url)
+    return bool(match) and re.fullmatch(r"\$?\{[^}]+\}", match.group(2)) is not None
+
+
+def skill_layout_errors(tracked: list[str]) -> list[str]:
+    """Only the skill itself is named SKILL.md (``tracked`` is repository-relative)."""
+    return [
+        f"{path}: only {SKILL_REPO_PATH} may be named SKILL.md. Skill installers "
+        "(npx skills, harness scanners) treat any directory holding a SKILL.md as the skill "
+        "and would install that directory instead; give the copy another name"
+        for path in sorted(tracked)
+        if path.rsplit("/", 1)[-1] == "SKILL.md" and path != SKILL_REPO_PATH
+    ]
+
+
+def skill_url_errors(files: dict[str, str], version: str) -> list[str]:
+    """Every skill URL in ``files`` (repository-relative path -> text) is canonical."""
+    allowed = {SKILL_LATEST_URL, skill_pinned_url(version)}
+    errors = []
+    for path, text in sorted(files.items()):
+        if path.startswith(SKILL_URL_HISTORY):
+            continue
+        urls = {m.group(0).rstrip(".,:;") for m in _SKILL_URL.finditer(text)}
+        for url in sorted(u for u in urls if u not in allowed and not _is_url_template(u)):
+            errors.append(
+                f"{path}: skill URL {url} is not canonical. Use {SKILL_LATEST_URL} for the latest "
+                f"skill, or {skill_pinned_url(version)} with the `gh attestation verify` command "
+                "for this exact text (run `uv run python scripts/sync_skill_bundle.py`)"
+            )
+    return errors
+
+
+def skill_metadata_url_errors(text: str) -> list[str]:
+    found = _FRONTMATTER_URL.findall(skill_frontmatter(text))
+    errors = []
+    for key in ("url", "homepage"):
+        values = [value for k, value in found if k == key]
+        if values != [SKILL_LATEST_URL]:
+            errors.append(f"{SKILL_REPO_PATH}: metadata {key} must be {SKILL_LATEST_URL}, found {values or 'none'}")
+    return errors
+
+
+def skill_bump_errors(changed_files: list[str], base_skill: str | None, head_skill: str) -> list[str]:
+    """A changed skill raises its frontmatter version, since ``skill-v<version>`` never moves."""
+    if SKILL_REPO_PATH not in changed_files or base_skill is None:
+        return []
+    base, head = skill_version(base_skill), skill_version(head_skill)
+    if head is None:
+        return [f"{SKILL_REPO_PATH} has no frontmatter version"]
+    if base is None:
+        return []
+    try:
+        raised = Version(head) > Version(base)
+    except InvalidVersion as exc:
+        return [f"invalid skill version in {SKILL_REPO_PATH}: {exc}"]
+    if raised:
+        return []
+    return [
+        f"{SKILL_REPO_PATH} changed but its frontmatter version {head} is not above {base}. Raise "
+        "`version` in the skill frontmatter: each skill version is released once as the protected "
+        "tag skill-v<version>, and a CLI version bump changes the skill's install pins"
+    ]
 
 
 def shipped_prefixes(pyproject: dict, cli_rel: str) -> list[str]:
@@ -175,7 +286,30 @@ def git_bump_errors(base: str) -> list[str]:
     changed = _git("diff", "--name-only", f"{base}...HEAD").splitlines()
     base_pyproject = _git("show", f"{base}:{cli_rel}/pyproject.toml")
     head_pyproject = _git("show", f"HEAD:{cli_rel}/pyproject.toml")
-    return bump_errors(changed, base_pyproject, head_pyproject, cli_rel)
+    try:
+        base_skill = _git("show", f"{base}:{SKILL_REPO_PATH}")
+    except subprocess.CalledProcessError:
+        base_skill = None
+    head_skill = (top / SKILL_REPO_PATH).read_text(encoding="utf-8")
+    return bump_errors(changed, base_pyproject, head_pyproject, cli_rel) + skill_bump_errors(
+        changed, base_skill, head_skill
+    )
+
+
+def repository_skill_errors() -> list[str]:
+    top = Path(_git("rev-parse", "--show-toplevel").strip())
+    tracked = _git("-C", str(top), "ls-files").splitlines()
+    skill = (top / SKILL_REPO_PATH).read_text(encoding="utf-8")
+    version = skill_version(skill)
+    if version is None:
+        return [f"{SKILL_REPO_PATH} has no frontmatter version"]
+    files = {}
+    for path in tracked:
+        try:
+            files[path] = (top / path).read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+    return skill_layout_errors(tracked) + skill_metadata_url_errors(skill) + skill_url_errors(files, version)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -183,7 +317,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--base", help="git ref of the base branch, for example origin/master")
     args = parser.parse_args(argv)
 
-    errors = consistency_errors()
+    errors = consistency_errors() + repository_skill_errors()
     if args.base:
         errors += git_bump_errors(args.base)
     prefix = "::error::" if os.environ.get("GITHUB_ACTIONS") == "true" else "error: "

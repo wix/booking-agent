@@ -138,6 +138,7 @@ from ..runtime import (
     resolve_calendar_service,
 )
 from .. import install_integrity
+from .. import skill_integrity
 from .. import reschedule as reschedule_rules
 from .. import timezone_context as tz_context
 from ..activity_log import record_command
@@ -324,6 +325,31 @@ def _require_verified_installation(store: Any, phase: str) -> None:
         raise typer.Exit(code=1)
 
 
+def _require_verified_skill(store: Any, phase: str, skill_path: Optional[str] = None) -> Optional[str]:
+    """Refuse to go on while the loaded skill file differs from the bundled skill.
+
+    Returns the version the file at ``skill_path`` declares (None without a path).
+    """
+    try:
+        failure, loaded_version = skill_integrity.check(store, skill_path)
+    except ValueError as exc:
+        emit_error(
+            phase,
+            code=skill_integrity.PATH_INVALID_CODE,
+            message=skill_integrity.path_invalid_message(str(exc)),
+        )
+        raise typer.Exit(code=1)
+    if failure is not None:
+        emit_error(
+            phase,
+            code=skill_integrity.CODE,
+            message=skill_integrity.error_message(),
+            data=skill_integrity.error_data(failure),
+        )
+        raise typer.Exit(code=1)
+    return loaded_version
+
+
 # ---------------------------------------------------------------------------
 # init / status
 # ---------------------------------------------------------------------------
@@ -340,12 +366,19 @@ def init(
     skill_version: Optional[str] = typer.Option(
         None, "--skill-version", help="The version in the loaded skill's frontmatter.",
     ),
+    skill_path: Optional[str] = typer.Option(
+        None, "--skill-path",
+        help="The SKILL.md file the skill was loaded from; checked against the signed skill.",
+    ),
     capability: Optional[List[str]] = typer.Option(
         None, "--capability", help="A capability the user's request needs; repeatable.",
     ),
 ) -> None:
     """Initialize a new booking session."""
     store = load_store()
+    # Before the session checks: a skill the agent points us at is checked whatever the
+    # flow state, so a changed file is never masked by session_active.
+    loaded_version = _require_verified_skill(store, "INIT", skill_path)
     active = get_active_session(store)
     if active is not None and active.flow_phase not in TERMINAL_PHASES and not force:
         emit_error(
@@ -362,7 +395,9 @@ def init(
 
     _require_verified_installation(store, "INIT")
 
-    gate = _update_gate(user_request, skill_version, capability or [], allow_duplicate)
+    gate = _update_gate(
+        user_request, loaded_version or skill_version, capability or [], allow_duplicate, skill_path,
+    )
     if gate is not None:
         emit(gate)
         return
@@ -439,7 +474,11 @@ def init(
 
 
 def _update_gate(
-    user_request: str, skill_version: Optional[str], capabilities: List[str], allow_duplicate: bool,
+    user_request: str,
+    skill_version: Optional[str],
+    capabilities: List[str],
+    allow_duplicate: bool,
+    skill_path: Optional[str] = None,
 ) -> Optional[AgentOutput]:
     """Ask about an update before a session exists, only for a mismatch or a ready release."""
     from . import update as update_cmd
@@ -459,6 +498,8 @@ def _update_gate(
     rerun = f"booking-agent flow init --user-request {shlex.quote(user_request)}"
     if skill_version:
         rerun += f" --skill-version {shlex.quote(skill_version)}"
+    if skill_path:
+        rerun += f" --skill-path {shlex.quote(skill_path)}"
     for c in capabilities:
         rerun += f" --capability {shlex.quote(c)}"
     if allow_duplicate:
@@ -4318,6 +4359,7 @@ def book(
         raise _handle_gate(session, e)
     if not dry_run:
         _require_verified_installation(load_store(), "BOOKED")
+        _require_verified_skill(load_store(), "BOOKED")
 
     backend = resolve_backend()
 
@@ -4555,6 +4597,7 @@ app.add_typer(pay_app, name="pay")
 @pay_app.callback()
 def _pay_requires_verified_installation() -> None:
     _require_verified_installation(load_store(), "PAYMENT_PENDING")
+    _require_verified_skill(load_store(), "PAYMENT_PENDING")
 
 _REBOOK_MSG = (
     "Run `booking-agent flow pay rebook --service-id <id>` to create a fresh checkout, "

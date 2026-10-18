@@ -13,7 +13,7 @@ _WORKSPACE = Path(__file__).resolve().parents[4]
 # Top-level import package -> package data files it must ship.
 _PACKAGES = {
     "booking_agent": {"defaults.env"},
-    "booking_agent_cli": {"SKILL.md"},
+    "booking_agent_cli": {"bundled_skill.md"},
 }
 
 

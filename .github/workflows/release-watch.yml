@@ -2,7 +2,9 @@ name: release-watch
 
 # Safety net for release.yml: every version on master should be on PyPI with a matching
 # v<version> tag, PEP 740 provenance for its wheel and sdist, and be the version the
-# skill installs. If not (a release run failed), fail visibly and open or update an
+# skill installs. From 0.4.0 the skill is released too: a skill-v<skill version> tag, both
+# skill assets on the release, and an attestation that verifies for the file a harness
+# actually fetches. If not (a release run failed), fail visibly and open or update an
 # issue assigned to the release owner. Closes that issue once the release exists.
 # Lives on master only; never add it to main (the Pages branch allow-list rejects it).
 
@@ -14,6 +16,7 @@ on:
 permissions:
   contents: read
   actions: read
+  attestations: read
   issues: write
 
 env:
@@ -83,6 +86,36 @@ jobs:
               if [ "$code" != 200 ]; then
                 problems="${problems}- PyPI has no provenance for ${file} (HTTP ${code}).\n"
               fi
+            done
+          fi
+
+          # Releases from 0.4.0 on also sign the skill. Earlier ones have no skill tag, no skill
+          # assets and no skill attestation, so none of this applies to them.
+          skill_version="$(python -c 'import pathlib, re; t = pathlib.Path("booking-agent/skills/booking-agent/SKILL.md").read_text(encoding="utf-8").replace("\r\n", "\n"); fm = t[4:t.index("\n---", 4)] if t.startswith("---\n") else ""; print(re.search(r"^version:\s*[\x22\x27]?([^\s\x22\x27]+)[\x22\x27]?\s*$", fm, re.M).group(1))')"
+          if python -c "import sys; v = tuple(map(int, sys.argv[1].split('.'))); sys.exit(0 if v >= (0, 4, 0) else 1)" "$version"; then
+            if git rev-parse -q --verify "refs/tags/skill-v${skill_version}" >/dev/null; then
+              skill_url="https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/skill-v${skill_version}/booking-agent/skills/booking-agent/SKILL.md"
+              skill_dir="$(mktemp -d)"
+              if ! curl -fsSL -o "${skill_dir}/SKILL.md" "$skill_url"; then
+                problems="${problems}- ${skill_url} is not fetchable.\n"
+              elif ! verify="$(gh attestation verify "${skill_dir}/SKILL.md" --repo "$GITHUB_REPOSITORY" \
+                --signer-workflow "${GITHUB_REPOSITORY}/.github/workflows/release.yml" 2>&1)"; then
+                # The reason goes to the run log, which the issue body links to.
+                echo "$verify"
+                problems="${problems}- gh attestation verify failed for the SKILL.md served at skill-v${skill_version}.\n"
+              fi
+            else
+              problems="${problems}- Tag skill-v${skill_version} does not exist.\n"
+            fi
+
+            # A `while read` pipeline would append to $problems in a subshell and lose it.
+            assets="$(gh release view "v${version}" --repo "$GITHUB_REPOSITORY" --json assets \
+              --jq '[.assets[].name] | join(" ")' 2>/dev/null || true)"
+            for asset in SKILL.md SKILL.md.sigstore.json; do
+              case " ${assets} " in
+                *" ${asset} "*) ;;
+                *) problems="${problems}- Release v${version} has no ${asset} asset.\n" ;;
+              esac
             done
           fi
 

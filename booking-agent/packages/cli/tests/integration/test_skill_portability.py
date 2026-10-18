@@ -1,5 +1,6 @@
 """The base skill runs in any agent runtime, so it names none of them."""
 import re
+import subprocess
 from pathlib import Path
 
 _SKILL = Path(__file__).resolve().parents[4] / "skills" / "booking-agent" / "SKILL.md"
@@ -35,3 +36,15 @@ def test_skill_keeps_local_sign_in_non_blocking():
     assert "returns at once" in gate
     assert "without blocking your turn" in gate
     assert "blocks waiting" not in text
+
+
+def test_the_repository_holds_exactly_one_skill_md():
+    """Installers copy the directory holding a SKILL.md, so a second one is installable."""
+    repository = _SKILL.parents[3]
+    tracked = subprocess.run(
+        ["git", "-C", str(repository), "ls-files"],
+        capture_output=True, text=True, check=True,
+    ).stdout.splitlines()
+    assert [p for p in tracked if p.rsplit("/", 1)[-1] == "SKILL.md"] == [
+        "booking-agent/skills/booking-agent/SKILL.md"
+    ]
