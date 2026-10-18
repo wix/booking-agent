@@ -137,6 +137,7 @@ from ..runtime import (
     resolve_backend,
     resolve_calendar_service,
 )
+from .. import install_integrity
 from .. import reschedule as reschedule_rules
 from .. import timezone_context as tz_context
 from ..activity_log import record_command
@@ -310,6 +311,19 @@ def _emit_booking_create_error(
     return typer.Exit(code=1)
 
 
+def _require_verified_installation(store: Any, phase: str) -> None:
+    """Refuse to go on when the installed files do not match the attested release."""
+    failure = install_integrity.check(store)
+    if failure is not None:
+        emit_error(
+            phase,
+            code=install_integrity.CODE,
+            message=install_integrity.error_message(),
+            data=install_integrity.error_data(failure),
+        )
+        raise typer.Exit(code=1)
+
+
 # ---------------------------------------------------------------------------
 # init / status
 # ---------------------------------------------------------------------------
@@ -345,6 +359,8 @@ def init(
             next_command=f"booking-agent flow sessions resume --session-id {active.id}",
         )
         raise typer.Exit(code=1)
+
+    _require_verified_installation(store, "INIT")
 
     gate = _update_gate(user_request, skill_version, capability or [], allow_duplicate)
     if gate is not None:
@@ -4300,6 +4316,8 @@ def book(
             require_buyer_from_link_cli(session)
     except GateError as e:
         raise _handle_gate(session, e)
+    if not dry_run:
+        _require_verified_installation(load_store(), "BOOKED")
 
     backend = resolve_backend()
 
@@ -4532,6 +4550,11 @@ def book(
 
 pay_app = typer.Typer(help="Link spend approval and UCP checkout completion.")
 app.add_typer(pay_app, name="pay")
+
+
+@pay_app.callback()
+def _pay_requires_verified_installation() -> None:
+    _require_verified_installation(load_store(), "PAYMENT_PENDING")
 
 _REBOOK_MSG = (
     "Run `booking-agent flow pay rebook --service-id <id>` to create a fresh checkout, "

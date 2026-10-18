@@ -26,7 +26,18 @@ pipx install booking-agent-cli
 booking-agent --help
 ```
 
-Agents provision `booking-agent` the same way from the [skill metadata](skills/booking-agent/SKILL.md) (`kind: python`, `package: booking-agent-cli`).
+Every release on PyPI carries a PEP 740 attestation signed by this repository's `release.yml` workflow. To check a wheel before installing it:
+
+```bash
+uvx pip download "booking-agent-cli==<version>" --no-deps --only-binary :all: -d dist-verify
+uvx pypi-attestations verify pypi --repository https://github.com/wix/booking-agent \
+  dist-verify/booking_agent_cli-<version>-py3-none-any.whl
+uv tool install dist-verify/booking_agent_cli-<version>-py3-none-any.whl
+```
+
+`booking-agent update` does this on its own: it installs only a wheel whose attestation verifies. On the first `booking-agent flow init` after an install, the CLI also compares its installed files with the attested wheel and refuses to book or pay (`installation_unverified`) when they differ. Source checkouts are not checked.
+
+Agents provision `booking-agent` from the [skill metadata](skills/booking-agent/SKILL.md) (`kind: uv`, `package: "booking-agent-cli==<version>"`), which pins the release the skill was written for; `scripts/sync_skill_bundle.py` keeps that pin equal to the package version.
 
 To install from a checkout instead (development, or to test unreleased changes):
 

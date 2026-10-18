@@ -138,3 +138,53 @@ def test_consistency_passes_for_a_real_copy(tmp_path):
     shutil.copy(_WORKSPACE / "packages" / "cli" / "pyproject.toml", tmp_path / "packages" / "cli")
     shutil.copy(_WORKSPACE / "uv.lock", tmp_path)
     assert check_version.consistency_errors(tmp_path) == []
+
+
+_SKILL = """\
+metadata:
+  openclaw:
+    install:
+      - kind: uv
+        package: "booking-agent-cli=={v}"
+        bins: [booking-agent]
+---
+uvx pip download "booking-agent-cli=={v}" --no-deps -d "$dir"
+uv tool install --force "$dir/booking_agent_cli-{v}-py3-none-any.whl"
+"""
+
+
+def test_a_skill_pinned_to_the_version_passes():
+    assert check_version.skill_pin_errors(_SKILL.format(v="0.3.0"), "0.3.0") == []
+
+
+def test_a_stale_pin_anywhere_in_the_skill_is_reported():
+    text = _SKILL.format(v="0.3.0").replace("booking_agent_cli-0.3.0", "booking_agent_cli-0.2.0")
+    errors = check_version.skill_pin_errors(text, "0.3.0")
+    assert len(errors) == 1 and "0.2.0" in errors[0]
+
+
+@pytest.mark.parametrize("install", [
+    "      - kind: python\n        package: booking-agent-cli\n",
+    '      - kind: uv\n        package: "booking-agent-cli"\n',
+])
+def test_an_unpinned_or_non_uv_install_block_is_reported(install):
+    text = _SKILL.format(v="0.3.0").replace(
+        '      - kind: uv\n        package: "booking-agent-cli==0.3.0"\n', install
+    )
+    assert any("kind: uv" in e for e in check_version.skill_pin_errors(text, "0.3.0"))
+
+
+def test_pinning_rewrites_every_pin_and_nothing_else():
+    pinned = check_version.pin_skill_text(_SKILL.format(v="0.2.0") + "booking-agent-cli>=0.1\n", "0.3.0.dev1")
+    assert pinned == _SKILL.format(v="0.3.0.dev1") + "booking-agent-cli>=0.1\n"
+
+
+def test_consistency_reports_a_stale_skill_pin(tmp_path):
+    shutil.copytree(_WORKSPACE / "packages" / "cli" / "src", tmp_path / "packages" / "cli" / "src")
+    shutil.copy(_WORKSPACE / "packages" / "cli" / "pyproject.toml", tmp_path / "packages" / "cli")
+    shutil.copy(_WORKSPACE / "uv.lock", tmp_path)
+    skill = tmp_path / "skills" / "booking-agent" / "SKILL.md"
+    skill.parent.mkdir(parents=True)
+    skill.write_text(_SKILL.format(v="0.0.1"))
+    errors = check_version.consistency_errors(tmp_path)
+    assert len(errors) == 1 and errors[0].startswith("skills/booking-agent/SKILL.md")

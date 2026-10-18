@@ -282,6 +282,9 @@ class SessionStore:
     last_calendar_token_env: Optional[str] = None  # name of the host variable, never its value
     # Update prompts the user already answered (accepted or declined); never asked again.
     update_prompts_answered: List[str] = field(default_factory=list)
+    # Outcome of the installation provenance check for one install ({version, record_sha256, ...}).
+    install_verified: Optional[Dict[str, Any]] = None
+    install_integrity_failure: Optional[Dict[str, Any]] = None
     sessions: List[Session] = field(default_factory=list)
 
 
@@ -740,7 +743,15 @@ def _store_to_dict(store: SessionStore) -> Dict[str, Any]:
         d["last_calendar_token_env"] = store.last_calendar_token_env
     if store.update_prompts_answered:
         d["update_prompts_answered"] = list(store.update_prompts_answered)
+    if store.install_verified is not None:
+        d["install_verified"] = dict(store.install_verified)
+    if store.install_integrity_failure is not None:
+        d["install_integrity_failure"] = dict(store.install_integrity_failure)
     return _restore_unknown(store, d)
+
+
+def _dict_or_none(value: Any) -> Optional[Dict[str, Any]]:
+    return dict(value) if isinstance(value, dict) else None
 
 
 def _store_from_dict(raw: Dict[str, Any]) -> SessionStore:
@@ -759,6 +770,8 @@ def _store_from_dict(raw: Dict[str, Any]) -> SessionStore:
         last_calendar_route=raw.get("last_calendar_route"),
         last_calendar_token_env=raw.get("last_calendar_token_env"),
         update_prompts_answered=[a for a in answered if isinstance(a, str)] if isinstance(answered, list) else [],
+        install_verified=_dict_or_none(raw.get("install_verified")),
+        install_integrity_failure=_dict_or_none(raw.get("install_integrity_failure")),
         sessions=[_session_from_dict(s) for s in (raw.get("sessions") or [])],
     )
     return _remember_unknown(store, raw, _STORE_KEYS)

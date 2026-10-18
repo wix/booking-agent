@@ -1,0 +1,15 @@
+{
+  "change_type": "feature",
+  "cli_version": "0.3.0",
+  "details_url": "https://github.com/wix/booking-agent/releases/tag/v0.3.0",
+  "ecosystem_ready": false,
+  "readiness_evidence": [],
+  "relevant_capabilities": [
+    "booking",
+    "payment"
+  ],
+  "schema_version": 1,
+  "skill_version": "0.49.0",
+  "update_status": "deferred",
+  "user_summary": "The booking assistant now checks that updates and its own installation come from the official release before it books or pays."
+}

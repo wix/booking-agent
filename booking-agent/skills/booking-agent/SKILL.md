@@ -1,5 +1,5 @@
 ---
-version: 0.48.0
+version: 0.49.0
 name: booking-agent
 description: |
   Books time-based services via USP from a Link wallet. Use when the user wants to book, schedule, reserve, or pay for a service from a business (haircut, lesson, repair, class, appointment, consult). The `booking-agent` CLI owns the booking state machine and refuses to proceed when human gates are skipped. Sign the user in to Link on your own, right after install and at the start of every booking (`booking-agent flow link-auth connect`, then start `booking-agent flow link-auth poll` in the background and post the sign-in URL in the same turn, exactly like `pay poll`); never wait for the user to ask to sign in or to say they approved. After `booking-agent flow business use`, follow `next_command` through `use-ucp-checkout-mode`; businesses without native checkout fail closed. Payment uses `booking-agent flow pay request` (default returns immediately with the approval URL), then start `booking-agent flow pay poll` in the background and post the approval URL to the user in the same turn; the poll finishes checkout once they approve. Confirm through `booking-agent flow book poll --wait`; never start an inbound webhook. Surface the approval URL exactly once. Personal identification (name, phone, email, address) must always come from the user's Link account via `link-cli`, never from chat or placeholders. Before any location-based search, the CLI proposes the Link shipping address and the user confirms it or gives another; online services skip this. Talk to the user in plain everyday language only; never expose CLI, UCP, auth, session, or other implementation details unless they explicitly ask.
@@ -18,8 +18,8 @@ metadata:
         - booking-agent
         - link-cli
     install:
-      - kind: python
-        package: booking-agent-cli
+      - kind: uv
+        package: "booking-agent-cli==0.3.0"
         bins: [booking-agent]
 user-invocable: true
 ---
@@ -208,18 +208,27 @@ Only then may you use terms like CLI, UCP, or session. Keep explanations brief.
 
 ## Installing
 
-Install the `booking-agent` CLI from PyPI (package `booking-agent-cli`) with either command:
+Install the `booking-agent` CLI release this skill was written for (package `booking-agent-cli` on
+PyPI). Every release is signed by the official release workflow (PEP 740), so check the signature
+before installing:
 
 ```bash
-uv tool install booking-agent-cli
-# or
-pipx install booking-agent-cli
+dir="$HOME/.booking-agent/verified-wheels"
+uvx pip download "booking-agent-cli==0.3.0" --no-deps --only-binary :all: -d "$dir"
+uvx pypi-attestations==0.0.30 verify pypi --repository https://github.com/wix/booking-agent \
+  "$dir/booking_agent_cli-0.3.0-py3-none-any.whl"
+uv tool install --force "$dir/booking_agent_cli-0.3.0-py3-none-any.whl"
 
 booking-agent --help
 ```
 
+Install only when the verify step passes. If `uvx` is not available, install the same pinned
+release with `uv tool install booking-agent-cli==0.3.0` or `pipx install booking-agent-cli==0.3.0`;
+the CLI checks its own files against the signed release on the first `booking-agent flow init`
+and refuses to book or pay if they do not match.
+
 Harnesses that read the `install` block in this skill's metadata do this for you. If
-`booking-agent --help` still does not run, run one of the commands above yourself; if that is not
+`booking-agent --help` still does not run, run the commands above yourself; if that is not
 possible in this runtime, ask the user to install the skill, then try again. To develop the CLI from
 a checkout instead, see the [Booking Agent README](https://github.com/wix/booking-agent/blob/master/booking-agent/README.md).
 
@@ -252,7 +261,7 @@ command. Do not tell the user about it. If it fails, continue the booking withou
 
 The CLI decides whether a newer version is worth mentioning; you never decide from version
 numbers or release pages. Pass this skill's version on every `flow init` (`--skill-version
-0.48.0`, from the frontmatter above), so the CLI can tell when these instructions and the
+0.49.0`, from the frontmatter above), so the CLI can tell when these instructions and the
 installed CLI no longer match.
 
 - When a command returns `awaiting_user: update_consent`, ask the question in `prompt` in plain
@@ -482,7 +491,7 @@ have it). Do not invent a lookup.
 **Step 1b — Create a new session:**
 
 ```bash
-booking-agent flow init --user-request "<user's exact request>" --skill-version 0.48.0
+booking-agent flow init --user-request "<user's exact request>" --skill-version 0.49.0
 ```
 
 Add `--capability <name>` once for each part of the request that clearly needs it: `calendar`
@@ -1129,7 +1138,7 @@ booking-agent flow calendar create-event
 Once the user has been told they are booked (and after Step 8 when it ran), run:
 
 ```bash
-booking-agent update check --after-booking --skill-version 0.48.0
+booking-agent update check --after-booking --skill-version 0.49.0
 ```
 
 If it returns `awaiting_user: update_consent`, ask once, as in [Updates](#updates-only-with-the-users-yes).
@@ -1247,7 +1256,8 @@ recover.
 | `session_store_too_new` | Saved bookings on this device were written by a newer version of the assistant | Run `next_command` (`booking-agent update check`) and follow it; never delete or edit the saved state |
 | `update_not_confirmed` | `update` ran without `--user-confirmed` | Ask the user first; pass `--user-confirmed` only after they agree |
 | `update_session_in_progress` | `update` ran while a booking is unfinished | Finish or cancel the booking first, then offer the update again |
-| `update_failed` / `update_not_verified` | The update did not install or did not start | Tell the user the update did not take; carry on with the installed version |
+| `update_failed` / `update_not_verified` | The update did not install, did not start, or could not be shown to come from the official release (`data.reason`); nothing unverified is installed | Tell the user the update did not take; carry on with the installed version |
+| `installation_unverified` | The installed CLI files do not match the signed official release, so it will not book or pay | Tell the user in plain words the assistant needs reinstalling; run `data.reinstall_command` only with their yes, then start the booking again. Never book another way |
 | `skill_output_refused` | `skill print --output` named a file that is not the loaded skill | Follow `data.skill_text` from `booking-agent skill print` instead |
 
 ### Notes to the assistant team

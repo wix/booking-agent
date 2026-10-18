@@ -1,6 +1,6 @@
 [project]
 name = "booking-agent-cli"
-version = "0.2.0"
+version = "0.3.0"
 description = "The Booking Agent CLI: a stateful USP booking flow with hard gates, plus its USP protocol library."
 readme = "README.md"
 license = "Apache-2.0"
@@ -28,6 +28,8 @@ dependencies = [
     "cryptography>=42.0",
     "httpx>=0.27",
     "pydantic>=2.6",
+    # PEP 740 provenance checks before an update installs and on first run (provenance.py).
+    "pypi-attestations>=0.0.30",
     "python-dotenv>=1.0",
     "rich>=13.7",
     "starlette>=0.37",

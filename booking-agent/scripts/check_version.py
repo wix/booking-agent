@@ -3,8 +3,9 @@
 
 Every merge into master that raises the version is published to PyPI, so CI checks:
 
-* consistency (always): the pyproject version, both ``__version__`` strings, and the
-  ``booking-agent-cli`` entry in ``uv.lock`` agree;
+* consistency (always): the pyproject version, both ``__version__`` strings, the
+  ``booking-agent-cli`` entry in ``uv.lock``, and every ``booking-agent-cli`` pin in the
+  skill (its ``kind: uv`` install metadata and its install commands) agree;
 * bump (with ``--base REF``): a change to shipped code raises the version above the
   version on ``REF``, the version never moves backwards, and a changed version is
   ``MAJOR.MINOR.PATCH`` (optionally ``.devN``) one semantic-versioning step after the
@@ -46,6 +47,16 @@ VERSION_MODULES = (
 )
 
 _DUNDER_VERSION = re.compile(r'^__version__\s*=\s*["\']([^"\']+)["\']', re.MULTILINE)
+# The skill and its bundled copy pin the CLI release they were written for.
+SKILL_FILES = (
+    Path("skills/booking-agent/SKILL.md"),
+    Path("packages/cli/src/booking_agent_cli/SKILL.md"),
+)
+_SKILL_PIN = re.compile(r"(booking-agent-cli==)([0-9][0-9A-Za-z.]*[0-9A-Za-z])")
+_SKILL_WHEEL_PIN = re.compile(r"(booking_agent_cli-)([0-9][0-9A-Za-z.]*)(-py3-none-any\.whl)")
+_SKILL_INSTALL = re.compile(
+    r'^\s+- kind: uv\n\s+package: "booking-agent-cli==[^"]+"\n\s+bins: \[booking-agent\]$', re.MULTILINE
+)
 
 
 def lock_version(lock_text: str, package: str = PACKAGE) -> str | None:
@@ -67,6 +78,33 @@ def consistency_errors(workspace: Path = WORKSPACE) -> list[str]:
     locked = lock_version((workspace / "uv.lock").read_text())
     if locked != version:
         errors.append(f"uv.lock pins {PACKAGE} {locked!r}, pyproject.toml has {version!r} (run `uv lock`)")
+    for skill in SKILL_FILES:
+        path = workspace / skill
+        if path.is_file():
+            errors += [f"{skill}: {e}" for e in skill_pin_errors(path.read_text(encoding="utf-8"), version)]
+    return errors
+
+
+def pin_skill_text(text: str, version: str) -> str:
+    """``text`` with every booking-agent-cli version pin set to ``version``."""
+    text = _SKILL_PIN.sub(lambda m: f"{m.group(1)}{version}", text)
+    return _SKILL_WHEEL_PIN.sub(lambda m: f"{m.group(1)}{version}{m.group(3)}", text)
+
+
+def skill_pin_errors(text: str, version: str) -> list[str]:
+    """The skill installs exactly ``version`` through uv, and every pin in it names ``version``."""
+    errors = []
+    if not _SKILL_INSTALL.search(text):
+        errors.append(
+            f'metadata.openclaw.install must be `kind: uv` with `package: "{PACKAGE}=={version}"`'
+        )
+    stale = sorted({m.group(2) for m in _SKILL_PIN.finditer(text)} | {m.group(2) for m in _SKILL_WHEEL_PIN.finditer(text)})
+    stale = [v for v in stale if v != version]
+    if stale:
+        errors.append(
+            f"pins {PACKAGE} {', '.join(stale)}, pyproject.toml has {version!r} "
+            "(run `uv run python scripts/sync_skill_bundle.py`)"
+        )
     return errors
 
 

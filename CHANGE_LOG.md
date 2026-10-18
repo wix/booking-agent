@@ -1,5 +1,15 @@
 # Change Log
 
+## 18/10/26 at 09:16:49 by [Ran Yahalom](mailto:ranya@wix.com)
+
+- Released as 0.3.0 (skill 0.49.0). Every wheel and sdist `release.yml` publishes now carries a PEP 740 attestation (Sigstore keyless, signed by `pypi-attestations sign` and uploaded by `uv publish`) plus a GitHub build provenance attestation, because until now nothing tied a `booking-agent-cli` file on PyPI to this repository, so a compromised PyPI account or a swapped file could not be told apart from a real release. TestPyPI uploads are signed against production Sigstore too, since TestPyPI verifies attestations there. Build provenance runs in its own `attest` job rather than in `build`, so the job that runs the tests still never holds `id-token: write`
+- `booking-agent update` now downloads the selected wheel, checks it against the hash PyPI lists, verifies its attestation names `wix/booking-agent` and workflow `release.yml`, and installs that exact file from `~/.booking-agent/verified-wheels/`, because an updater that trusts whatever the index serves would install a malicious release on the user's yes. Any failure (no attestation, wrong publisher, bad signature, different bytes, PyPI unreachable) installs nothing and reports `update_not_verified` with the reason
+- On the first `flow init` after an install, the CLI compares every installed file with the `RECORD` of the attested wheel for its own version, and `flow init`, `flow book`, and every `flow pay` command refuse with `installation_unverified` and a reinstall command when they differ, because the update check alone could not catch a tampered first install. The result is remembered per installation (by its `RECORD` fingerprint), so the check runs once and a reinstall runs it again; a PyPI outage never blocks a booking, and source checkouts are not checked. The saved booking file keeps format 2 with two new optional top-level fields
+- The skill now installs a pinned release (`kind: uv`, `booking-agent-cli==0.3.0`) and documents verifying the wheel before installing it, because an unpinned install could pull a release the skill was not written for. `scripts/sync_skill_bundle.py` writes the pin from `pyproject.toml`, `scripts/check_version.py` fails CI when any pin in either skill copy disagrees, and `release-watch.yml` now also fails when the published version has no provenance on PyPI or the skill pins another version
+- Rollout is `deferred` with `ecosystem_ready: false`: 0.3.0 checks itself against PyPI's provenance for 0.3.0, which exists only once this release is published, so it should be offered to users only after the published files are confirmed to carry attestations
+
+---
+
 ## 17/10/26 at 12:13:16 by [Ran Yahalom](mailto:ranya@wix.com)
 
 - The release workflow's artifact count now ignores `dist/.gitignore`, because `uv build` writes that file next to the wheel and sdist and the count treated it as a third artifact. The 0.2.0 build produced the right files and then stopped before publishing, so PyPI still has only 0.1.0
