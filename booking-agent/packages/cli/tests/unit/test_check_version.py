@@ -188,3 +188,137 @@ def test_consistency_reports_a_stale_skill_pin(tmp_path):
     skill.write_text(_SKILL.format(v="0.0.1"))
     errors = check_version.consistency_errors(tmp_path)
     assert len(errors) == 1 and errors[0].startswith("skills/booking-agent/SKILL.md")
+
+
+# ---------------------------------------------------------------------------
+# The skill's own version, its layout, and the URLs that point at it
+# ---------------------------------------------------------------------------
+
+_FRONTMATTER = """\
+---
+version: {v}
+name: booking-agent
+metadata:
+  url: {latest}
+  openclaw:
+    homepage: {latest}
+---
+
+See {latest} for the latest text.
+"""
+
+_LATEST = check_version.SKILL_LATEST_URL
+_PINNED = check_version.skill_pinned_url("0.50.0")
+
+
+def _skill(version: str = "0.50.0", latest: str = _LATEST) -> str:
+    return _FRONTMATTER.format(v=version, latest=latest)
+
+
+@pytest.mark.parametrize("text, expected", [
+    (_skill("0.50.0"), "0.50.0"),
+    ('---\nversion: "1.2.3"\n---\n', "1.2.3"),
+    ("no frontmatter\nversion: 9.9.9\n", None),
+    ("---\nname: booking-agent\n---\n", None),
+])
+def test_the_skill_version_comes_only_from_its_frontmatter(text, expected):
+    assert check_version.skill_version(text) == expected
+
+
+def test_only_the_skill_itself_may_be_named_skill_md():
+    tracked = [
+        "booking-agent/skills/booking-agent/SKILL.md",
+        "booking-agent/packages/cli/src/booking_agent_cli/bundled_skill.md",
+        "docs/notes.md",
+    ]
+    assert check_version.skill_layout_errors(tracked) == []
+
+
+def test_a_second_skill_md_anywhere_is_reported():
+    errors = check_version.skill_layout_errors([
+        "booking-agent/skills/booking-agent/SKILL.md",
+        "booking-agent/packages/cli/src/booking_agent_cli/SKILL.md",
+    ])
+    assert len(errors) == 1
+    assert errors[0].startswith("booking-agent/packages/cli/src/booking_agent_cli/SKILL.md")
+    assert "installers" in errors[0]
+
+
+@pytest.mark.parametrize("url", [_LATEST, _PINNED])
+def test_the_latest_and_the_current_pinned_url_are_allowed(url):
+    assert check_version.skill_url_errors({"README.md": f"Fetch {url} first."}, "0.50.0") == []
+
+
+# Assembled, not spelled out: skill_url_errors scans every tracked file, this one included.
+_STALE_PIN = check_version.skill_pinned_url("0.49.0")
+_CLI_TAG = _PINNED.replace("skill-v0.50.0", "v0.3.0")
+_BLOB = "https://github.com/wix/booking-agent/blob/master/" + check_version.SKILL_REPO_PATH
+
+
+@pytest.mark.parametrize("url", [_STALE_PIN, _CLI_TAG, _BLOB])
+def test_a_stale_or_non_canonical_skill_url_is_reported(url):
+    errors = check_version.skill_url_errors({"README.md": f"Fetch {url} first."}, "0.50.0")
+    assert len(errors) == 1 and url in errors[0]
+
+
+def test_files_recording_past_releases_keep_their_urls():
+    stale = check_version.skill_pinned_url("0.1.0")
+    files = {"CHANGE_LOG.md": stale, "booking-agent/release-notes/0.1.0.json": stale}
+    assert check_version.skill_url_errors(files, "0.50.0") == []
+
+
+def test_a_url_left_as_a_template_is_not_a_stale_pin():
+    template = "https://raw.githubusercontent.com/wix/booking-agent/skill-v${skill_version}/booking-agent/skills/booking-agent/SKILL.md"
+    assert check_version.skill_url_errors({"ci.yml": template}, "0.50.0") == []
+
+
+def test_unrelated_skill_urls_are_left_alone():
+    other = "https://github.com/stripe/link-cli/blob/main/skills/create-payment-credential/SKILL.md"
+    license_url = "https://github.com/wix/booking-agent/blob/master/LICENSE"
+    assert check_version.skill_url_errors({"SKILL.md": f"{other}\n{license_url}\n"}, "0.50.0") == []
+
+
+def test_the_skill_metadata_points_at_the_latest_url():
+    assert check_version.skill_metadata_url_errors(_skill()) == []
+
+
+@pytest.mark.parametrize("latest", [_PINNED, "https://example.com/SKILL.md"])
+def test_skill_metadata_pinned_or_elsewhere_is_reported(latest):
+    errors = check_version.skill_metadata_url_errors(_skill(latest=latest))
+    assert len(errors) == 2  # url and homepage
+    assert all(check_version.SKILL_LATEST_URL in e for e in errors)
+
+
+def test_pinning_rewrites_every_skill_url_and_nothing_else():
+    text = f"{check_version.skill_pinned_url('0.1.0')}\n{_LATEST}\n"
+    assert check_version.pin_skill_urls(text, "0.50.0") == f"{_PINNED}\n{_LATEST}\n"
+
+
+_SKILL_PATH = check_version.SKILL_REPO_PATH
+
+
+def test_an_unchanged_skill_needs_no_version_raise():
+    assert check_version.skill_bump_errors(["docs/x.md"], _skill("0.50.0"), _skill("0.50.0")) == []
+
+
+def test_a_changed_skill_must_raise_its_version():
+    errors = check_version.skill_bump_errors([_SKILL_PATH], _skill("0.50.0"), _skill("0.50.0"))
+    assert len(errors) == 1 and "skill-v<version>" in errors[0]
+
+
+def test_a_changed_skill_with_a_raised_version_passes():
+    assert check_version.skill_bump_errors([_SKILL_PATH], _skill("0.49.0"), _skill("0.50.0")) == []
+
+
+def test_a_skill_version_cannot_move_backwards():
+    errors = check_version.skill_bump_errors([_SKILL_PATH], _skill("0.50.0"), _skill("0.49.0"))
+    assert len(errors) == 1 and "not above" in errors[0]
+
+
+def test_a_new_skill_file_needs_no_base_comparison():
+    assert check_version.skill_bump_errors([_SKILL_PATH], None, _skill("0.50.0")) == []
+
+
+def test_a_changed_skill_without_a_version_is_reported():
+    errors = check_version.skill_bump_errors([_SKILL_PATH], _skill("0.50.0"), "no frontmatter\n")
+    assert len(errors) == 1 and "no frontmatter version" in errors[0]

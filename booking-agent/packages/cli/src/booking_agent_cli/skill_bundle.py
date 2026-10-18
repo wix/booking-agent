@@ -1,15 +1,17 @@
 """The booking-agent skill this CLI was built with.
 
-``SKILL.md`` next to this module is a copy of ``skills/booking-agent/SKILL.md``
+``bundled_skill.md`` next to this module is a copy of ``skills/booking-agent/SKILL.md``
 (``scripts/sync_skill_bundle.py`` writes it, and CI checks it), so the installed CLI can
-always print the instructions that match it, offline.
+always print the instructions that match it, offline. It must not be named ``SKILL.md``:
+skill installers treat any directory holding a ``SKILL.md`` as a skill and would install
+this whole package in place of ``skills/booking-agent/``.
 """
 from __future__ import annotations
 
 import re
 from pathlib import Path
 
-SKILL_FILE = Path(__file__).with_name("SKILL.md")
+SKILL_FILE = Path(__file__).with_name("bundled_skill.md")
 _VERSION_LINE = re.compile(r"^version:\s*(\S+)\s*$", re.MULTILINE)
 
 

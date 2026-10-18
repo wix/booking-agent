@@ -285,6 +285,8 @@ class SessionStore:
     # Outcome of the installation provenance check for one install ({version, record_sha256, ...}).
     install_verified: Optional[Dict[str, Any]] = None
     install_integrity_failure: Optional[Dict[str, Any]] = None
+    # A loaded skill file that differs from the bundled skill ({skill_version, skill_path, ...}).
+    skill_integrity_failure: Optional[Dict[str, Any]] = None
     sessions: List[Session] = field(default_factory=list)
 
 
@@ -747,6 +749,8 @@ def _store_to_dict(store: SessionStore) -> Dict[str, Any]:
         d["install_verified"] = dict(store.install_verified)
     if store.install_integrity_failure is not None:
         d["install_integrity_failure"] = dict(store.install_integrity_failure)
+    if store.skill_integrity_failure is not None:
+        d["skill_integrity_failure"] = dict(store.skill_integrity_failure)
     return _restore_unknown(store, d)
 
 
@@ -772,6 +776,7 @@ def _store_from_dict(raw: Dict[str, Any]) -> SessionStore:
         update_prompts_answered=[a for a in answered if isinstance(a, str)] if isinstance(answered, list) else [],
         install_verified=_dict_or_none(raw.get("install_verified")),
         install_integrity_failure=_dict_or_none(raw.get("install_integrity_failure")),
+        skill_integrity_failure=_dict_or_none(raw.get("skill_integrity_failure")),
         sessions=[_session_from_dict(s) for s in (raw.get("sessions") or [])],
     )
     return _remember_unknown(store, raw, _STORE_KEYS)

@@ -50,6 +50,7 @@ jobs:
     timeout-minutes: 5
     outputs:
       version: ${{ steps.decide.outputs.version }}
+      skill_version: ${{ steps.decide.outputs.skill_version }}
       dev: ${{ steps.decide.outputs.dev }}
       publish: ${{ steps.decide.outputs.publish }}
     steps:
@@ -68,9 +69,17 @@ jobs:
         id: decide
         run: |
           version="$(python -c 'import tomllib; print(tomllib.load(open("booking-agent/packages/cli/pyproject.toml", "rb"))["project"]["version"])')"
+          # The skill is released as skill-v<its own frontmatter version>, separately from the CLI version.
+          skill_version="$(python -c 'import pathlib, re; t = pathlib.Path("booking-agent/skills/booking-agent/SKILL.md").read_text(encoding="utf-8").replace("\r\n", "\n"); fm = t[4:t.index("\n---", 4)] if t.startswith("---\n") else ""; print(re.search(r"^version:\s*[\x22\x27]?([^\s\x22\x27]+)[\x22\x27]?\s*$", fm, re.M).group(1))')"
+          case "$skill_version" in ""|*[!0-9A-Za-z.]*)
+            echo "::error::No usable version in booking-agent/skills/booking-agent/SKILL.md frontmatter"
+            exit 1
+            ;;
+          esac
           case "$version" in *.dev*) dev=true ;; *) dev=false ;; esac
           {
             echo "version=${version}"
+            echo "skill_version=${skill_version}"
             echo "dev=${dev}"
           } >> "$GITHUB_OUTPUT"
 
@@ -155,6 +164,15 @@ jobs:
           path: dist/
           if-no-files-found: error
 
+      # Its own artifact: the check above holds dist to exactly two files, and the publish
+      # jobs offer everything in dist/ to PyPI.
+      - name: Upload the skill
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: skill-src
+          path: booking-agent/skills/booking-agent/SKILL.md
+          if-no-files-found: error
+
   # Separate from build so the test run never holds an OIDC token.
   attest:
     needs: [decide, build]
@@ -170,12 +188,45 @@ jobs:
           name: dist
           path: dist/
 
+      - name: Download the skill
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: skill-src
+          path: skill-src/
+
       - name: GitHub build provenance
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
           subject-path: |
             dist/*.whl
             dist/*.tar.gz
+
+      # Its own invocation, because one invocation emits one bundle: adding SKILL.md to the
+      # subject-path above would produce a single multi-subject bundle and no per-file one to
+      # ship as SKILL.md.sigstore.json. The skill arrives as an artifact rather than a
+      # checkout: this job's permissions grant no contents scope, by design.
+      - name: GitHub build provenance for the skill
+        id: attest-skill
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: skill-src/SKILL.md
+
+      - name: Stage the signed skill
+        env:
+          BUNDLE_PATH: ${{ steps.attest-skill.outputs.bundle-path }}
+        run: |
+          mkdir -p skill-dist
+          cp skill-src/SKILL.md skill-dist/SKILL.md
+          cp "$BUNDLE_PATH" skill-dist/SKILL.md.sigstore.json
+          test -s skill-dist/SKILL.md
+          test -s skill-dist/SKILL.md.sigstore.json
+
+      - name: Upload the signed skill
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: skill-dist
+          path: skill-dist/
+          if-no-files-found: error
 
   publish-testpypi:
     needs: [decide, build, attest]
@@ -261,6 +312,28 @@ jobs:
           name: dist
           path: dist/
 
+      - name: Download the signed skill
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: skill-dist
+          path: skill-dist/
+
+      # A published skill must stay readable at its tag forever, so skill-v<version> is only
+      # ever created, never moved: the release tag ruleset refuses an update anyway. The
+      # checkout here carries no credentials and no tags, so the ref goes through the API.
+      - name: Tag skill-v<skill version>
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SKILL_VERSION: ${{ needs.decide.outputs.skill_version }}
+        run: |
+          if gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/skill-v${SKILL_VERSION}" >/dev/null 2>&1; then
+            echo "::notice::skill-v${SKILL_VERSION} already exists; leaving it where it is"
+            exit 0
+          fi
+          gh api --method POST "repos/${GITHUB_REPOSITORY}/git/refs" \
+            -f "ref=refs/tags/skill-v${SKILL_VERSION}" \
+            -f "sha=${GITHUB_SHA}"
+
       # The rollout decision lives in release-notes/<version>.json on master and may
       # change after release; the attached copy records what it said at release time.
       - name: Tag v<version> and create the GitHub Release
@@ -269,6 +342,7 @@ jobs:
           VERSION: ${{ needs.decide.outputs.version }}
         run: |
           gh release create "v${VERSION}" dist/* "booking-agent/release-notes/${VERSION}.json" \
+            skill-dist/SKILL.md skill-dist/SKILL.md.sigstore.json \
             --repo "$GITHUB_REPOSITORY" \
             --target "$GITHUB_SHA" \
             --title "v${VERSION}" \

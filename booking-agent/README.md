@@ -117,7 +117,39 @@ Operators may set `GOOGLE_CALENDAR_*` in `.env` to enable local Google OAuth on 
 
 ## The skill
 
-Install the [`booking-agent` skill](skills/booking-agent/SKILL.md) in your agent harness. It provisions `booking-agent`, defines the booking contract (gates, stop points, and error recovery), and follows the UCP-native path from `business use`, using [create-payment-credential](https://github.com/stripe/link-cli/blob/main/skills/create-payment-credential/SKILL.md) for spend-request approval.
+Install the [`booking-agent` skill](skills/booking-agent/SKILL.md) in your agent harness with:
+
+```bash
+npx skills add wix/booking-agent --skill booking-agent
+```
+
+That takes the latest skill, from the canonical raw URL above. Each release also publishes the
+skill at an immutable tag, `skill-v<frontmatter version>`, and signs it with the same workflow that
+signs the wheels, so a harness can pin and verify the exact text it follows:
+
+```bash
+curl -fsSLO https://raw.githubusercontent.com/wix/booking-agent/skill-v0.50.0/booking-agent/skills/booking-agent/SKILL.md
+gh attestation verify SKILL.md \
+  --repo wix/booking-agent \
+  --signer-workflow wix/booking-agent/.github/workflows/release.yml
+```
+
+The same `SKILL.md` and its `SKILL.md.sigstore.json` bundle are attached to every GitHub Release,
+for runtimes that verify the bundle offline instead of calling `gh`.
+
+At runtime the CLI checks the file the agent actually loaded: `flow init --skill-path <path>`
+hashes it and compares it with the signed copy inside the installed wheel. A file that claims the
+bundled version but does not match it fails `skill_unverified`, and `flow book` and `flow pay`
+refuse until `booking-agent skill print --output <path>` restores the official text with the
+user's consent. A file declaring a different version is a stale copy, which the update flow
+offers to replace instead. Skill files resolving into a source checkout are left alone, so
+development edits are not blocked.
+
+This check covers a file that was modified after it was installed. It cannot catch a copy written
+to evade it, since such a copy can omit `--skill-path` or point it at a genuine file — the first
+read is what `gh attestation verify` and the harness cover.
+
+It provisions `booking-agent`, defines the booking contract (gates, stop points, and error recovery), and follows the UCP-native path from `business use`, using [create-payment-credential](https://github.com/stripe/link-cli/blob/main/skills/create-payment-credential/SKILL.md) for spend-request approval.
 
 The same skill runs in every agent runtime. The agent supplies what only it can observe: the Google Calendar route (`flow calendar connect --route connector --token-env <NAME>` when its platform hands it a calendar token, or `--route local-oauth` for a sign-in link), and, when its filesystem resets between conversations, a folder that survives (`booking-agent runtime prepare --persistent-root <dir>`).
 

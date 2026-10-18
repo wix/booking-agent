@@ -107,6 +107,7 @@ SKILL_TABLE_CODES = frozenset({
     "search_area_input_invalid", "search_area_not_user_confirmed", "search_area_unconfirmed",
     "service_address_unconfirmed", "service_details_changed", "service_not_available_in_area",
     "session_store_too_new", "shared_payment_token_not_issued", "skill_output_refused",
+    "skill_path_invalid", "skill_unverified",
     "slot_not_selected", "spend_request_not_approved",
     "spend_request_replacement_required", "timezone_confirmation_required",
     "ucp_complete_failed", "ucp_native_required", "update_failed", "update_not_confirmed",
