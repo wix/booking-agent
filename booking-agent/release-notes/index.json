@@ -95,6 +95,28 @@
       "skill_version": "0.51.0",
       "update_status": "recommended",
       "user_summary": "Fixes a check that could wrongly stop the assistant from booking or paying when its instructions were installed by some tools."
+    },
+    {
+      "change_type": "fix",
+      "cli_version": "0.4.2",
+      "details_url": "https://github.com/wix/booking-agent/releases/tag/v0.4.2",
+      "ecosystem_ready": true,
+      "readiness_evidence": [
+        "The release changes only the Installing section of the skill and the version strings: git diff v0.4.1..HEAD touches no module under packages/cli/src besides __init__.py and the regenerated bundled_skill.md, so no command, flag, JSON field, exit code, or flow step order changes.",
+        "No external contract changed: platform-profile.json, the USP and UCP request and response shapes, and the registry calls are byte-identical to 0.4.1, so existing businesses and the registry in use today are unaffected.",
+        "Saved session files stay safe both ways: SCHEMA_VERSION and STORE_SCHEMA_VERSION are untouched at 2, and no session field is added, read, or removed, so an older build still opens a file this one wrote and the reverse holds.",
+        "The skill text is still accepted by the runtime check: the full pytest suite passes, including test_skill_integrity.py, test_skill_portability.py, test_update_command.py::test_the_bundled_skill_matches_the_published_skill, and test_check_version.py::test_the_repository_versions_agree.",
+        "skill-install-check.yml exercises the installed copies on this pull request, so a layout that npx skills add or OpenClaw writes is still accepted by flow init --skill-path before the release goes out.",
+        "Nothing already installed has to act: the changed text is read at install time only, and update_status available means no assistant prompts its user about this version."
+      ],
+      "relevant_capabilities": [
+        "booking",
+        "payment"
+      ],
+      "schema_version": 1,
+      "skill_version": "0.52.0",
+      "update_status": "available",
+      "user_summary": "Makes the setup instructions clearer, so an assistant installs the official, verified version the first time."
     }
   ],
   "schema_version": 1
