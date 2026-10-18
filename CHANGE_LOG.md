@@ -1,5 +1,13 @@
 # Change Log
 
+## 19/10/26 at 00:20:44 by [Ran Yahalom](mailto:ranya@wix.com)
+
+- Released as 0.6.0 (skill 0.54.0). A host that names its persistent folder in `BOOKING_AGENT_PERSISTENT_ROOT` now gets booking state and the Link sign-in linked into it by the CLI itself, before every command except `runtime`, quietly and without ever blocking a command. A hosted replay showed the assistant skipping `runtime prepare` (the skill told it to run it "when this runtime needs it"), so today's booking, calendar link and sign-in lived outside the folder the platform restores at boot and would be lost at the next restart. The setting is listed in `defaults.env` and `runtime doctor` flags a named folder the state is not in
+- `runtime prepare` now merges instead of setting one side aside when both the runtime folder and the persistent folder hold data, and when it moves from one root to another or lifts the old nested layout. Booking files are merged by session id and the copy that got further wins; for any other file the newer one stays and the older is kept aside, and nothing is deleted. The platform's restored top-level booking file was a stale `INIT` snapshot while the real one sat in the nested folder, and the previous "persistent copy wins" rule would have hidden today's finished booking behind it
+- The skill (about 78.3 kB) tells the assistant to do nothing when the host names the folder and keeps the explicit `runtime prepare` step only for runtimes that do not. Rolled out as `deferred` with `ecosystem_ready: false` until the same restart is replayed in a real hosted session
+
+---
+
 ## 18/10/26 at 22:31:47 by [Ran Yahalom](mailto:ranya@wix.com)
 
 - Released as 0.5.0 (skill 0.53.0). `runtime prepare` no longer splits the saved state and the Link sign-in across folders: a root already named `booking-agent` is treated as its parent, a different root than the last run brings the existing state along (or leaves the old one untouched when the new root has its own), and the old nested `booking-agent/booking-agent` layout is lifted back up. Two recorded hosted runs lost the sign-in and the calendar after a restart because each run picked a different root, and the user was asked to sign in and reconnect one step at a time. Added `runtime doctor` to report where state lives and what an earlier layout left behind

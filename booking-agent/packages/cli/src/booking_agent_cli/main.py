@@ -29,6 +29,15 @@ app.add_typer(runtime_app, name="runtime")
 app.add_typer(skill_app, name="skill")
 app.add_typer(update_app, name="update")
 
+@app.callback()
+def _main(ctx: typer.Context) -> None:
+    """Keep state in the host's persistent folder (when it names one) before any command runs."""
+    if ctx.invoked_subcommand != "runtime":
+        from .runtime_prepare import auto_prepare
+
+        auto_prepare()
+
+
 INTERNAL_ERROR_MESSAGE = (
     "The booking assistant hit an unexpected internal error. Tell the user in plain "
     "words that something went wrong on our side, then follow next_command."

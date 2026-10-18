@@ -14,9 +14,16 @@ REGRESSIONS = {
     "state split across two persistent roots": [
         ("test_runtime_prepare.py", "test_a_root_already_named_booking_agent_is_not_nested_again"),
         ("test_runtime_prepare.py", "test_moving_to_a_different_root_brings_the_saved_state_along"),
-        ("test_runtime_prepare.py", "test_moving_to_a_root_that_has_its_own_state_leaves_the_old_one_untouched"),
+        ("test_runtime_prepare.py", "test_moving_to_a_root_that_has_its_own_state_merges_both"),
         ("test_runtime_prepare.py", "test_a_state_folder_nested_by_the_old_layout_is_lifted_back_up"),
         ("test_runtime_prepare.py", "test_doctor_reports_where_state_lives_and_what_is_orphaned"),
+    ],
+    "restored booking files hidden behind a stale top-level copy (hosted layout)": [
+        ("test_runtime_prepare.py", "test_the_recorded_hosted_layout_is_repaired_without_losing_the_real_booking"),
+        ("test_runtime_prepare.py", "test_the_further_along_copy_of_a_session_wins_and_no_booking_is_lost"),
+    ],
+    "assistant had to remember to set up persistence": [
+        ("test_runtime_prepare.py", "test_the_named_persistent_folder_is_prepared_before_any_command"),
     ],
     "sign-in approved but the poll never reported, so the user is asked again": [
         ("test_link_auth.py", "test_buyer_resolve_trusts_link_when_the_sign_in_poll_never_reported"),
