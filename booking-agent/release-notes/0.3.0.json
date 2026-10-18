@@ -2,14 +2,19 @@
   "change_type": "feature",
   "cli_version": "0.3.0",
   "details_url": "https://github.com/wix/booking-agent/releases/tag/v0.3.0",
-  "ecosystem_ready": false,
-  "readiness_evidence": [],
+  "ecosystem_ready": true,
+  "readiness_evidence": [
+    "PyPI serves PEP 740 provenance for both published files: the integrity endpoint returns HTTP 200 for booking_agent_cli-0.3.0-py3-none-any.whl and booking_agent_cli-0.3.0.tar.gz, the publisher is GitHub wix/booking-agent workflow release.yml, and pypi-attestations verify pypi --repository https://github.com/wix/booking-agent prints OK for both. gh attestation verify --repo wix/booking-agent also passes for the wheel.",
+    "A clean uv tool install of 0.3.0 from PyPI passes its own first-run check against the live provenance on the first flow init. After one installed file was edited, flow init and flow pay request refused with installation_unverified and a reinstall command; restoring the file cleared it.",
+    "No request or response exchanged with the registry or with businesses changes: the platform profile, USP and UCP versions, and every booking call are as in 0.2.0.",
+    "Saved bookings move both ways: with one session file, 0.2.0 started a booking, 0.3.0 listed it and added another, 0.2.0 then read the file and added a third while keeping the two new optional fields, and 0.3.0 read all three. The file keeps format 2."
+  ],
   "relevant_capabilities": [
     "booking",
     "payment"
   ],
   "schema_version": 1,
   "skill_version": "0.49.0",
-  "update_status": "deferred",
+  "update_status": "recommended",
   "user_summary": "The booking assistant now checks that updates and its own installation come from the official release before it books or pays."
 }

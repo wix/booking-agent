@@ -1,5 +1,12 @@
 # Change Log
 
+## 18/10/26 at 09:50:49 by [Ran Yahalom](mailto:ranya@wix.com)
+
+- 0.3.0 is now `recommended` with `ecosystem_ready: true`, because it was held at `deferred` only until its published files were shown to carry attestations, and that is now confirmed: PyPI serves provenance for the wheel and the sdist signed by `wix/booking-agent` `release.yml`, a clean install from PyPI passes its own first-run check, a tampered install is refused, and saved bookings move between 0.2.0 and 0.3.0 in both directions. Installed assistants on 0.2.0 will now offer the update, once, with the user's consent
+- The 0.3.0 release run first stalled in `build` for an hour after all tests had passed (the job outlived its 20-minute timeout, and the same commit's CI exited normally), so it was cancelled and re-run; the re-run published 0.3.0, its tag, and its GitHub Release with every job green
+
+---
+
 ## 18/10/26 at 09:16:49 by [Ran Yahalom](mailto:ranya@wix.com)
 
 - Released as 0.3.0 (skill 0.49.0). Every wheel and sdist `release.yml` publishes now carries a PEP 740 attestation (Sigstore keyless, signed by `pypi-attestations sign` and uploaded by `uv publish`) plus a GitHub build provenance attestation, because until now nothing tied a `booking-agent-cli` file on PyPI to this repository, so a compromised PyPI account or a swapped file could not be told apart from a real release. TestPyPI uploads are signed against production Sigstore too, since TestPyPI verifies attestations there. Build provenance runs in its own `attest` job rather than in `build`, so the job that runs the tests still never holds `id-token: write`
