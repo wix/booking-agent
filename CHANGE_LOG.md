@@ -1,5 +1,14 @@
 # Change Log
 
+## 18/10/26 at 13:02:36 by [Ran Yahalom](mailto:ranya@wix.com)
+
+- Released as 0.4.1 (skill 0.51.0). The skill check now hashes what installers leave alone -- the instructions, plus `name`, `version` and a whitespace-collapsed `description` -- instead of the raw bytes, because `skill-install-check.yml` showed that one agent layout written by `npx skills add` re-serializes the file: `description` is refolded from `|` to `>` and rewrapped, and `allowed-tools` and `user-invocable` are dropped. Under the old raw-byte hash every user who installed through that layout would have been told their instructions were tampered with and refused booking and payment. 0.4.0 was never rolled out (`deferred`), so no installed assistant was affected
+- `description` is covered despite being refolded, by collapsing runs of whitespace before hashing, so the same sentences hash the same whatever the fold width. It carries real instructions (never start an inbound webhook, surface the approval URL once), so leaving it out would have let someone change the assistant's behaviour unnoticed
+- `allowed-tools` is deliberately **not** covered, although it is security-relevant: no installer preserves it, so hashing it would refuse every rewritten install. This is recorded in the module docstring rather than left implicit
+- Added `.github/workflows/skill-install-check.yml`, which installs the skill the way users do (`npx skills add`, and OpenClaw from a local directory) and fails if the CLI reports `skill_unverified` for a genuinely installed copy. The check asserts acceptance rather than byte equality, since installers are expected to rewrite layout; it is how this bug was found, and it runs daily so a future installer change is caught the next morning rather than by a user who cannot pay
+
+---
+
 ## 18/10/26 at 12:37:36 by [Ran Yahalom](mailto:ranya@wix.com)
 
 - Added `.github/workflows/skill-install-check.yml`, which installs the skill the way users do (`npx skills add wix/booking-agent --skill booking-agent`) and fails if the installed bytes differ from the published skill or if the CLI reports `skill_unverified` for that copy. The runtime check hashes raw bytes, so an installer that started rewriting `SKILL.md` on install would make every genuine install refuse to book or pay; that is a silent, external regression no existing test could catch, and it needs a recurring check rather than a one-off manual install

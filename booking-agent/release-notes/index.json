@@ -65,6 +65,21 @@
       "skill_version": "0.50.0",
       "update_status": "deferred",
       "user_summary": "The booking assistant now checks that its own instructions are the official ones before it books or pays."
+    },
+    {
+      "change_type": "fix",
+      "cli_version": "0.4.1",
+      "details_url": "https://github.com/wix/booking-agent/releases/tag/v0.4.1",
+      "ecosystem_ready": false,
+      "readiness_evidence": [],
+      "relevant_capabilities": [
+        "booking",
+        "payment"
+      ],
+      "schema_version": 1,
+      "skill_version": "0.51.0",
+      "update_status": "deferred",
+      "user_summary": "Fixes a check that could wrongly stop the assistant from booking or paying when its instructions were installed by some tools."
     }
   ],
   "schema_version": 1
