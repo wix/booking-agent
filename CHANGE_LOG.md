@@ -1,5 +1,12 @@
 # Change Log
 
+## 18/10/26 at 12:37:36 by [Ran Yahalom](mailto:ranya@wix.com)
+
+- Added `.github/workflows/skill-install-check.yml`, which installs the skill the way users do (`npx skills add wix/booking-agent --skill booking-agent`) and fails if the installed bytes differ from the published skill or if the CLI reports `skill_unverified` for that copy. The runtime check hashes raw bytes, so an installer that started rewriting `SKILL.md` on install would make every genuine install refuse to book or pay; that is a silent, external regression no existing test could catch, and it needs a recurring check rather than a one-off manual install
+- The OpenClaw job is a non-blocking probe in this first run, because the CLI's package name and its local-install behaviour are not something to guess at in a committed workflow; it is tightened into an assertion once the run reports them
+
+---
+
 ## 18/10/26 at 11:55:59 by [Ran Yahalom](mailto:ranya@wix.com)
 
 - Released as 0.4.0 (skill 0.50.0). Every release now signs the skill itself: `release.yml` attests `skills/booking-agent/SKILL.md` with GitHub build provenance, attaches that file and its `SKILL.md.sigstore.json` bundle to the GitHub Release, and creates the immutable tag `skill-v<frontmatter version>`, because the wheel was the only thing a harness could verify while the file that actually drives the assistant was fetched from an unpinned `master` URL. A tampered skill could redirect a booking or a payment with every wheel check still passing

@@ -1,0 +1,125 @@
+name: skill-install-check
+
+# Skill installers copy the directory holding a SKILL.md. If one ever rewrites the file
+# on install (frontmatter, line endings, added fields), a genuine installed copy would
+# fail the CLI's skill_unverified check and refuse to book or pay. This installs the
+# skill the way users do and proves the installed bytes still match the published skill.
+# Lives on master only; never add it to main (the Pages branch allow-list rejects it).
+
+on:
+  pull_request:
+    paths:
+      - "booking-agent/skills/booking-agent/SKILL.md"
+      - "booking-agent/packages/cli/src/booking_agent_cli/skill_integrity.py"
+      - ".github/workflows/skill-install-check.yml"
+  schedule:
+    - cron: "37 6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  # Installers fetch the default branch, so this is the copy they should reproduce.
+  SKILL_URL: https://raw.githubusercontent.com/wix/booking-agent/master/booking-agent/skills/booking-agent/SKILL.md
+
+jobs:
+  skills-cli:
+    name: skills CLI
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Node
+        uses: actions/setup-node@2028fbc5c25fe9cf00d9f06a71cc4710d4507903 # v7.0.0
+        with:
+          node-version: "22"
+
+      - name: Install the skill the way the docs tell users to
+        run: npx --yes skills add wix/booking-agent --skill booking-agent
+
+      - name: The installed copy is byte-identical to the published skill
+        id: installed
+        run: |
+          installed="$(find "$HOME" -name SKILL.md -path '*booking-agent*' -not -path '*/.npm/*' | head -1)"
+          if [ -z "$installed" ]; then
+            echo "::error::npx skills add installed no SKILL.md"
+            find "$HOME" -name 'SKILL.md' -not -path '*/.npm/*' || true
+            exit 1
+          fi
+          echo "installed at: ${installed}"
+          echo "path=${installed}" >> "$GITHUB_OUTPUT"
+          curl -fsSL -o published.md "$SKILL_URL"
+          if cmp -s "$installed" published.md; then
+            echo "::notice::the skills CLI does not rewrite SKILL.md"
+            exit 0
+          fi
+          echo "::error::the skills CLI rewrote SKILL.md on install; the CLI hashes raw bytes, so a genuine install would now report skill_unverified"
+          diff -u published.md "$installed" | head -40
+          exit 1
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@b75a909f75acd358c2196fb9a5f1299a9a8868a4 # v7.1.0
+
+      - name: The CLI accepts the installed copy
+        working-directory: booking-agent
+        env:
+          BOOKING_AGENT_SESSION_DIR: ${{ runner.temp }}/session
+          INSTALLED: ${{ steps.installed.outputs.path }}
+        run: |
+          mkdir -p "$BOOKING_AGENT_SESSION_DIR"
+          uv sync --all-packages --quiet
+          # On a PR that raises the skill version the installed (master) copy is a different
+          # version, which routes to the update offer; skill_unverified must never appear.
+          uv run booking-agent flow init --user-request "haircut" --skill-path "$INSTALLED" > out.json 2>&1 || true
+          cat out.json
+          if grep -q skill_unverified out.json; then
+            echo "::error::the CLI reports skill_unverified for a genuine installed copy"
+            exit 1
+          fi
+
+  openclaw:
+    name: OpenClaw
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Node
+        uses: actions/setup-node@2028fbc5c25fe9cf00d9f06a71cc4710d4507903 # v7.0.0
+        with:
+          node-version: "22"
+
+      # Probe only, for this first run: the OpenClaw CLI's package name and its local
+      # install behaviour become assertions once this run prints them.
+      - name: Probe the OpenClaw CLI
+        continue-on-error: true
+        run: |
+          echo "--- npm view openclaw ---"
+          npm view openclaw version repository.url 2>&1 | head -5 || true
+          echo "--- npm view clawhub ---"
+          npm view clawhub version 2>&1 | head -3 || true
+          echo "--- install attempt ---"
+          npm i -g openclaw 2>&1 | tail -5 || true
+          if command -v openclaw >/dev/null; then
+            openclaw --version 2>&1 | head -2
+            echo "--- skills subcommand ---"
+            openclaw skills --help 2>&1 | head -40
+            echo "--- local install of this repo's skill ---"
+            openclaw skills install ./booking-agent/skills/booking-agent --as booking-agent 2>&1 | tail -20
+            find "$HOME" -name SKILL.md -path '*booking-agent*' 2>/dev/null | head
+          else
+            echo "openclaw not on PATH after install"
+          fi
