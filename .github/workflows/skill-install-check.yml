@@ -92,6 +92,12 @@ jobs:
                 sorted({l.split(":")[0] for l in a_fm.splitlines() if l[:1].isalpha()}))
           print("    published frontmatter keys:",
                 sorted({l.split(":")[0] for l in b_fm.splitlines() if l[:1].isalpha()}))
+          import difflib
+          d = [l for l in difflib.unified_diff(b_body.splitlines(), a_body.splitlines(),
+                                               "published body", "installed body", lineterm="", n=1)]
+          print("    body diff lines:", len(d))
+          for line in d[:30]:
+              print("   ", line[:160])
           PY
               rewritten=1
             fi
