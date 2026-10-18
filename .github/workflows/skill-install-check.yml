@@ -51,8 +51,11 @@ jobs:
         id: installed
         run: |
           curl -fsSL -o "${RUNNER_TEMP}/published.md" "$SKILL_URL"
+          # It installs into .agents/skills/ under the working directory, which is inside
+          # the workspace, so only this repository's own source copy is excluded.
           mapfile -t copies < <(find "$HOME" -name SKILL.md -path '*booking-agent*' \
-            -not -path "${GITHUB_WORKSPACE}/*" -not -path '*/.npm/*' 2>/dev/null | sort)
+            -not -path "${GITHUB_WORKSPACE}/${SKILL_DIR}/SKILL.md" \
+            -not -path '*/.npm/*' -not -path '*/.git/*' 2>/dev/null | sort -u)
           if [ "${#copies[@]}" -eq 0 ]; then
             echo "::error::skills add installed no SKILL.md"
             exit 1
