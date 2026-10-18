@@ -22,14 +22,15 @@ permissions:
 
 env:
   UV_VERSION: "0.13.0"
-  # Installers fetch the default branch, so this is the copy they should reproduce.
+  SKILL_DIR: booking-agent/skills/booking-agent
+  # The skills CLI clones the default branch, so that is the copy it should reproduce.
   SKILL_URL: https://raw.githubusercontent.com/wix/booking-agent/master/booking-agent/skills/booking-agent/SKILL.md
 
 jobs:
   skills-cli:
     name: skills CLI
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -41,28 +42,37 @@ jobs:
         with:
           node-version: "22"
 
+      # The documented command is interactive; CI has no TTY, so it names the agents.
+      # '*' installs into every layout the CLI knows, which is what we want to check.
       - name: Install the skill the way the docs tell users to
-        run: npx --yes skills add wix/booking-agent --skill booking-agent
+        run: npx --yes skills add wix/booking-agent --skill booking-agent --agent '*' --yes
 
-      - name: The installed copy is byte-identical to the published skill
+      - name: Every installed copy is byte-identical to the published skill
         id: installed
         run: |
-          installed="$(find "$HOME" -name SKILL.md -path '*booking-agent*' -not -path '*/.npm/*' | head -1)"
-          if [ -z "$installed" ]; then
-            echo "::error::npx skills add installed no SKILL.md"
-            find "$HOME" -name 'SKILL.md' -not -path '*/.npm/*' || true
+          curl -fsSL -o "${RUNNER_TEMP}/published.md" "$SKILL_URL"
+          mapfile -t copies < <(find "$HOME" -name SKILL.md -path '*booking-agent*' \
+            -not -path "${GITHUB_WORKSPACE}/*" -not -path '*/.npm/*' 2>/dev/null | sort)
+          if [ "${#copies[@]}" -eq 0 ]; then
+            echo "::error::skills add installed no SKILL.md"
             exit 1
           fi
-          echo "installed at: ${installed}"
-          echo "path=${installed}" >> "$GITHUB_OUTPUT"
-          curl -fsSL -o published.md "$SKILL_URL"
-          if cmp -s "$installed" published.md; then
-            echo "::notice::the skills CLI does not rewrite SKILL.md"
-            exit 0
+          echo "path=${copies[0]}" >> "$GITHUB_OUTPUT"
+          rewritten=0
+          for copy in "${copies[@]}"; do
+            if cmp -s "$copy" "${RUNNER_TEMP}/published.md"; then
+              echo "  ok       ${copy}"
+            else
+              echo "  REWROTE  ${copy}"
+              diff -u "${RUNNER_TEMP}/published.md" "$copy" | head -20 || true
+              rewritten=1
+            fi
+          done
+          if [ "$rewritten" -ne 0 ]; then
+            echo "::error::the skills CLI rewrote SKILL.md on install; the CLI hashes raw bytes, so a genuine install would now report skill_unverified"
+            exit 1
           fi
-          echo "::error::the skills CLI rewrote SKILL.md on install; the CLI hashes raw bytes, so a genuine install would now report skill_unverified"
-          diff -u published.md "$installed" | head -40
-          exit 1
+          echo "::notice::${#copies[@]} installed copies, none rewritten"
 
       - name: Set up Python
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
@@ -92,7 +102,7 @@ jobs:
   openclaw:
     name: OpenClaw
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -104,24 +114,55 @@ jobs:
         with:
           node-version: "22"
 
-      # Probe only, for this first run: the OpenClaw CLI's package name and its local
-      # install behaviour become assertions once this run prints them.
-      - name: Probe the OpenClaw CLI
-        continue-on-error: true
+      - name: Install the OpenClaw CLI
+        run: npm i -g openclaw
+
+      # OpenClaw's git source expects SKILL.md at the repository root, which this layout
+      # does not have (CI enforces exactly one, under skills/booking-agent/), and the skill
+      # is not on ClawHub. The local directory source is the one route that applies, so it
+      # is the one checked: it installs straight from this checkout.
+      - name: Install this repository's skill from a local directory
+        id: installed
         run: |
-          echo "--- npm view openclaw ---"
-          npm view openclaw version repository.url 2>&1 | head -5 || true
-          echo "--- npm view clawhub ---"
-          npm view clawhub version 2>&1 | head -3 || true
-          echo "--- install attempt ---"
-          npm i -g openclaw 2>&1 | tail -5 || true
-          if command -v openclaw >/dev/null; then
-            openclaw --version 2>&1 | head -2
-            echo "--- skills subcommand ---"
-            openclaw skills --help 2>&1 | head -40
-            echo "--- local install of this repo's skill ---"
-            openclaw skills install ./booking-agent/skills/booking-agent --as booking-agent 2>&1 | tail -20
-            find "$HOME" -name SKILL.md -path '*booking-agent*' 2>/dev/null | head
-          else
-            echo "openclaw not on PATH after install"
+          openclaw skills install "./${SKILL_DIR}" --as booking-agent
+          installed="$HOME/.openclaw/workspace/skills/booking-agent/SKILL.md"
+          if [ ! -f "$installed" ]; then
+            echo "::error::openclaw skills install produced no SKILL.md at ${installed}"
+            find "$HOME/.openclaw" -name SKILL.md 2>/dev/null | head || true
+            exit 1
+          fi
+          echo "path=${installed}" >> "$GITHUB_OUTPUT"
+
+      - name: The installed copy is byte-identical to the skill it was installed from
+        run: |
+          installed="${{ steps.installed.outputs.path }}"
+          if cmp -s "$installed" "${SKILL_DIR}/SKILL.md"; then
+            echo "::notice::OpenClaw does not rewrite SKILL.md"
+            exit 0
+          fi
+          echo "::error::OpenClaw rewrote SKILL.md on install; the CLI hashes raw bytes, so a genuine install would now report skill_unverified"
+          diff -u "${SKILL_DIR}/SKILL.md" "$installed" | head -40 || true
+          exit 1
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        run: python -m pip install "uv==${UV_VERSION}"
+
+      - name: The CLI accepts the installed copy
+        working-directory: booking-agent
+        env:
+          BOOKING_AGENT_SESSION_DIR: ${{ runner.temp }}/session
+          INSTALLED: ${{ steps.installed.outputs.path }}
+        run: |
+          mkdir -p "$BOOKING_AGENT_SESSION_DIR"
+          uv sync --all-packages --quiet
+          uv run booking-agent flow init --user-request "haircut" --skill-path "$INSTALLED" > out.json 2>&1 || true
+          cat out.json
+          if grep -q skill_unverified out.json; then
+            echo "::error::the CLI reports skill_unverified for a genuine installed copy"
+            exit 1
           fi
