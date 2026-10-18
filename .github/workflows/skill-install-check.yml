@@ -69,8 +69,24 @@ jobs:
             exit 1
           fi
           uv sync --all-packages --quiet
+          # The installer fetches the default branch, so that is the text it rewrote.
+          # Comparing canonical hashes against it tests the property directly, and keeps
+          # working on a pull request that raises the skill version, where flow init
+          # would otherwise take the stale-version path and never reach the hash.
+          curl -fsSL -o "${RUNNER_TEMP}/published.md" \
+            "https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/master/${SKILL_DIR}/SKILL.md"
           failed=0
           for copy in "${copies[@]}"; do
+            if ! uv run python -c "
+          import sys
+          from booking_agent_cli import skill_integrity as si
+          installed, published = (open(p, encoding='utf-8').read() for p in sys.argv[1:])
+          sys.exit(0 if si.skill_sha256(installed) == si.skill_sha256(published) else 1)
+          " "$copy" "${RUNNER_TEMP}/published.md"; then
+              echo "  REWROTE  ${copy}  (canonical hash differs from the published skill)"
+              failed=1
+              continue
+            fi
             session="$(mktemp -d)"
             # A genuine copy may return session_active or an update offer; only
             # skill_unverified means the installed file was not recognised.
@@ -79,7 +95,7 @@ jobs:
             if grep -q skill_unverified out.json; then
               echo "  REFUSED  ${copy}"
               failed=1
-            elif cmp -s "$copy" "${GITHUB_WORKSPACE}/${SKILL_DIR}/SKILL.md"; then
+            elif cmp -s "$copy" "${RUNNER_TEMP}/published.md"; then
               echo "  ok       ${copy}"
             else
               echo "  ok       ${copy}  (rewritten by the installer, still accepted)"
