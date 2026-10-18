@@ -1,0 +1,45 @@
+# Files Cursor should skip from indexing and chat context.
+# Same shape as .gitignore — gitignore-style globs.
+
+# Virtual envs / caches / build outputs
+.venv/
+venv/
+env/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.tox/
+.nox/
+.cache/
+build/
+dist/
+*.egg-info/
+*.whl
+
+# Lock files (Cursor: don't waste context on these)
+uv.lock
+poetry.lock
+package-lock.json
+pnpm-lock.yaml
+
+# Local secrets / runtime state
+.env
+.env.*
+!.env.example
+.usp-session.json
+.google-calendar-tokens/
+usp_tokens.json
+
+# IDE noise
+.idea/
+.vscode/
+*.iml
+
+# OS junk
+.DS_Store
+Thumbs.db
+
+# Git internals
+.git/
