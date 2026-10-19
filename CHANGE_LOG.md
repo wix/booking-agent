@@ -1,5 +1,13 @@
 # Change Log
 
+## 19/10/26 at 13:05:12 by [Ran Yahalom](mailto:ranya@wix.com)
+
+- Rolled out 0.5.0 (`available`), 0.6.0 (`available`) and 0.7.0 (`recommended`) together, with `ecosystem_ready: true`, because a deferred release holds back everything after it (installing 0.7.0 brings 0.5.0 and 0.6.0), so flipping only the newest would have left installed assistants on 0.4.2 never offered anything. After this, an assistant on 0.4.2, 0.5.0 or 0.6.0 is offered 0.7.0 with its consent
+- The evidence is a hosted replay on a Superagent: 0.5.0 booked end to end on 18/10/26, and on 19/10/26 a real sandbox restart (boot id changed, `/root` wiped, `/app/.agents` restored) after which the first `flow init` was refused with `persistence_unresolved`, the assistant named the surviving folder, the earlier booking was found again, and `runtime doctor` reported `survived_restart: true`. Each release's evidence line states what was not shown: the platform does not wake the assistant after an approval (a platform matter), the host-variable setup of 0.6.0 was not exercised, and a complete new booking after the restart was not repeated
+- Rewrote the 0.5.0 summary users may be shown: it said booking "no longer stalls", which the hosted run contradicted (the user still had to ask once after each approval), and the 0.7.0 summary no longer says the assistant "can no longer forget". A summary the assistant repeats to a user must not promise more than was shown
+
+---
+
 ## 19/10/26 at 12:07:00 by [Ran Yahalom](mailto:ranya@wix.com)
 
 - Part of 0.7.0 (skill 0.55.0). Fixed the runtime doctor test that passed on macOS and failed on every Linux Python in CI: where the machine has a boot id, a folder set up in the current boot cannot yet be shown to survive a restart, so `runtime doctor` correctly adds an informational finding and the test that expected none was only true where boots cannot be told apart. The test now pins the boot id both ways, with a new test for the Linux case, so it no longer depends on the OS it runs on
