@@ -541,9 +541,11 @@ def record_correction() -> int:
 
 def record_accepted_despite(problem: str) -> None:
     ensure_private_dir(settings.booking_agent_home())
+    # The count starts over: this folder was used as given, and a later bad folder is a new
+    # decision that gets its own corrections instead of being waved through.
     write_private_text(
         _attempts_path(),
-        json.dumps({"rejected": corrections_so_far(), "accepted_despite": problem}),
+        json.dumps({"rejected": 0, "accepted_despite": problem}),
     )
 
 
@@ -580,7 +582,12 @@ def touch_boot_marker(root: Path) -> None:
 
 
 def survived_restart(root: Path) -> Optional[bool]:
-    """True once this folder has been seen across two boots; None when boots cannot be told."""
+    """True once this folder has been seen across two boots; None when boots cannot be told.
+
+    Never a false "yes": the marker lives in the folder, so seeing it again means the folder
+    came back. It can stay False after a real restart when sandboxes share one kernel (many
+    containers report the host's boot id), so False means "not shown", not "lost".
+    """
     try:
         previous = json.loads((root / _BOOT_FILE).read_text())
     except (OSError, ValueError):

@@ -658,7 +658,7 @@ def _resolve_persistence(persistent_root: Optional[str], no_persistent_root: boo
                 code="persistence_folder_not_durable",
                 message=(
                     f"That folder cannot be relied on to survive a restart: {problem}. Nothing "
-                    "was changed. Re-run the same init command with the folder this runtime "
+                    "was moved. Re-run the same init command with the folder this runtime "
                     "really keeps between conversations, or with --no-persistent-root if it keeps "
                     f"its files anyway. (Correction {used} of {MAX_CORRECTIONS}; after that the "
                     "folder you name is used as given so the booking is never stuck.)"

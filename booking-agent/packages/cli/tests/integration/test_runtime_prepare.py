@@ -227,7 +227,10 @@ def test_doctor_reports_where_state_lives_and_what_is_orphaned(runner, dirs, tmp
     assert body["data"]["healthy"] is False
 
 
-def test_doctor_is_quiet_when_everything_is_in_one_place(runner, dirs):
+def test_doctor_is_quiet_when_everything_is_in_one_place(runner, dirs, monkeypatch):
+    # No boot id (macOS, Windows): there is nothing to say about surviving a restart. Linux has
+    # its own test below; this one must not depend on which OS runs it.
+    monkeypatch.setattr(runtime_prepare, "current_boot_id", lambda: None)
     _home, root, _link_dir = dirs
     _run(runner, "--persistent-root", str(root))
 
@@ -237,6 +240,20 @@ def test_doctor_is_quiet_when_everything_is_in_one_place(runner, dirs):
     assert result.exit_code == 0, result.stdout
     assert body["data"]["healthy"] is True
     assert body["data"]["findings"] == []
+
+
+def test_doctor_only_notes_that_a_new_folder_has_not_yet_survived_a_restart(runner, dirs, monkeypatch):
+    """Where boots can be told apart (Linux), the first boot cannot yet prove the folder lasts."""
+    monkeypatch.setattr(runtime_prepare, "current_boot_id", lambda: "boot-1")
+    _home, root, _link_dir = dirs
+    _run(runner, "--persistent-root", str(root))
+
+    body = json.loads(runner.invoke(app, ["runtime", "doctor"]).stdout)
+
+    assert body["data"]["healthy"] is True
+    assert [f["kind"] for f in body["data"]["findings"]] == ["folder_not_yet_shown_to_survive_a_restart"]
+    assert {f["severity"] for f in body["data"]["findings"]} == {"info"}
+    assert body["data"]["persistence"]["survived_restart"] is False
 
 
 # --- Two booking files from different times are merged, never one hiding the other ---------------
@@ -475,6 +492,19 @@ def test_a_good_folder_after_a_correction_starts_the_count_over(strict, tmp_path
     from booking_agent_cli import runtime_prepare
 
     assert runtime_prepare.corrections_so_far() == 0
+
+
+def test_a_bad_folder_accepted_after_two_corrections_does_not_waive_the_next_decision(strict, tmp_path):
+    from booking_agent_cli import runtime_prepare
+
+    bad = str(strict / "keep")
+    assert _gate(persistent_root=bad) is False
+    assert _gate(persistent_root=bad) is False
+    assert _gate(persistent_root=bad) is True  # accepted despite the checks
+    assert runtime_prepare.corrections_so_far() == 0
+
+    # A later, different bad folder is a new decision: it is turned back again, not waved through.
+    assert _gate(persistent_root=str(strict / "other")) is False
 
 
 def test_no_folder_is_always_accepted_and_never_counted(strict):

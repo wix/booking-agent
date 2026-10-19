@@ -1,5 +1,13 @@
 # Change Log
 
+## 19/10/26 at 12:07:00 by [Ran Yahalom](mailto:ranya@wix.com)
+
+- Part of 0.7.0 (skill 0.55.0). Fixed the runtime doctor test that passed on macOS and failed on every Linux Python in CI: where the machine has a boot id, a folder set up in the current boot cannot yet be shown to survive a restart, so `runtime doctor` correctly adds an informational finding and the test that expected none was only true where boots cannot be told apart. The test now pins the boot id both ways, with a new test for the Linux case, so it no longer depends on the OS it runs on
+- A folder accepted after two corrections used to leave the correction count at two, so a later, different bad folder was waved through with no correction at all. The count now starts over when a folder is accepted, because each folder the agent names is its own decision
+- The correction message said "Nothing was changed" although it records that it sent the agent back; it now says "Nothing was moved", which is what is true. Wrapped the over-long persistence paragraph in the skill, and wrote down in the code and the release evidence that the boot-id proof never gives a false yes but can stay unproven when sandboxes share one kernel, and that the first `flow init` of a runtime now needs one of the two flags
+
+---
+
 ## 19/10/26 at 11:03:43 by [Ran Yahalom](mailto:ranya@wix.com)
 
 - Released as 0.7.0 (skill 0.55.0). `flow init` now refuses (`persistence_unresolved`) until the agent says how this runtime keeps its files: `--persistent-root <folder>` links saved bookings and the Link sign-in into the folder it names, `--no-persistent-root` records that the runtime keeps its files anyway. A hosted replay showed the assistant skipping `runtime prepare` with nothing failing, so the booking, calendar link and sign-in sat outside the folder the platform restores and would be lost at the next restart. The calendar already works this way: the CLI will not run `availability` until the agent has observed the runtime and answered, and the same pattern removes the chance to forget. The CLI never guesses a folder
