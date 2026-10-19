@@ -1,5 +1,13 @@
 # Change Log
 
+## 19/10/26 at 11:03:43 by [Ran Yahalom](mailto:ranya@wix.com)
+
+- Released as 0.7.0 (skill 0.55.0). `flow init` now refuses (`persistence_unresolved`) until the agent says how this runtime keeps its files: `--persistent-root <folder>` links saved bookings and the Link sign-in into the folder it names, `--no-persistent-root` records that the runtime keeps its files anyway. A hosted replay showed the assistant skipping `runtime prepare` with nothing failing, so the booking, calendar link and sign-in sat outside the folder the platform restores and would be lost at the next restart. The calendar already works this way: the CLI will not run `availability` until the agent has observed the runtime and answered, and the same pattern removes the chance to forget. The CLI never guesses a folder
+- A host never has to be asked: a linked state folder, `BOOKING_AGENT_PERSISTENT_ROOT`, or `BOOKING_AGENT_PERSISTENCE=none` all count as answered. The "no folder" answer is a small note beside the saved state, so a fresh runtime that lost the state is asked again, and no field is added to the saved booking file. Both settings are listed in `defaults.env`
+- The skill now describes this one step in place of the old "run `runtime prepare` when this runtime needs it" judgment, and the tests run as a host that keeps its own files so only the gate's own tests exercise the question. Rolled out as `deferred` with `ecosystem_ready: false` until the same restart is replayed with a real assistant
+
+---
+
 ## 19/10/26 at 00:20:44 by [Ran Yahalom](mailto:ranya@wix.com)
 
 - Released as 0.6.0 (skill 0.54.0). A host that names its persistent folder in `BOOKING_AGENT_PERSISTENT_ROOT` now gets booking state and the Link sign-in linked into it by the CLI itself, before every command except `runtime`, quietly and without ever blocking a command. A hosted replay showed the assistant skipping `runtime prepare` (the skill told it to run it "when this runtime needs it"), so today's booking, calendar link and sign-in lived outside the folder the platform restores at boot and would be lost at the next restart. The setting is listed in `defaults.env` and `runtime doctor` flags a named folder the state is not in

@@ -25,6 +25,9 @@ STATE_SUBDIR = "booking-agent"
 LINK_SUBDIR = "link-cli"
 _LINK_CLI_APP = "link-cli-nodejs"
 ROOT_ENV = "BOOKING_AGENT_PERSISTENT_ROOT"
+# A host that keeps this runtime's files itself declares so with ``BOOKING_AGENT_PERSISTENCE=none``.
+PERSISTENCE_ENV = "BOOKING_AGENT_PERSISTENCE"
+_ACK_FILE = ".persistence-none"
 _SESSION_FILE = ".usp-session.json"
 # Order a booking moves through, used to keep the further-along copy of the same session.
 _PHASE_ORDER = (
@@ -396,3 +399,26 @@ def auto_prepare() -> Optional[List[Dict[str, str]]]:
         return prepare(root, [])
     except (PrepareError, OSError):
         return None
+
+
+def persistence_resolution() -> Optional[str]:
+    """Why ``flow init`` may go on without asking how this runtime keeps state, or None.
+
+    ``linked``: saved state already lives in a folder the CLI linked it into.
+    ``host_declared``: the host set ``BOOKING_AGENT_PERSISTENCE=none``.
+    ``acknowledged``: an agent already said this runtime keeps its files (kept beside the state,
+    so a fresh runtime that lost the state is asked again).
+    """
+    home = settings.booking_agent_home()
+    if home.is_symlink():
+        return "linked"
+    if (settings.get(PERSISTENCE_ENV) or "").strip().lower() == "none":
+        return "host_declared"
+    if (home / _ACK_FILE).is_file():
+        return "acknowledged"
+    return None
+
+
+def acknowledge_no_persistence() -> None:
+    home = ensure_private_dir(settings.booking_agent_home())
+    write_private_text(home / _ACK_FILE, time.strftime("%Y-%m-%d\n", time.gmtime()))

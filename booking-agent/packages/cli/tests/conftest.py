@@ -13,6 +13,12 @@ def _reset_paid_bookings():
     reset_paid()
 
 
+@pytest.fixture(autouse=True)
+def _host_keeps_files(monkeypatch):
+    """Tests are a host that keeps its own files; the init gate has its own tests."""
+    monkeypatch.setenv("BOOKING_AGENT_PERSISTENCE", "none")
+
+
 @pytest.fixture
 def runner() -> CliRunner:
     return CliRunner()

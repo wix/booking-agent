@@ -1,0 +1,19 @@
+{
+  "change_type": "feature",
+  "cli_version": "0.7.0",
+  "details_url": "https://github.com/wix/booking-agent/releases/tag/v0.7.0",
+  "ecosystem_ready": false,
+  "readiness_evidence": [
+    "Not yet shown in a hosted session: the start-of-booking question about how a runtime keeps its files is covered by new tests, including a refusal until it is answered, but has not been replayed with a real assistant across a real sandbox restart, so the rollout stays deferred.",
+    "No request or response exchanged with the registry or with businesses changes. The saved booking file keeps format 2 and no field is added; the only new file is a small note beside the saved state."
+  ],
+  "relevant_capabilities": [
+    "sign_in",
+    "calendar",
+    "booking"
+  ],
+  "schema_version": 1,
+  "skill_version": "0.55.0",
+  "update_status": "deferred",
+  "user_summary": "The assistant now sets up saving your bookings and sign-in across restarts at the start of every booking, so it can no longer forget."
+}

@@ -322,3 +322,87 @@ def test_doctor_flags_a_named_folder_the_state_is_not_in(runner, dirs, monkeypat
     assert body["data"]["healthy"] is False
     assert {f["kind"] for f in body["data"]["findings"]} >= {"configured_root_not_applied"}
     assert body["next_command"] == f"booking-agent runtime prepare --persistent-root {root}"
+
+
+# --- `flow init` makes the agent say how this runtime keeps state (it used to be skippable) -------
+
+@pytest.fixture
+def undeclared(dirs, monkeypatch):
+    """A runtime that has not said how it keeps files."""
+    monkeypatch.delenv("BOOKING_AGENT_PERSISTENCE", raising=False)
+    monkeypatch.delenv("BOOKING_AGENT_PERSISTENT_ROOT", raising=False)
+    return dirs
+
+
+def _gate(persistent_root=None, no_persistent_root=False):
+    import typer
+
+    from booking_agent_cli.commands.flow import _resolve_persistence
+
+    try:
+        _resolve_persistence(persistent_root, no_persistent_root)
+    except typer.Exit:
+        return False
+    return True
+
+
+def _error_code(capsys):
+    out = capsys.readouterr().out
+    return json.loads(out[out.index("{"):])["data"]["error"]["code"]
+
+
+def test_init_refuses_until_the_agent_says_how_state_is_kept(undeclared, capsys):
+    assert _gate() is False
+    assert _error_code(capsys) == "persistence_unresolved"
+
+
+def test_a_folder_the_agent_names_is_set_up_and_then_not_asked_again(undeclared, tmp_path):
+    home, _root, _link_dir = undeclared
+    keep = tmp_path / "survives"
+
+    assert _gate(persistent_root=str(keep)) is True
+
+    assert (home / ".booking-agent").is_symlink()
+    assert (home / ".booking-agent").resolve() == (keep / "booking-agent").resolve()
+    assert _gate() is True  # state is in a linked folder now
+
+
+def test_saying_there_is_no_folder_is_remembered_beside_the_state(undeclared):
+    home, _root, _link_dir = undeclared
+
+    assert _gate(no_persistent_root=True) is True
+
+    assert (home / ".booking-agent" / ".persistence-none").is_file()
+    assert _gate() is True
+
+
+def test_a_fresh_runtime_that_lost_the_note_is_asked_again(undeclared):
+    home, _root, _link_dir = undeclared
+    assert _gate(no_persistent_root=True) is True
+    (home / ".booking-agent" / ".persistence-none").unlink()
+    assert _gate() is False
+
+
+def test_a_host_that_keeps_files_itself_is_never_asked(undeclared, monkeypatch):
+    monkeypatch.setenv("BOOKING_AGENT_PERSISTENCE", "none")
+    assert _gate() is True
+
+
+def test_both_flags_together_are_refused(undeclared, tmp_path, capsys):
+    assert _gate(persistent_root=str(tmp_path / "x"), no_persistent_root=True) is False
+    assert _error_code(capsys) == "persistence_flags_conflict"
+
+
+def test_a_folder_that_cannot_be_used_says_how_to_go_on(undeclared, capsys):
+    assert _gate(persistent_root="relative/folder") is False
+    assert _error_code(capsys) == "persistence_setup_failed"
+
+
+def test_init_through_the_command_line_refuses_then_goes_on(runner, isolated_session, monkeypatch):
+    monkeypatch.delenv("BOOKING_AGENT_PERSISTENCE", raising=False)
+    refused = runner.invoke(app, ["flow", "init", "--user-request", "Fix my AC"])
+    assert refused.exit_code == 1
+    assert json.loads(refused.stdout[refused.stdout.index("{"):])["data"]["error"]["code"] == "persistence_unresolved"
+
+    ok = runner.invoke(app, ["flow", "init", "--user-request", "Fix my AC", "--no-persistent-root"])
+    assert ok.exit_code == 0, ok.stdout
