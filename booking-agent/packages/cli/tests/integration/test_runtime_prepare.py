@@ -66,19 +66,23 @@ def test_moves_existing_contents_and_keeps_their_modes(runner, dirs):
     assert (link_dir / "config.json").read_text() == "{}"
 
 
-def test_keeps_the_runtime_copy_aside_when_both_hold_data(runner, dirs):
+def test_merges_when_both_hold_data_and_keeps_the_older_file_aside(runner, dirs):
     _home, root, link_dir = dirs
     (root / "link-cli").mkdir(parents=True)
-    (root / "link-cli" / "config.json").write_text("persistent")
+    (root / "link-cli" / "config.json").write_text("older")
     link_dir.mkdir(parents=True)
-    (link_dir / "config.json").write_text("runtime")
+    (link_dir / "config.json").write_text("newer")
+    (link_dir / "extra.json").write_text("only-here")
+    os.utime(root / "link-cli" / "config.json", (1_000, 1_000))
+    os.utime(link_dir / "config.json", (2_000, 2_000))
 
     result, body = _run(runner, "--persistent-root", str(root))
 
     assert result.exit_code == 0, result.stdout
-    assert (link_dir / "config.json").read_text() == "persistent"
-    aside = body["data"]["links"][1]["kept_runtime_copy_at"]
-    assert open(os.path.join(aside, "config.json")).read() == "runtime"
+    assert (link_dir / "config.json").read_text() == "newer"
+    assert (link_dir / "extra.json").read_text() == "only-here"
+    aside = body["data"]["links"][1]["older_copies_kept_at"]
+    assert open(os.path.join(aside, "config.json")).read() == "older"
 
 
 def test_extra_links_resolve_relative_paths_under_the_root(runner, dirs, tmp_path):
@@ -187,19 +191,23 @@ def test_moving_to_a_different_root_brings_the_saved_state_along(runner, dirs, t
     assert [link["result"] for link in body["data"]["links"]][:2] == ["relinked", "relinked"]
 
 
-def test_moving_to_a_root_that_has_its_own_state_leaves_the_old_one_untouched(runner, dirs, tmp_path):
+def test_moving_to_a_root_that_has_its_own_state_merges_both(runner, dirs, tmp_path):
     home, root, link_dir = dirs
     _run(runner, "--persistent-root", str(root))
     (root / "link-cli" / "config.json").write_text("old-sign-in")
+    (root / "link-cli" / "only-old.json").write_text("kept")
+    os.utime(root / "link-cli" / "config.json", (1_000, 1_000))
     other = tmp_path / "other-keep"
     _seed(other / "booking-agent", other / "link-cli", session="newer", link="new-sign-in")
+    os.utime(other / "link-cli" / "config.json", (2_000, 2_000))
 
     result, body = _run(runner, "--persistent-root", str(other))
 
     assert result.exit_code == 0, result.stdout
     assert (link_dir / "config.json").read_text() == "new-sign-in"
-    assert (root / "link-cli" / "config.json").read_text() == "old-sign-in"
-    assert body["data"]["links"][1]["previous_root_left_at"] == str((root / "link-cli").resolve())
+    assert (link_dir / "only-old.json").read_text() == "kept"
+    assert body["data"]["links"][1]["merged_existing_contents"] == "true"
+    assert not (root / "link-cli").exists()
 
 
 def test_doctor_reports_where_state_lives_and_what_is_orphaned(runner, dirs, tmp_path):
@@ -228,3 +236,89 @@ def test_doctor_is_quiet_when_everything_is_in_one_place(runner, dirs):
     assert result.exit_code == 0, result.stdout
     assert body["data"]["healthy"] is True
     assert body["data"]["findings"] == []
+
+
+# --- Two booking files from different times are merged, never one hiding the other ---------------
+
+def _store(*sessions, active=None, created=None):
+    return {
+        "schema_version": 2, "sessions_created": created or len(sessions),
+        "active_session_id": active, "sessions": list(sessions),
+    }
+
+
+def test_the_further_along_copy_of_a_session_wins_and_no_booking_is_lost():
+    stale = {"id": "s1", "flow_phase": "INIT"}
+    real = {"id": "s1", "flow_phase": "CONFIRMED", "booking": {"id": "b1"}}
+    other = {"id": "s2", "flow_phase": "PREREQ_OK"}
+    merged = runtime_prepare.merge_session_stores(
+        _store(stale, active="s1"), _store(real, other, active="s2"),
+    )
+    by_id = {s["id"]: s for s in merged["sessions"]}
+    assert by_id["s1"]["flow_phase"] == "CONFIRMED" and by_id["s1"]["booking"] == {"id": "b1"}
+    assert set(by_id) == {"s1", "s2"}
+    assert merged["active_session_id"] == "s1"
+
+
+def test_the_recorded_hosted_layout_is_repaired_without_losing_the_real_booking(runner, dirs):
+    """A stale INIT store at the top level, the real one nested, a fresh store from today in /root."""
+    home, root, link_dir = dirs
+    state = root / "booking-agent"
+    state.mkdir(parents=True)
+    (state / ".usp-session.json").write_text(json.dumps(_store({"id": "run1", "flow_phase": "INIT"})))
+    nested = state / "booking-agent"
+    nested.mkdir()
+    (nested / ".usp-session.json").write_text(json.dumps(_store(
+        {"id": "run1", "flow_phase": "PAYMENT_PENDING"}, {"id": "run1b", "flow_phase": "CONFIRMED"},
+    )))
+    (state / "link-cli").mkdir()
+    (state / "link-cli" / "config.json").write_text("nested-link")
+    live = home / ".booking-agent"
+    live.mkdir()
+    (live / ".usp-session.json").write_text(json.dumps(_store({"id": "today", "flow_phase": "CONFIRMED"})))
+
+    result, _body = _run(runner, "--persistent-root", str(root))
+
+    assert result.exit_code == 0, result.stdout
+    merged = json.loads((home / ".booking-agent" / ".usp-session.json").read_text())
+    phases = {s["id"]: s["flow_phase"] for s in merged["sessions"]}
+    assert phases == {"run1": "PAYMENT_PENDING", "run1b": "CONFIRMED", "today": "CONFIRMED"}
+    assert (link_dir / "config.json").read_text() == "nested-link"
+    assert not (state / "booking-agent").exists() and not (state / "link-cli").exists()
+
+
+# --- A host that names its persistent folder needs no instruction from the assistant ------------
+
+def test_the_named_persistent_folder_is_prepared_before_any_command(runner, dirs, monkeypatch):
+    home, root, link_dir = dirs
+    monkeypatch.setenv("BOOKING_AGENT_PERSISTENT_ROOT", str(root))
+
+    result = runner.invoke(app, ["flow", "sessions", "list"])
+
+    assert result.exit_code == 0, result.stdout
+    assert (home / ".booking-agent").is_symlink()
+    assert (home / ".booking-agent").resolve() == (root / "booking-agent").resolve()
+    assert link_dir.resolve() == (root / "link-cli").resolve()
+
+
+def test_without_the_variable_nothing_is_linked(runner, dirs):
+    home, _root, _link_dir = dirs
+    runner.invoke(app, ["flow", "sessions", "list"])
+    assert not (home / ".booking-agent").is_symlink()
+
+
+def test_a_bad_persistent_folder_never_blocks_a_command(runner, dirs, monkeypatch):
+    monkeypatch.setenv("BOOKING_AGENT_PERSISTENT_ROOT", "relative/path")
+    result = runner.invoke(app, ["flow", "sessions", "list"])
+    assert result.exit_code == 0, result.stdout
+
+
+def test_doctor_flags_a_named_folder_the_state_is_not_in(runner, dirs, monkeypatch):
+    _home, root, _link_dir = dirs
+    monkeypatch.setenv("BOOKING_AGENT_PERSISTENT_ROOT", str(root))
+
+    body = json.loads(runner.invoke(app, ["runtime", "doctor"]).stdout)
+
+    assert body["data"]["healthy"] is False
+    assert {f["kind"] for f in body["data"]["findings"]} >= {"configured_root_not_applied"}
+    assert body["next_command"] == f"booking-agent runtime prepare --persistent-root {root}"

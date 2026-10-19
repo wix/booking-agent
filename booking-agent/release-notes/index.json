@@ -137,6 +137,25 @@
       "skill_version": "0.53.0",
       "update_status": "deferred",
       "user_summary": "Booking no longer stalls or asks you to sign in again after a restart, and the final message always says you are booked and links your calendar event."
+    },
+    {
+      "change_type": "feature",
+      "cli_version": "0.6.0",
+      "details_url": "https://github.com/wix/booking-agent/releases/tag/v0.6.0",
+      "ecosystem_ready": false,
+      "readiness_evidence": [
+        "Not yet shown in a hosted session: the automatic persistent-folder setup and the saved-booking merge are covered by new tests, including the folder layout seen in a recorded hosted run, but have not been replayed across a real sandbox restart, so the rollout stays deferred.",
+        "No request or response exchanged with the registry or with businesses changes. The saved booking file keeps format 2 and no new field is added; two files that held different bookings are now combined instead of one hiding the other."
+      ],
+      "relevant_capabilities": [
+        "sign_in",
+        "calendar",
+        "booking"
+      ],
+      "schema_version": 1,
+      "skill_version": "0.54.0",
+      "update_status": "deferred",
+      "user_summary": "Your bookings and sign-in now survive a restart on assistants that keep a folder between sessions, without anyone having to set it up."
     }
   ],
   "schema_version": 1

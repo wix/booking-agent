@@ -10,6 +10,7 @@ deleted, so file modes on credentials and keys stay as they were.
 """
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import sys
@@ -18,11 +19,19 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 from booking_agent import settings
-from booking_agent.secure_file import ensure_private_dir
+from booking_agent.secure_file import ensure_private_dir, write_private_text
 
 STATE_SUBDIR = "booking-agent"
 LINK_SUBDIR = "link-cli"
 _LINK_CLI_APP = "link-cli-nodejs"
+ROOT_ENV = "BOOKING_AGENT_PERSISTENT_ROOT"
+_SESSION_FILE = ".usp-session.json"
+# Order a booking moves through, used to keep the further-along copy of the same session.
+_PHASE_ORDER = (
+    "INIT", "PREREQ_OK", "BUSINESS_SELECTED", "CALENDAR_GATE", "AVAILABILITY_QUERIED",
+    "SLOTS_PRESENTED", "SLOT_SELECTED", "BUYER_RESOLVED", "BOOKED", "PAYMENT_PENDING",
+    "CONFIRMED", "FAILED",
+)
 
 
 class PrepareError(ValueError):
@@ -75,6 +84,117 @@ def _is_empty_dir(path: Path) -> bool:
     return path.is_dir() and not any(path.iterdir())
 
 
+def _phase_rank(session: Dict[str, object]) -> int:
+    phase = session.get("flow_phase")
+    return _PHASE_ORDER.index(phase) if phase in _PHASE_ORDER else -1
+
+
+def merge_session_stores(newer: Dict[str, object], older: Dict[str, object]) -> Dict[str, object]:
+    """Union of two saved booking files, by session id, without dropping any booking.
+
+    A session present in both keeps the copy that got further (a stale ``INIT`` snapshot never
+    hides the finished booking). Everything else at the top level comes from ``newer`` and falls
+    back to ``older``. Works on the raw JSON so fields this version does not know survive.
+    """
+    merged: Dict[str, object] = {**older, **{k: v for k, v in newer.items() if v is not None}}
+    by_id: Dict[object, Dict[str, object]] = {}
+    order: List[object] = []
+    for source in (older, newer):
+        for session in source.get("sessions") or []:
+            if not isinstance(session, dict):
+                continue
+            sid = session.get("id")
+            if sid not in by_id:
+                by_id[sid] = session
+                order.append(sid)
+            elif _phase_rank(session) >= _phase_rank(by_id[sid]):
+                by_id[sid] = session
+    merged["sessions"] = [by_id[sid] for sid in order]
+    for key in ("sessions_created", "schema_version"):
+        values = [v for v in (newer.get(key), older.get(key)) if isinstance(v, int)]
+        if values:
+            merged[key] = max(values)
+    answered = []
+    for source in (older, newer):
+        for item in source.get("update_prompts_answered") or []:
+            if isinstance(item, str) and item not in answered:
+                answered.append(item)
+    if answered:
+        merged["update_prompts_answered"] = answered
+    active = newer.get("active_session_id") or older.get("active_session_id")
+    merged["active_session_id"] = active if active in by_id else (order[-1] if order else None)
+    return merged
+
+
+def _merge_session_files(src: Path, dst: Path) -> None:
+    def _load(path: Path) -> Dict[str, object]:
+        try:
+            raw = json.loads(path.read_text())
+            return raw if isinstance(raw, dict) else {}
+        except (OSError, ValueError):
+            return {}
+
+    src_newer = src.stat().st_mtime >= dst.stat().st_mtime
+    a, b = _load(src), _load(dst)
+    merged = merge_session_stores(a, b) if src_newer else merge_session_stores(b, a)
+    write_private_text(dst, json.dumps(merged, indent=2, sort_keys=False))
+    src.unlink()
+
+
+def _merge_tree(src: Path, dst: Path, aside: Path, kept: List[str], rel: str = "") -> None:
+    """Move everything from ``src`` into ``dst``; nothing is deleted.
+
+    A name only in ``src`` moves over. Two folders merge. Two booking files merge by session.
+    Any other pair keeps the newer file at ``dst`` and moves the older one under ``aside``.
+    """
+    for child in sorted(src.iterdir()):
+        target = dst / child.name
+        here = f"{rel}/{child.name}" if rel else child.name
+        if not (target.exists() or target.is_symlink()):
+            shutil.move(str(child), str(target))
+        elif child.is_dir() and target.is_dir():
+            _merge_tree(child, target, aside, kept, here)
+            if _is_empty_dir(child):
+                child.rmdir()
+        elif child.name == _SESSION_FILE and child.is_file() and target.is_file():
+            _merge_session_files(child, target)
+        elif (
+            child.is_file() and target.is_file()
+            and child.stat().st_mtime > target.stat().st_mtime
+        ):
+            # The incoming file is newer: the older one at the destination is kept aside.
+            shutil.move(str(target), str(_aside_path(aside, here, kept)))
+            shutil.move(str(child), str(target))
+        else:
+            shutil.move(str(child), str(_aside_path(aside, here, kept)))
+
+
+def _aside_path(aside: Path, rel: str, kept: List[str]) -> Path:
+    path = aside / rel
+    path.parent.mkdir(parents=True, exist_ok=True)
+    kept.append(rel)
+    return path
+
+
+def merge_dir_into(src: Path, dst: Path, *, aside_name: str) -> Dict[str, str]:
+    """Merge folder ``src`` into ``dst``, then remove the (now empty) ``src``."""
+    aside = src.with_name(aside_name)
+    aside.mkdir(parents=True, exist_ok=True)
+    kept: List[str] = []
+    _merge_tree(src, dst, aside, kept)
+    if _is_empty_dir(src):
+        src.rmdir()
+    out = {"merged_existing_contents": "true"}
+    if kept:
+        out["older_copies_kept_at"] = str(aside)
+    else:
+        try:
+            aside.rmdir()
+        except OSError:
+            pass
+    return out
+
+
 def _move_children(src: Path, dst: Path) -> None:
     dst.mkdir(parents=True, exist_ok=True)
     for child in src.iterdir():
@@ -97,12 +217,14 @@ def link_one(runtime: Path, persistent: Path, *, private: bool) -> Dict[str, str
         # Linked into another root (a different conversation chose a different folder).
         # Bring that root's saved state along when this one has none; otherwise leave it alone.
         previous = runtime.resolve()
-        if previous.is_dir() and not _is_empty_dir(previous):
+        if previous.is_dir() and not _is_empty_dir(previous) and previous != persistent.resolve():
             if _is_empty_dir(persistent):
                 _move_children(previous, persistent)
                 out["moved_existing_contents"] = "true"
             else:
-                out["previous_root_left_at"] = str(previous)
+                out.update(merge_dir_into(
+                    previous, persistent, aside_name=f"{previous.name}.before-prepare-{int(time.time())}",
+                ))
         runtime.unlink()
         relinked = True
     elif runtime.exists():
@@ -116,10 +238,11 @@ def link_one(runtime: Path, persistent: Path, *, private: bool) -> Dict[str, str
             runtime.rmdir()
             out["moved_existing_contents"] = "true"
         else:
-            # Both hold data: the persistent copy wins, the runtime copy is kept aside.
-            aside = runtime.with_name(f"{runtime.name}.before-prepare-{int(time.time())}")
-            os.replace(runtime, aside)
-            out["kept_runtime_copy_at"] = str(aside)
+            # Both hold data: merge them. Booking files merge by session id; for any other
+            # file the newer copy stays and the older one is kept aside, never deleted.
+            out.update(merge_dir_into(
+                runtime, persistent, aside_name=f"{runtime.name}.before-prepare-{int(time.time())}",
+            ))
 
     runtime.parent.mkdir(parents=True, exist_ok=True)
     os.symlink(persistent, runtime, target_is_directory=True)
@@ -142,25 +265,28 @@ def normalized_root(persistent_root: str) -> Path:
 
 
 def _lift_nested_layout(root: Path) -> Dict[str, str]:
-    """Undo the old nested layout (``<root>/booking-agent/{booking-agent,link-cli}``)."""
+    """Undo the old nested layout (``<root>/booking-agent/{booking-agent,link-cli}``).
+
+    Both folders are merged into their proper place, so a stale top-level booking file never
+    hides the real one from the nested folder.
+    """
     state = root / STATE_SUBDIR
     lifted: Dict[str, str] = {}
+    stamp = int(time.time())
     nested_state = state / STATE_SUBDIR
     if nested_state.is_dir():
-        for child in list(nested_state.iterdir()):
-            if not (state / child.name).exists():
-                os.replace(child, state / child.name)
-                lifted["lifted_from_nested_layout"] = "true"
-        if _is_empty_dir(nested_state):
-            nested_state.rmdir()
+        merge_dir_into(nested_state, state, aside_name=f"{STATE_SUBDIR}.before-prepare-{stamp}")
+        lifted["lifted_from_nested_layout"] = "true"
     nested_link = state / LINK_SUBDIR
     if nested_link.is_dir():
         target = root / LINK_SUBDIR
-        if not target.exists() or _is_empty_dir(target):
+        if target.exists() and not _is_empty_dir(target):
+            merge_dir_into(nested_link, target, aside_name=f"{LINK_SUBDIR}.before-prepare-{stamp}")
+        else:
             if target.exists():
                 target.rmdir()
             os.replace(nested_link, target)
-            lifted["lifted_from_nested_layout"] = "true"
+        lifted["lifted_from_nested_layout"] = "true"
     return lifted
 
 
@@ -223,7 +349,24 @@ def diagnose() -> Dict[str, object]:
         for aside in sorted(runtime.parent.glob(f"{runtime.name}.before-prepare-*")) if runtime.parent.is_dir() else []:
             findings.append({"kind": "runtime_copy_kept_aside", "path": str(aside), "severity": "info"})
 
+    configured = configured_root()
+    if configured is not None:
+        try:
+            expected = normalized_root(configured) / STATE_SUBDIR
+        except PrepareError:
+            expected = None
+        applied = bool(
+            expected is not None and state_info["linked_to"]
+            and Path(str(state_info["linked_to"])) == expected.resolve()
+        )
+        if not applied:
+            problems = True
+            findings.append({
+                "kind": "configured_root_not_applied", "path": str(state), "severity": "problem",
+            })
+            root_hint = root_hint or configured
     return {
+        "configured_root": configured,
         "state": state_info,
         "link_sign_in": link_info,
         "findings": findings,
@@ -232,3 +375,24 @@ def diagnose() -> Dict[str, object]:
             f"booking-agent runtime prepare --persistent-root {root_hint}" if problems and root_hint else None
         ),
     }
+
+
+def configured_root() -> Optional[str]:
+    """The persistent folder a host names with ``BOOKING_AGENT_PERSISTENT_ROOT``, if any."""
+    value = (settings.get(ROOT_ENV) or "").strip()
+    return value or None
+
+
+def auto_prepare() -> Optional[List[Dict[str, str]]]:
+    """Link state into the host-named persistent folder, quietly and idempotently.
+
+    Nothing happens unless the host set ``BOOKING_AGENT_PERSISTENT_ROOT``. A failure never
+    blocks a booking; ``runtime doctor`` reports it.
+    """
+    root = configured_root()
+    if root is None:
+        return None
+    try:
+        return prepare(root, [])
+    except (PrepareError, OSError):
+        return None
