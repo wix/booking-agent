@@ -399,8 +399,17 @@ def init(
     capability: Optional[List[str]] = typer.Option(
         None, "--capability", help="A capability the user's request needs; repeatable.",
     ),
+    persistent_root: Optional[str] = typer.Option(
+        None, "--persistent-root",
+        help="Absolute folder this runtime keeps between conversations; state is linked into it.",
+    ),
+    no_persistent_root: bool = typer.Option(
+        False, "--no-persistent-root",
+        help="This runtime keeps its files between conversations anyway, or has no such folder.",
+    ),
 ) -> None:
     """Initialize a new booking session."""
+    _resolve_persistence(persistent_root, no_persistent_root)
     store = load_store()
     # Before the session checks: a skill the agent points us at is checked whatever the
     # flow state, so a changed file is never masked by session_active.
@@ -611,6 +620,86 @@ def _upcoming_duplicate_bookings(store: Any, user_request: str) -> List[Dict[str
             "user_request": s.user_request,
         })
     return matches
+
+
+def _resolve_persistence(persistent_root: Optional[str], no_persistent_root: bool) -> None:
+    """Make the agent say how this runtime keeps saved state, before any state is written.
+
+    Skipping the setup used to be silent: nothing failed until the next restart lost the
+    booking, the calendar link, and the sign-in. The agent, not the CLI, can see what the runtime
+    offers, so it must answer with a folder or an explicit "no folder"; the CLI never guesses one.
+    """
+    from ..runtime_prepare import (
+        MAX_CORRECTIONS,
+        PrepareError,
+        acknowledge_no_persistence,
+        clear_attempts,
+        corrections_so_far,
+        durability_problem,
+        persistence_resolution,
+        prepare,
+        record_accepted_despite,
+        record_correction,
+    )
+
+    if persistent_root and no_persistent_root:
+        emit_error(
+            "INIT",
+            code="persistence_flags_conflict",
+            message="Pass either --persistent-root or --no-persistent-root, not both.",
+        )
+        raise typer.Exit(code=1)
+    if persistent_root:
+        problem = durability_problem(persistent_root)
+        if problem and corrections_so_far() < MAX_CORRECTIONS:
+            used = record_correction()
+            emit_error(
+                "INIT",
+                code="persistence_folder_not_durable",
+                message=(
+                    f"That folder cannot be relied on to survive a restart: {problem}. Nothing "
+                    "was moved. Re-run the same init command with the folder this runtime "
+                    "really keeps between conversations, or with --no-persistent-root if it keeps "
+                    f"its files anyway. (Correction {used} of {MAX_CORRECTIONS}; after that the "
+                    "folder you name is used as given so the booking is never stuck.)"
+                ),
+            )
+            raise typer.Exit(code=1)
+        if problem:
+            record_accepted_despite(problem)
+        else:
+            clear_attempts()
+        try:
+            prepare(persistent_root, [])
+        except (PrepareError, OSError) as exc:
+            emit_error(
+                "INIT",
+                code="persistence_setup_failed",
+                message=(
+                    f"Saved state could not be linked into that folder ({exc}). Re-run the same "
+                    "init command with the folder this runtime really keeps between "
+                    "conversations, or with --no-persistent-root to go on without it."
+                ),
+            )
+            raise typer.Exit(code=1)
+        return
+    if no_persistent_root:
+        acknowledge_no_persistence()
+        return
+    if persistence_resolution() is None:
+        emit_error(
+            "INIT",
+            code="persistence_unresolved",
+            message=(
+                "Saved bookings and the Link sign-in are not in a folder this runtime keeps "
+                "between conversations, so a restart would lose them. Look at what this runtime "
+                "offers. If it provides a folder that survives restarts, re-run this same init "
+                "command with --persistent-root <absolute path of that folder>. If its files are "
+                "kept anyway, or it offers no such folder, re-run it with --no-persistent-root. "
+                "Decide from the runtime, never ask the user, and never guess a path."
+            ),
+        )
+        raise typer.Exit(code=1)
 
 
 def _unfinished_similar_sessions(store: Any, user_request: str) -> List[Dict[str, Any]]:

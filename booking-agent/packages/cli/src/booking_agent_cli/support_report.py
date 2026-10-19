@@ -109,14 +109,15 @@ SKILL_PROSE_CODES = frozenset({
     "discover_radius_required", "link_address_not_found", "missing_network_id_for_spt",
     "payment_already_captured", "payment_authentication_unsupported",
     "payment_captured_booking_unconfirmed", "payment_declined", "payment_failed",
-    "payment_not_processed", "payment_unrecoverable", "reschedule_at_business",
-    "reschedule_booking_not_active", "reschedule_failed", "reschedule_fee_unsupported",
-    "reschedule_price_changed", "reschedule_price_unknown", "reschedule_same_slot",
-    "reschedule_unauthorized", "search_area_input_invalid", "search_area_not_user_confirmed",
-    "search_area_unconfirmed", "service_address_unconfirmed", "service_details_changed",
-    "session_active", "session_not_found", "slot_not_selected", "spend_request_not_approved",
-    "spend_request_replacement_required", "timezone_confirmation_required",
-    "ucp_complete_failed",
+    "payment_not_processed", "payment_unrecoverable", "persistence_flags_conflict",
+    "persistence_folder_not_durable", "persistence_setup_failed", "persistence_unresolved",
+    "reschedule_at_business", "reschedule_booking_not_active", "reschedule_failed",
+    "reschedule_fee_unsupported", "reschedule_price_changed", "reschedule_price_unknown",
+    "reschedule_same_slot", "reschedule_unauthorized", "search_area_input_invalid",
+    "search_area_not_user_confirmed", "search_area_unconfirmed", "service_address_unconfirmed",
+    "service_details_changed", "session_active", "session_not_found", "slot_not_selected",
+    "spend_request_not_approved", "spend_request_replacement_required",
+    "timezone_confirmation_required", "ucp_complete_failed",
 })
 EXPECTED_CODES = SKILL_TABLE_CODES | SKILL_PROSE_CODES
 # The business is still working; seeing these again is progress, not a failed step.

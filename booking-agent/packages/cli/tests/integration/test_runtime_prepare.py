@@ -7,6 +7,7 @@ import pytest
 
 from booking_agent_cli import runtime_prepare
 from booking_agent_cli.main import app
+from booking_agent_cli.runtime_prepare import fs_type as _real_fs_type
 
 
 @pytest.fixture
@@ -226,7 +227,10 @@ def test_doctor_reports_where_state_lives_and_what_is_orphaned(runner, dirs, tmp
     assert body["data"]["healthy"] is False
 
 
-def test_doctor_is_quiet_when_everything_is_in_one_place(runner, dirs):
+def test_doctor_is_quiet_when_everything_is_in_one_place(runner, dirs, monkeypatch):
+    # No boot id (macOS, Windows): there is nothing to say about surviving a restart. Linux has
+    # its own test below; this one must not depend on which OS runs it.
+    monkeypatch.setattr(runtime_prepare, "current_boot_id", lambda: None)
     _home, root, _link_dir = dirs
     _run(runner, "--persistent-root", str(root))
 
@@ -236,6 +240,20 @@ def test_doctor_is_quiet_when_everything_is_in_one_place(runner, dirs):
     assert result.exit_code == 0, result.stdout
     assert body["data"]["healthy"] is True
     assert body["data"]["findings"] == []
+
+
+def test_doctor_only_notes_that_a_new_folder_has_not_yet_survived_a_restart(runner, dirs, monkeypatch):
+    """Where boots can be told apart (Linux), the first boot cannot yet prove the folder lasts."""
+    monkeypatch.setattr(runtime_prepare, "current_boot_id", lambda: "boot-1")
+    _home, root, _link_dir = dirs
+    _run(runner, "--persistent-root", str(root))
+
+    body = json.loads(runner.invoke(app, ["runtime", "doctor"]).stdout)
+
+    assert body["data"]["healthy"] is True
+    assert [f["kind"] for f in body["data"]["findings"]] == ["folder_not_yet_shown_to_survive_a_restart"]
+    assert {f["severity"] for f in body["data"]["findings"]} == {"info"}
+    assert body["data"]["persistence"]["survived_restart"] is False
 
 
 # --- Two booking files from different times are merged, never one hiding the other ---------------
@@ -322,3 +340,228 @@ def test_doctor_flags_a_named_folder_the_state_is_not_in(runner, dirs, monkeypat
     assert body["data"]["healthy"] is False
     assert {f["kind"] for f in body["data"]["findings"]} >= {"configured_root_not_applied"}
     assert body["next_command"] == f"booking-agent runtime prepare --persistent-root {root}"
+
+
+# --- `flow init` makes the agent say how this runtime keeps state (it used to be skippable) -------
+
+@pytest.fixture
+def undeclared(dirs, monkeypatch):
+    """A runtime that has not said how it keeps files."""
+    monkeypatch.delenv("BOOKING_AGENT_PERSISTENCE", raising=False)
+    monkeypatch.delenv("BOOKING_AGENT_PERSISTENT_ROOT", raising=False)
+    return dirs
+
+
+def _gate(persistent_root=None, no_persistent_root=False):
+    import typer
+
+    from booking_agent_cli.commands.flow import _resolve_persistence
+
+    try:
+        _resolve_persistence(persistent_root, no_persistent_root)
+    except typer.Exit:
+        return False
+    return True
+
+
+def _error_code(capsys):
+    out = capsys.readouterr().out
+    return json.loads(out[out.index("{"):])["data"]["error"]["code"]
+
+
+def test_init_refuses_until_the_agent_says_how_state_is_kept(undeclared, capsys):
+    assert _gate() is False
+    assert _error_code(capsys) == "persistence_unresolved"
+
+
+def test_a_folder_the_agent_names_is_set_up_and_then_not_asked_again(undeclared, tmp_path):
+    home, _root, _link_dir = undeclared
+    keep = tmp_path / "survives"
+
+    assert _gate(persistent_root=str(keep)) is True
+
+    assert (home / ".booking-agent").is_symlink()
+    assert (home / ".booking-agent").resolve() == (keep / "booking-agent").resolve()
+    assert _gate() is True  # state is in a linked folder now
+
+
+def test_saying_there_is_no_folder_is_remembered_beside_the_state(undeclared):
+    home, _root, _link_dir = undeclared
+
+    assert _gate(no_persistent_root=True) is True
+
+    assert (home / ".booking-agent" / ".persistence-none").is_file()
+    assert _gate() is True
+
+
+def test_a_fresh_runtime_that_lost_the_note_is_asked_again(undeclared):
+    home, _root, _link_dir = undeclared
+    assert _gate(no_persistent_root=True) is True
+    (home / ".booking-agent" / ".persistence-none").unlink()
+    assert _gate() is False
+
+
+def test_a_host_that_keeps_files_itself_is_never_asked(undeclared, monkeypatch):
+    monkeypatch.setenv("BOOKING_AGENT_PERSISTENCE", "none")
+    assert _gate() is True
+
+
+def test_both_flags_together_are_refused(undeclared, tmp_path, capsys):
+    assert _gate(persistent_root=str(tmp_path / "x"), no_persistent_root=True) is False
+    assert _error_code(capsys) == "persistence_flags_conflict"
+
+
+def test_a_relative_folder_is_turned_back_before_anything_changes(undeclared, capsys):
+    home, _root, _link_dir = undeclared
+    assert _gate(persistent_root="relative/folder") is False
+    assert _error_code(capsys) == "persistence_folder_not_durable"
+    assert not (home / ".booking-agent").is_symlink()
+
+
+def test_a_folder_that_fails_to_link_says_how_to_go_on(undeclared, tmp_path, capsys, monkeypatch):
+    from booking_agent_cli import runtime_prepare
+
+    def boom(*_a, **_k):
+        raise OSError("read-only file system")
+
+    monkeypatch.setattr(runtime_prepare, "prepare", boom)
+    assert _gate(persistent_root=str(tmp_path / "keep")) is False
+    assert _error_code(capsys) == "persistence_setup_failed"
+
+
+def test_init_through_the_command_line_refuses_then_goes_on(runner, isolated_session, monkeypatch):
+    monkeypatch.delenv("BOOKING_AGENT_PERSISTENCE", raising=False)
+    refused = runner.invoke(app, ["flow", "init", "--user-request", "Fix my AC"])
+    assert refused.exit_code == 1
+    assert json.loads(refused.stdout[refused.stdout.index("{"):])["data"]["error"]["code"] == "persistence_unresolved"
+
+    ok = runner.invoke(app, ["flow", "init", "--user-request", "Fix my AC", "--no-persistent-root"])
+    assert ok.exit_code == 0, ok.stdout
+
+
+# --- The folder the agent names is checked, and a stubborn agent is never left stuck -------------
+
+@pytest.fixture
+def strict(undeclared, tmp_path, monkeypatch):
+    """The real durability checks, with a pretend temp folder the test controls."""
+    from booking_agent_cli import runtime_prepare
+
+    temp = tmp_path / "scratch"
+    temp.mkdir()
+    monkeypatch.setattr(runtime_prepare, "ephemeral_roots", lambda: [temp.resolve()])
+    monkeypatch.setattr(runtime_prepare, "fs_type", lambda _p: None)
+    return temp
+
+
+def test_a_temporary_folder_is_turned_back_and_nothing_moves(strict, capsys):
+    assert _gate(persistent_root=str(strict / "keep")) is False
+    assert _error_code(capsys) == "persistence_folder_not_durable"
+    assert not (strict.parent / "home" / ".booking-agent").is_symlink()
+
+
+def test_a_memory_backed_folder_is_turned_back(strict, tmp_path, monkeypatch, capsys):
+    from booking_agent_cli import runtime_prepare
+
+    monkeypatch.setattr(runtime_prepare, "fs_type", lambda _p: "tmpfs")
+    assert _gate(persistent_root=str(tmp_path / "ram")) is False
+    assert "tmpfs" in capsys.readouterr().out
+
+
+def test_the_filesystem_root_is_turned_back(strict, capsys):
+    assert _gate(persistent_root="/") is False
+    assert _error_code(capsys) == "persistence_folder_not_durable"
+
+
+def test_the_agent_is_sent_back_twice_and_the_third_time_is_accepted(strict, capsys):
+    bad = str(strict / "keep")
+    assert _gate(persistent_root=bad) is False
+    assert "Correction 1 of 2" in capsys.readouterr().out
+    assert _gate(persistent_root=bad) is False
+    assert "Correction 2 of 2" in capsys.readouterr().out
+
+    assert _gate(persistent_root=bad) is True  # third time: used as given, never stuck
+
+    home = strict.parent / "home"
+    assert (home / ".booking-agent").is_symlink()
+
+
+def test_a_good_folder_after_a_correction_starts_the_count_over(strict, tmp_path, capsys):
+    assert _gate(persistent_root=str(strict / "keep")) is False
+    capsys.readouterr()
+    assert _gate(persistent_root=str(tmp_path / "durable")) is True
+    from booking_agent_cli import runtime_prepare
+
+    assert runtime_prepare.corrections_so_far() == 0
+
+
+def test_a_bad_folder_accepted_after_two_corrections_does_not_waive_the_next_decision(strict, tmp_path):
+    from booking_agent_cli import runtime_prepare
+
+    bad = str(strict / "keep")
+    assert _gate(persistent_root=bad) is False
+    assert _gate(persistent_root=bad) is False
+    assert _gate(persistent_root=bad) is True  # accepted despite the checks
+    assert runtime_prepare.corrections_so_far() == 0
+
+    # A later, different bad folder is a new decision: it is turned back again, not waved through.
+    assert _gate(persistent_root=str(strict / "other")) is False
+
+
+def test_no_folder_is_always_accepted_and_never_counted(strict):
+    from booking_agent_cli import runtime_prepare
+
+    assert _gate(persistent_root=str(strict / "keep")) is False
+    assert _gate(no_persistent_root=True) is True
+    assert runtime_prepare.corrections_so_far() == 1
+
+
+def test_doctor_notes_a_folder_that_was_accepted_despite_the_checks(strict, runner):
+    bad = str(strict / "keep")
+    for _ in range(3):
+        _gate(persistent_root=bad)
+
+    body = json.loads(runner.invoke(app, ["runtime", "doctor"]).stdout)
+
+    assert "folder_accepted_despite_checks" in {f["kind"] for f in body["data"]["findings"]}
+
+
+def test_a_later_boot_shows_the_folder_survived_a_restart(undeclared, tmp_path, monkeypatch, runner):
+    from booking_agent_cli import runtime_prepare
+
+    keep = tmp_path / "survives"
+    monkeypatch.setattr(runtime_prepare, "current_boot_id", lambda: "boot-a")
+    assert _gate(persistent_root=str(keep)) is True
+    assert runtime_prepare.survived_restart(keep) is False
+
+    monkeypatch.setattr(runtime_prepare, "current_boot_id", lambda: "boot-b")
+    assert runtime_prepare.survived_restart(keep) is True
+    runtime_prepare.prepare(str(keep), [])  # a later run must not erase the proof
+    monkeypatch.setattr(runtime_prepare, "current_boot_id", lambda: "boot-c")
+    assert runtime_prepare.survived_restart(keep) is True
+
+    body = json.loads(runner.invoke(app, ["runtime", "doctor"]).stdout)
+    assert body["data"]["persistence"]["survived_restart"] is True
+
+
+def test_the_mount_table_parser_picks_the_deepest_mount(tmp_path, monkeypatch):
+    import io
+
+    base = tmp_path.resolve()
+    table = (
+        "22 1 8:1 / / rw - ext4 /dev/sda1 rw\n"
+        f"40 22 0:35 / {base} rw - tmpfs tmpfs rw\n"
+        f"41 40 0:36 / {base}/deep/disk rw - ext4 /dev/sdb1 rw\n"
+    )
+    monkeypatch.setattr(runtime_prepare, "open", lambda *_a, **_k: io.StringIO(table), raising=False)
+
+    assert _real_fs_type(tmp_path / "x") == "tmpfs"
+    assert _real_fs_type(tmp_path / "deep" / "disk" / "x") == "ext4"
+
+
+def test_the_persistence_questions_are_expected_not_failures_to_report():
+    """An agent being asked how state is kept must never lead to an offer to send a note."""
+    from booking_agent_cli import support_report
+
+    for code in ("persistence_unresolved", "persistence_folder_not_durable",
+                 "persistence_setup_failed", "persistence_flags_conflict"):
+        assert code in support_report.EXPECTED_CODES

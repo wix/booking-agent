@@ -156,6 +156,27 @@
       "skill_version": "0.54.0",
       "update_status": "deferred",
       "user_summary": "Your bookings and sign-in now survive a restart on assistants that keep a folder between sessions, without anyone having to set it up."
+    },
+    {
+      "change_type": "feature",
+      "cli_version": "0.7.0",
+      "details_url": "https://github.com/wix/booking-agent/releases/tag/v0.7.0",
+      "ecosystem_ready": false,
+      "readiness_evidence": [
+        "Not yet shown in a hosted session: the start-of-booking question about how a runtime keeps its files is covered by new tests, including a refusal until it is answered, a check that turns back a temporary or memory-backed folder at most twice, and proof of survival after a later boot, but has not been replayed with a real assistant across a real sandbox restart, so the rollout stays deferred.",
+        "No request or response exchanged with the registry or with businesses changes. The saved booking file keeps format 2 and no field is added; the only new file is a small note beside the saved state.",
+        "The command-line contract of flow init changes: the first init of a runtime now needs --persistent-root or --no-persistent-root. An assistant on an older skill gets a plain-language refusal (persistence_unresolved) that names both flags, so it can recover without the new skill, but it costs one extra call on a runtime that does not yet keep its state in a folder.",
+        "Proof that a folder survived a restart uses the machine's boot id, which sandboxes sharing one kernel may report unchanged after a restart. The proof therefore never gives a false yes, but runtime doctor can keep saying a folder is not yet shown to survive when it did."
+      ],
+      "relevant_capabilities": [
+        "sign_in",
+        "calendar",
+        "booking"
+      ],
+      "schema_version": 1,
+      "skill_version": "0.55.0",
+      "update_status": "deferred",
+      "user_summary": "The assistant now sets up saving your bookings and sign-in across restarts at the start of every booking, so it can no longer forget."
     }
   ],
   "schema_version": 1

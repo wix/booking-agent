@@ -14,6 +14,7 @@ import json
 import os
 import shutil
 import sys
+import tempfile
 import time
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
@@ -25,6 +26,16 @@ STATE_SUBDIR = "booking-agent"
 LINK_SUBDIR = "link-cli"
 _LINK_CLI_APP = "link-cli-nodejs"
 ROOT_ENV = "BOOKING_AGENT_PERSISTENT_ROOT"
+# A host that keeps this runtime's files itself declares so with ``BOOKING_AGENT_PERSISTENCE=none``.
+PERSISTENCE_ENV = "BOOKING_AGENT_PERSISTENCE"
+_ACK_FILE = ".persistence-none"
+_ATTEMPTS_FILE = ".persistence-attempts"
+_BOOT_FILE = ".booking-agent-boot"
+# How many times the CLI sends the agent back after a folder fails the checks. The next one is
+# accepted, so a stubborn agent can never leave a booking stuck on this question.
+MAX_CORRECTIONS = 2
+_TEMP_ROOTS = ("/tmp", "/var/tmp", "/dev/shm", "/run")
+_MEMORY_FILESYSTEMS = frozenset({"tmpfs", "ramfs", "devtmpfs"})
 _SESSION_FILE = ".usp-session.json"
 # Order a booking moves through, used to keep the further-along copy of the same session.
 _PHASE_ORDER = (
@@ -311,6 +322,7 @@ def prepare(persistent_root: str, raw_links: List[str]) -> List[Dict[str, str]]:
         results.append(link_one(runtime, persistent, private=private))
     if lifted and results:
         results[0].update(lifted)
+    touch_boot_marker(root)
     return results
 
 
@@ -365,7 +377,21 @@ def diagnose() -> Dict[str, object]:
                 "kind": "configured_root_not_applied", "path": str(state), "severity": "problem",
             })
             root_hint = root_hint or configured
+    persistence: Dict[str, object] = {"folder": root_hint or None, "survived_restart": None}
+    if root_hint:
+        persistence["survived_restart"] = survived_restart(Path(root_hint))
+        if persistence["survived_restart"] is False:
+            findings.append({
+                "kind": "folder_not_yet_shown_to_survive_a_restart",
+                "path": root_hint, "severity": "info",
+            })
+    despite = _read_attempts().get("accepted_despite")
+    if despite:
+        findings.append({
+            "kind": "folder_accepted_despite_checks", "path": str(despite), "severity": "info",
+        })
     return {
+        "persistence": persistence,
         "configured_root": configured,
         "state": state_info,
         "link_sign_in": link_info,
@@ -396,3 +422,177 @@ def auto_prepare() -> Optional[List[Dict[str, str]]]:
         return prepare(root, [])
     except (PrepareError, OSError):
         return None
+
+
+def persistence_resolution() -> Optional[str]:
+    """Why ``flow init`` may go on without asking how this runtime keeps state, or None.
+
+    ``linked``: saved state already lives in a folder the CLI linked it into.
+    ``host_declared``: the host set ``BOOKING_AGENT_PERSISTENCE=none``.
+    ``acknowledged``: an agent already said this runtime keeps its files (kept beside the state,
+    so a fresh runtime that lost the state is asked again).
+    """
+    home = settings.booking_agent_home()
+    if home.is_symlink():
+        return "linked"
+    if (settings.get(PERSISTENCE_ENV) or "").strip().lower() == "none":
+        return "host_declared"
+    if (home / _ACK_FILE).is_file():
+        return "acknowledged"
+    return None
+
+
+def acknowledge_no_persistence() -> None:
+    home = ensure_private_dir(settings.booking_agent_home())
+    write_private_text(home / _ACK_FILE, time.strftime("%Y-%m-%d\n", time.gmtime()))
+
+
+# ---------------------------------------------------------------------------
+# Checks on the folder an agent names, and the record of how often it was sent back
+# ---------------------------------------------------------------------------
+
+def ephemeral_roots() -> List[Path]:
+    """Folders whose contents are not kept between runs, resolved."""
+    roots = [Path(p) for p in _TEMP_ROOTS] + [Path(tempfile.gettempdir())]
+    resolved = []
+    for root in roots:
+        try:
+            resolved.append(root.resolve())
+        except OSError:
+            continue
+    return resolved
+
+
+def fs_type(path: Path) -> Optional[str]:
+    """Filesystem type holding ``path`` (Linux only; None when it cannot be told)."""
+    try:
+        target = path.resolve()
+        best, best_type = "", None
+        with open("/proc/self/mountinfo", encoding="utf-8") as f:
+            for line in f:
+                left, _, right = line.partition(" - ")
+                fields = left.split()
+                if len(fields) < 5 or not right:
+                    continue
+                mount = fields[4].replace("\\040", " ")
+                if (str(target) == mount or str(target).startswith(mount.rstrip("/") + "/")) and len(mount) > len(best):
+                    best, best_type = mount, right.split()[0]
+        return best_type
+    except OSError:
+        return None
+
+
+def durability_problem(raw: str) -> Optional[str]:
+    """Why the folder an agent named cannot be a place that survives restarts, or None.
+
+    Only what can be known now: a path that cannot work, or one the OS itself says is not kept.
+    A folder on ordinary disk that the host simply never restores cannot be told apart here.
+    """
+    try:
+        path = _absolute(raw, what="The folder")
+    except PrepareError as exc:
+        return str(exc)
+    try:
+        resolved = path.resolve()
+    except OSError:
+        return "the path cannot be resolved"
+    if resolved == Path(resolved.anchor):
+        return "it is the filesystem root"
+    for root in ephemeral_roots():
+        if resolved == root or root in resolved.parents:
+            return f"it is under {root}, which is cleared between runs"
+    kind = fs_type(resolved)
+    if kind in _MEMORY_FILESYSTEMS:
+        return f"it is on {kind}, which lives in memory"
+    ancestor = resolved
+    while not ancestor.exists() and ancestor != ancestor.parent:
+        ancestor = ancestor.parent
+    if not ancestor.is_dir():
+        return f"{ancestor} is a file, not a folder"
+    if not os.access(ancestor, os.W_OK | os.X_OK):
+        return f"{ancestor} is not writable"
+    return None
+
+
+def _attempts_path() -> Path:
+    return settings.booking_agent_home() / _ATTEMPTS_FILE
+
+
+def _read_attempts() -> Dict[str, object]:
+    try:
+        raw = json.loads(_attempts_path().read_text())
+        return raw if isinstance(raw, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def corrections_so_far() -> int:
+    value = _read_attempts().get("rejected")
+    return value if isinstance(value, int) else 0
+
+
+def record_correction() -> int:
+    """Count one more time the agent was sent back; returns the new count."""
+    n = corrections_so_far() + 1
+    ensure_private_dir(settings.booking_agent_home())
+    write_private_text(_attempts_path(), json.dumps({"rejected": n}))
+    return n
+
+
+def record_accepted_despite(problem: str) -> None:
+    ensure_private_dir(settings.booking_agent_home())
+    # The count starts over: this folder was used as given, and a later bad folder is a new
+    # decision that gets its own corrections instead of being waved through.
+    write_private_text(
+        _attempts_path(),
+        json.dumps({"rejected": 0, "accepted_despite": problem}),
+    )
+
+
+def clear_attempts() -> None:
+    try:
+        _attempts_path().unlink()
+    except OSError:
+        pass
+
+
+def current_boot_id() -> Optional[str]:
+    try:
+        return Path("/proc/sys/kernel/random/boot_id").read_text().strip() or None
+    except OSError:
+        return None
+
+
+def touch_boot_marker(root: Path) -> None:
+    """Remember which boot first used this folder, so a later boot proves it survived a restart."""
+    boot = current_boot_id()
+    if boot is None:
+        return
+    marker = root / _BOOT_FILE
+    try:
+        previous = json.loads(marker.read_text())
+    except (OSError, ValueError):
+        previous = {}
+    first = previous.get("first") or boot
+    data = {"first": first, "last": boot, "survived": bool(previous.get("survived")) or first != boot}
+    try:
+        write_private_text(marker, json.dumps(data))
+    except OSError:
+        pass
+
+
+def survived_restart(root: Path) -> Optional[bool]:
+    """True once this folder has been seen across two boots; None when boots cannot be told.
+
+    Never a false "yes": the marker lives in the folder, so seeing it again means the folder
+    came back. It can stay False after a real restart when sandboxes share one kernel (many
+    containers report the host's boot id), so False means "not shown", not "lost".
+    """
+    try:
+        previous = json.loads((root / _BOOT_FILE).read_text())
+    except (OSError, ValueError):
+        return None
+    boot = current_boot_id()
+    if boot is None:
+        return None
+    return bool(previous.get("survived")) or previous.get("first") != boot

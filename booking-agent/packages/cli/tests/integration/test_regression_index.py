@@ -22,6 +22,16 @@ REGRESSIONS = {
         ("test_runtime_prepare.py", "test_the_recorded_hosted_layout_is_repaired_without_losing_the_real_booking"),
         ("test_runtime_prepare.py", "test_the_further_along_copy_of_a_session_wins_and_no_booking_is_lost"),
     ],
+    "setting up persistence could be skipped without any error": [
+        ("test_runtime_prepare.py", "test_init_refuses_until_the_agent_says_how_state_is_kept"),
+        ("test_runtime_prepare.py", "test_a_folder_the_agent_names_is_set_up_and_then_not_asked_again"),
+        ("test_runtime_prepare.py", "test_saying_there_is_no_folder_is_remembered_beside_the_state"),
+    ],
+    "an agent named a folder that cannot survive, or insisted on one and got the flow stuck": [
+        ("test_runtime_prepare.py", "test_a_temporary_folder_is_turned_back_and_nothing_moves"),
+        ("test_runtime_prepare.py", "test_the_agent_is_sent_back_twice_and_the_third_time_is_accepted"),
+        ("test_runtime_prepare.py", "test_a_later_boot_shows_the_folder_survived_a_restart"),
+    ],
     "assistant had to remember to set up persistence": [
         ("test_runtime_prepare.py", "test_the_named_persistent_folder_is_prepared_before_any_command"),
     ],

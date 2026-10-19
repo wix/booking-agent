@@ -25,7 +25,7 @@ def test_skill_has_the_agent_supply_runtime_facts():
     text = _text()
     assert "--route connector" in text and "--token-env <NAME>" in text
     assert "--route local-oauth" in text
-    assert "booking-agent runtime prepare --persistent-root" in text
+    assert "--persistent-root" in text and "--no-persistent-root" in text
     assert "booking-agent flow calendar poll" in text
     assert "Never** guess a calendar route or token variable name" in text
 
