@@ -17,6 +17,11 @@ def _reset_paid_bookings():
 def _host_keeps_files(monkeypatch):
     """Tests are a host that keeps its own files; the init gate has its own tests."""
     monkeypatch.setenv("BOOKING_AGENT_PERSISTENCE", "none")
+    from booking_agent_cli import runtime_prepare
+
+    # Test folders live under the system temp dir; the durability checks have their own tests.
+    monkeypatch.setattr(runtime_prepare, "ephemeral_roots", lambda: [])
+    monkeypatch.setattr(runtime_prepare, "fs_type", lambda _path: None)
 
 
 @pytest.fixture

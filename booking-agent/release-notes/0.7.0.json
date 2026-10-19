@@ -4,7 +4,7 @@
   "details_url": "https://github.com/wix/booking-agent/releases/tag/v0.7.0",
   "ecosystem_ready": false,
   "readiness_evidence": [
-    "Not yet shown in a hosted session: the start-of-booking question about how a runtime keeps its files is covered by new tests, including a refusal until it is answered, but has not been replayed with a real assistant across a real sandbox restart, so the rollout stays deferred.",
+    "Not yet shown in a hosted session: the start-of-booking question about how a runtime keeps its files is covered by new tests, including a refusal until it is answered, a check that turns back a temporary or memory-backed folder at most twice, and proof of survival after a later boot, but has not been replayed with a real assistant across a real sandbox restart, so the rollout stays deferred.",
     "No request or response exchanged with the registry or with businesses changes. The saved booking file keeps format 2 and no field is added; the only new file is a small note beside the saved state."
   ],
   "relevant_capabilities": [

@@ -630,10 +630,16 @@ def _resolve_persistence(persistent_root: Optional[str], no_persistent_root: boo
     offers, so it must answer with a folder or an explicit "no folder"; the CLI never guesses one.
     """
     from ..runtime_prepare import (
+        MAX_CORRECTIONS,
         PrepareError,
         acknowledge_no_persistence,
+        clear_attempts,
+        corrections_so_far,
+        durability_problem,
         persistence_resolution,
         prepare,
+        record_accepted_despite,
+        record_correction,
     )
 
     if persistent_root and no_persistent_root:
@@ -644,6 +650,25 @@ def _resolve_persistence(persistent_root: Optional[str], no_persistent_root: boo
         )
         raise typer.Exit(code=1)
     if persistent_root:
+        problem = durability_problem(persistent_root)
+        if problem and corrections_so_far() < MAX_CORRECTIONS:
+            used = record_correction()
+            emit_error(
+                "INIT",
+                code="persistence_folder_not_durable",
+                message=(
+                    f"That folder cannot be relied on to survive a restart: {problem}. Nothing "
+                    "was changed. Re-run the same init command with the folder this runtime "
+                    "really keeps between conversations, or with --no-persistent-root if it keeps "
+                    f"its files anyway. (Correction {used} of {MAX_CORRECTIONS}; after that the "
+                    "folder you name is used as given so the booking is never stuck.)"
+                ),
+            )
+            raise typer.Exit(code=1)
+        if problem:
+            record_accepted_despite(problem)
+        else:
+            clear_attempts()
         try:
             prepare(persistent_root, [])
         except (PrepareError, OSError) as exc:

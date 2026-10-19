@@ -7,6 +7,7 @@ import pytest
 
 from booking_agent_cli import runtime_prepare
 from booking_agent_cli.main import app
+from booking_agent_cli.runtime_prepare import fs_type as _real_fs_type
 
 
 @pytest.fixture
@@ -393,8 +394,21 @@ def test_both_flags_together_are_refused(undeclared, tmp_path, capsys):
     assert _error_code(capsys) == "persistence_flags_conflict"
 
 
-def test_a_folder_that_cannot_be_used_says_how_to_go_on(undeclared, capsys):
+def test_a_relative_folder_is_turned_back_before_anything_changes(undeclared, capsys):
+    home, _root, _link_dir = undeclared
     assert _gate(persistent_root="relative/folder") is False
+    assert _error_code(capsys) == "persistence_folder_not_durable"
+    assert not (home / ".booking-agent").is_symlink()
+
+
+def test_a_folder_that_fails_to_link_says_how_to_go_on(undeclared, tmp_path, capsys, monkeypatch):
+    from booking_agent_cli import runtime_prepare
+
+    def boom(*_a, **_k):
+        raise OSError("read-only file system")
+
+    monkeypatch.setattr(runtime_prepare, "prepare", boom)
+    assert _gate(persistent_root=str(tmp_path / "keep")) is False
     assert _error_code(capsys) == "persistence_setup_failed"
 
 
@@ -406,3 +420,118 @@ def test_init_through_the_command_line_refuses_then_goes_on(runner, isolated_ses
 
     ok = runner.invoke(app, ["flow", "init", "--user-request", "Fix my AC", "--no-persistent-root"])
     assert ok.exit_code == 0, ok.stdout
+
+
+# --- The folder the agent names is checked, and a stubborn agent is never left stuck -------------
+
+@pytest.fixture
+def strict(undeclared, tmp_path, monkeypatch):
+    """The real durability checks, with a pretend temp folder the test controls."""
+    from booking_agent_cli import runtime_prepare
+
+    temp = tmp_path / "scratch"
+    temp.mkdir()
+    monkeypatch.setattr(runtime_prepare, "ephemeral_roots", lambda: [temp.resolve()])
+    monkeypatch.setattr(runtime_prepare, "fs_type", lambda _p: None)
+    return temp
+
+
+def test_a_temporary_folder_is_turned_back_and_nothing_moves(strict, capsys):
+    assert _gate(persistent_root=str(strict / "keep")) is False
+    assert _error_code(capsys) == "persistence_folder_not_durable"
+    assert not (strict.parent / "home" / ".booking-agent").is_symlink()
+
+
+def test_a_memory_backed_folder_is_turned_back(strict, tmp_path, monkeypatch, capsys):
+    from booking_agent_cli import runtime_prepare
+
+    monkeypatch.setattr(runtime_prepare, "fs_type", lambda _p: "tmpfs")
+    assert _gate(persistent_root=str(tmp_path / "ram")) is False
+    assert "tmpfs" in capsys.readouterr().out
+
+
+def test_the_filesystem_root_is_turned_back(strict, capsys):
+    assert _gate(persistent_root="/") is False
+    assert _error_code(capsys) == "persistence_folder_not_durable"
+
+
+def test_the_agent_is_sent_back_twice_and_the_third_time_is_accepted(strict, capsys):
+    bad = str(strict / "keep")
+    assert _gate(persistent_root=bad) is False
+    assert "Correction 1 of 2" in capsys.readouterr().out
+    assert _gate(persistent_root=bad) is False
+    assert "Correction 2 of 2" in capsys.readouterr().out
+
+    assert _gate(persistent_root=bad) is True  # third time: used as given, never stuck
+
+    home = strict.parent / "home"
+    assert (home / ".booking-agent").is_symlink()
+
+
+def test_a_good_folder_after_a_correction_starts_the_count_over(strict, tmp_path, capsys):
+    assert _gate(persistent_root=str(strict / "keep")) is False
+    capsys.readouterr()
+    assert _gate(persistent_root=str(tmp_path / "durable")) is True
+    from booking_agent_cli import runtime_prepare
+
+    assert runtime_prepare.corrections_so_far() == 0
+
+
+def test_no_folder_is_always_accepted_and_never_counted(strict):
+    from booking_agent_cli import runtime_prepare
+
+    assert _gate(persistent_root=str(strict / "keep")) is False
+    assert _gate(no_persistent_root=True) is True
+    assert runtime_prepare.corrections_so_far() == 1
+
+
+def test_doctor_notes_a_folder_that_was_accepted_despite_the_checks(strict, runner):
+    bad = str(strict / "keep")
+    for _ in range(3):
+        _gate(persistent_root=bad)
+
+    body = json.loads(runner.invoke(app, ["runtime", "doctor"]).stdout)
+
+    assert "folder_accepted_despite_checks" in {f["kind"] for f in body["data"]["findings"]}
+
+
+def test_a_later_boot_shows_the_folder_survived_a_restart(undeclared, tmp_path, monkeypatch, runner):
+    from booking_agent_cli import runtime_prepare
+
+    keep = tmp_path / "survives"
+    monkeypatch.setattr(runtime_prepare, "current_boot_id", lambda: "boot-a")
+    assert _gate(persistent_root=str(keep)) is True
+    assert runtime_prepare.survived_restart(keep) is False
+
+    monkeypatch.setattr(runtime_prepare, "current_boot_id", lambda: "boot-b")
+    assert runtime_prepare.survived_restart(keep) is True
+    runtime_prepare.prepare(str(keep), [])  # a later run must not erase the proof
+    monkeypatch.setattr(runtime_prepare, "current_boot_id", lambda: "boot-c")
+    assert runtime_prepare.survived_restart(keep) is True
+
+    body = json.loads(runner.invoke(app, ["runtime", "doctor"]).stdout)
+    assert body["data"]["persistence"]["survived_restart"] is True
+
+
+def test_the_mount_table_parser_picks_the_deepest_mount(tmp_path, monkeypatch):
+    import io
+
+    base = tmp_path.resolve()
+    table = (
+        "22 1 8:1 / / rw - ext4 /dev/sda1 rw\n"
+        f"40 22 0:35 / {base} rw - tmpfs tmpfs rw\n"
+        f"41 40 0:36 / {base}/deep/disk rw - ext4 /dev/sdb1 rw\n"
+    )
+    monkeypatch.setattr(runtime_prepare, "open", lambda *_a, **_k: io.StringIO(table), raising=False)
+
+    assert _real_fs_type(tmp_path / "x") == "tmpfs"
+    assert _real_fs_type(tmp_path / "deep" / "disk" / "x") == "ext4"
+
+
+def test_the_persistence_questions_are_expected_not_failures_to_report():
+    """An agent being asked how state is kept must never lead to an offer to send a note."""
+    from booking_agent_cli import support_report
+
+    for code in ("persistence_unresolved", "persistence_folder_not_durable",
+                 "persistence_setup_failed", "persistence_flags_conflict"):
+        assert code in support_report.EXPECTED_CODES

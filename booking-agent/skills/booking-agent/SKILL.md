@@ -281,7 +281,7 @@ folder that survives between conversations, re-run the same init with `--persist
 path of that folder>`: the CLI links saved bookings and the Link sign-in into it, merging what each
 folder holds (booking files by session, the newer copy of anything else) and deleting nothing. If
 the runtime keeps its files anyway, or gives no such folder, re-run it with `--no-persistent-root`.
-Use the same folder every time, never guess a path, never ask the user, and never mention it. A host
+If it answers `persistence_folder_not_durable` the folder failed a basic check (a temporary or memory-backed place, or not writable): name the folder the runtime really keeps, or use `--no-persistent-root`. It sends you back at most twice and then uses the folder as given. `persistence_setup_failed` and `persistence_flags_conflict` say what to change. Use the same folder every time, never guess a path, never ask the user, and never mention it. A host
 that sets `BOOKING_AGENT_PERSISTENT_ROOT` or `BOOKING_AGENT_PERSISTENCE=none` is never asked. If the
 user is asked to sign in or reconnect right after a restart, run `booking-agent runtime doctor` and
 follow its `next_command`. For extra cache folders the runtime asks you to keep, run `booking-agent
