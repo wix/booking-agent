@@ -88,6 +88,17 @@ def platform_profile_doc() -> Dict[str, Any]:
                         "extends": "dev.ucp.shopping.checkout",
                     }
                 ],
+                "dev.usp-protocol.services.pay_at_service": [
+                    {
+                        "version": "2026-08-20",
+                        "spec": (
+                            "https://usp-protocol.dev/specification"
+                            "#pay-at-service-settlement-extension"
+                        ),
+                        "schema": "https://usp-protocol.dev/schemas/services/pay_at_service.json",
+                        "extends": "dev.ucp.shopping.checkout",
+                    }
+                ],
                 "dev.ucp.common.payment.terms": [
                     {
                         "version": "2026-08-25",

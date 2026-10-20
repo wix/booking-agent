@@ -2417,10 +2417,15 @@ def business_use(
             raise typer.Exit(code=1)
         from ..catalog import classify_payment_route, payment_timing_refusal
 
-        classified = classify_payment_route(live_service_summary_data)
+        pay_at_service_declared = uctx is not None and uctx.declares_pay_at_service()
+        classified = classify_payment_route(
+            live_service_summary_data, pay_at_service_declared=pay_at_service_declared
+        )
         session.payment_timing = classified["timing"]
         session.payment_route = classified["route"]
-        timing_refusal = payment_timing_refusal(live_service_summary_data)
+        timing_refusal = payment_timing_refusal(
+            live_service_summary_data, pay_at_service_declared=pay_at_service_declared
+        )
         if timing_refusal is not None:
             emit_error(
                 session.flow_phase,
@@ -4466,7 +4471,7 @@ def _buyer_recap(
             "Say plainly that this service is free. Ask a single combined confirmation "
             "that only asks whether to book it. Do not bring up money."
         )
-    elif route == "at_service":
+    elif route in ("at_service", "pay_at_service"):
         summary = {"route": route, "charge_now_display": None, "due_at_appointment_display": price}
         payment_text = (
             "State that data.price_display is paid to the business at the appointment and "
@@ -4743,7 +4748,10 @@ def book(
             message=changed["message"],
         )
         raise typer.Exit(code=1)
-    classified = classify_payment_route(refreshed_live_service)
+    classified = classify_payment_route(
+        refreshed_live_service,
+        pay_at_service_declared=session.payment_route == "pay_at_service",
+    )
     session.payment_timing = classified["timing"]
     session.payment_route = classified["route"]
     session.live_service = refreshed_live_service
@@ -4823,7 +4831,12 @@ def book(
     action_expires_at = booking_ref.action_expires_at
 
     at_service = session.payment_route == "at_service"
-    next_pay = "booking-agent flow pay request --payment-method-id <id>"
+    pay_at_service = session.payment_route == "pay_at_service"
+    next_pay = (
+        "booking-agent flow pay ucp-complete --disclosures-confirmed"
+        if pay_at_service
+        else "booking-agent flow pay request --payment-method-id <id>"
+    )
     path_summary = payment_path_summary(
         payment_route=session.payment_route,
         checkout_path=checkout_path,
@@ -4857,6 +4870,15 @@ def book(
             "and you are waiting for the business to confirm. Do not create a payment. Then "
             "run `booking-agent flow book poll --wait`."
         )
+    elif pay_at_service:
+        prompt_out = (
+            "Checkout created for a booking paid at the appointment. The user already agreed "
+            "at buyer resolve to book it and pay at the appointment. Nothing is charged, so do "
+            "not create a Link payment. Before completing, show the user every item in "
+            "data.payment_disclosures (use content_display) and the amount due at the "
+            "appointment from data.payment_schedules. Never hide, shorten, or skip a "
+            "disclosure. Then run `booking-agent flow pay ucp-complete --disclosures-confirmed`."
+        )
     elif deposit_route:
         prompt_out = (
             "Checkout created for a deposit booking. The user approved booking and paying "
@@ -4875,7 +4897,7 @@ def book(
     data_out: Dict[str, Any] = {}
     if booking_narration:
         data_out["booking_narration"] = booking_narration
-    if deposit_route and not direct:
+    if (deposit_route or pay_at_service) and not direct:
         due_now = session.due_now_amount_minor
         data_out["due_now_display"] = (
             _format_price_display(due_now, price_info.get("currency"))
@@ -4920,7 +4942,7 @@ def book(
             "ucp_spt_network_id": session.ucp_spt_network_id,
             "payment_path_summary": path_summary,
             "payment_route": session.payment_route,
-            "payment_due": "at_service" if at_service else None,
+            "payment_due": "at_service" if (at_service or pay_at_service) else None,
             "price_display": price_info["price_display"],
             "currency": price_info.get("currency"),
             "amount_minor_units": price_info.get("amount_minor_units"),
@@ -5039,6 +5061,17 @@ def pay_request(
             ),
             next_command="booking-agent flow pay poll",
             data={"spend_request_id": existing_id},
+        )
+        raise typer.Exit(code=1)
+    if session.payment_route == "pay_at_service":
+        emit_error(
+            session.flow_phase,
+            code="pay_not_required",
+            message=(
+                "This booking is paid at the appointment, so nothing is charged and no "
+                "Link payment is created. Show the disclosures, then complete the booking."
+            ),
+            next_command="booking-agent flow pay ucp-complete --disclosures-confirmed",
         )
         raise typer.Exit(code=1)
     if session.payment_route in ("free", "at_service"):
@@ -5368,6 +5401,10 @@ def _finish_post_payment_steps(session: Session) -> None:
         "Payment complete and booking confirmed. Tell the user they are booked in everyday "
         "language (service, time, business). Do not mention CLI commands, phases, or payment "
         "internals."
+        if session.payment_route != "pay_at_service"
+        else "Booking confirmed. Nothing was charged. Tell the user they are booked in "
+        "everyday language (service, time, business) and that the amount is due at the "
+        "appointment. Do not mention CLI commands or phases."
     )
     if html_link:
         prompt += (
@@ -5586,8 +5623,27 @@ def pay_ucp_complete(
     ),
     approval_timeout: int = typer.Option(600, "--approval-timeout"),
     poll_interval: float = typer.Option(2.0, "--poll-interval"),
+    disclosures_confirmed: bool = typer.Option(
+        False,
+        "--disclosures-confirmed/--no-disclosures-confirmed",
+        help=(
+            "Pay-at-appointment bookings only: the user has been shown every disclosure "
+            "and the amount due at the appointment."
+        ),
+    ),
+    total_confirmed: bool = typer.Option(
+        False,
+        "--total-confirmed/--no-total-confirmed",
+        help=(
+            "Pay-at-appointment bookings only: the business total differs from the quote "
+            "and the user approved the new total."
+        ),
+    ),
 ) -> None:
     """Complete UCP checkout using SPT from link-cli spend-request retrieve after user approval.
+
+    A booking paid at the appointment has nothing to approve or charge: it completes with no
+    payment instrument once its disclosures have been shown (``--disclosures-confirmed``).
 
     Handler id is taken from ``--handler-id`` when set; otherwise resolved from the checkout
     session (``payment.instruments``) or a single ``payment_handlers`` entry on the business
@@ -5610,6 +5666,13 @@ def pay_ucp_complete(
             next_command="booking-agent flow status",
         )
         raise typer.Exit(code=1)
+    if session.payment_route == "pay_at_service":
+        _complete_pay_at_service(
+            session,
+            disclosures_confirmed=disclosures_confirmed,
+            total_confirmed=total_confirmed,
+        )
+        return
     _pay_ucp_complete_impl(
         session,
         handler_id=handler_id,
@@ -5617,6 +5680,150 @@ def pay_ucp_complete(
         approval_timeout=approval_timeout,
         poll_interval=poll_interval,
     )
+
+
+_PAY_AT_SERVICE_COMPLETE = "booking-agent flow pay ucp-complete --disclosures-confirmed"
+
+
+def _complete_pay_at_service(
+    session: Session,
+    *,
+    disclosures_confirmed: bool,
+    total_confirmed: bool = False,
+    emit_result: bool = True,
+) -> None:
+    """Complete a pay-at-appointment checkout with no payment instrument (USP 11.3.5).
+
+    Nothing is charged, so there is no spend request, token, or Link approval. The user
+    must have been shown every disclosure first (S8), and the total they agreed to must
+    still be the total the business is completing.
+    """
+    from ..engine import transition
+
+    disclosures = list(session.payment_disclosures or [])
+    unrenderable = [
+        d for d in disclosures
+        if not (
+            (isinstance(d.get("description"), dict) and d["description"].get("plain"))
+            or d.get("content")
+            or d.get("text")
+            or d.get("message")
+        )
+    ]
+    if unrenderable:
+        continue_url = next(
+            (
+                item.get("url")
+                for item in session.ucp_checkout_links or []
+                if isinstance(item, dict) and item.get("url")
+            ),
+            None,
+        )
+        emit_error(
+            session.flow_phase,
+            code="disclosure_unrenderable",
+            message=(
+                "A required disclosure could not be shown faithfully. Open the "
+                "merchant continue URL."
+            ),
+            data={"continue_url": continue_url, "disclosures": disclosures},
+        )
+        raise typer.Exit(code=1)
+    if disclosures and not (disclosures_confirmed or session.disclosures_user_confirmed):
+        emit_error(
+            session.flow_phase,
+            code="disclosures_unconfirmed",
+            message=(
+                "Show the user every disclosure and the amount due at the appointment "
+                "(use content_display and due_at_display), then re-run with "
+                "--disclosures-confirmed. Nothing is charged."
+            ),
+            data={
+                "checkout_total_minor": session.ucp_checkout_amount_minor,
+                "schedules": _localized_schedules(
+                    session, list(session.payment_schedules or []), None,
+                ),
+                "disclosures": _localized_messages(session, disclosures),
+            },
+            next_command=_PAY_AT_SERVICE_COMPLETE,
+        )
+        raise typer.Exit(code=1)
+    if disclosures_confirmed:
+        session.disclosures_user_confirmed = True
+        save_session(session)
+    from ..catalog import checkout_total_changed, merchant_quote_for_session
+
+    checkout_total = session.ucp_checkout_amount_minor
+    if total_confirmed and checkout_total is not None:
+        session.total_confirmed_amount_minor = int(checkout_total)
+        save_session(session)
+    if (
+        checkout_total_changed(session.ucp_merchant_quote)
+        and session.total_confirmed_amount_minor != checkout_total
+    ):
+        emit_error(
+            session.flow_phase,
+            code="checkout_total_unconfirmed",
+            message=(
+                "The business checkout total differs from the quoted price. Show the "
+                "service price, tax, and total from data.merchant_quote, get the user's "
+                "approval, then re-run with --total-confirmed."
+            ),
+            data={"merchant_quote": merchant_quote_for_session(session)},
+            next_command=f"{_PAY_AT_SERVICE_COMPLETE} --total-confirmed",
+        )
+        raise typer.Exit(code=1)
+
+    async def _go():
+        from booking_agent.step_timing import timed_step
+        from ..payment_helpers import complete_ucp_checkout_async
+
+        async with timed_step("pay"):
+            return await complete_ucp_checkout_async(session, without_instrument=True)
+
+    business = _business_label(session)
+    try:
+        result = asyncio.run(_go())
+    except UcpCompleteOutcomeError as outcome:
+        raise _handle_complete_outcome(session, outcome, None)
+    except UcpProfileValidationError as e:
+        emit_error(
+            session.flow_phase,
+            code="pay_at_service_invalid",
+            message=(
+                f"{e} Nothing was charged. Do not retry and do not try another way to pay. "
+                "Post user_message, then stop."
+            ),
+            user_message=(
+                f"I couldn't finish this booking with {business} because its payment "
+                "details didn't check out, so nothing was booked or charged. Please try "
+                "again later or contact them directly."
+            ),
+        )
+        raise typer.Exit(code=1)
+    except Exception as e:
+        emit_error(
+            session.flow_phase,
+            code="ucp_complete_failed",
+            message=f"{e} Nothing was charged. Post user_message, then run next_command.",
+            user_message=(
+                f"I couldn't finish the booking with {business} just now. I'm trying again, "
+                "and I'll tell you what to do if it still doesn't work. Nothing was charged."
+            ),
+            next_command=_PAY_AT_SERVICE_COMPLETE,
+        )
+        raise typer.Exit(code=1)
+
+    session.payment.order_id = str(result.get("order_id") or "") or None
+    session.payment.status = "not_required"
+    from ..flow_timings import apply_pending_timings
+
+    apply_pending_timings(session)
+    transition(session, to="CONFIRMED")
+    save_session(session)
+    if not emit_result:
+        return
+    _finish_post_payment_steps(session)
 
 
 def _pay_ucp_complete_impl(
@@ -5856,7 +6063,9 @@ def _handle_complete_outcome(
 ) -> Exception:
     """Route a classified complete_checkout failure (spec #93 A1-A5)."""
     same_sr_command = (
-        f"booking-agent flow pay ucp-complete --spend-request-id {spend_request_id}"
+        _PAY_AT_SERVICE_COMPLETE
+        if session.payment_route == "pay_at_service"
+        else f"booking-agent flow pay ucp-complete --spend-request-id {spend_request_id}"
         if spend_request_id
         else _NEW_CARD_NEXT_COMMAND
     )

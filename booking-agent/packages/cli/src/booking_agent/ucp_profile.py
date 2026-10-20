@@ -20,9 +20,16 @@ from pydantic import BaseModel, ConfigDict, Field
 from pydantic.alias_generators import to_camel
 
 from .authorization import AuthorizationPolicy, parse_policy
-from .namespace import CAP_CATALOG, CAP_PAID_BOOKINGS, SVC_SERVICES, check_origin_binding
+from .namespace import (
+    CAP_CATALOG,
+    CAP_PAID_BOOKINGS,
+    CAP_PAY_AT_SERVICE,
+    SVC_SERVICES,
+    check_origin_binding,
+)
 
 CAP_CHECKOUT = "dev.ucp.shopping.checkout"
+CAP_PAYMENT_TERMS = "dev.ucp.common.payment.terms"
 
 
 class UcpTransportBinding(BaseModel):
@@ -109,6 +116,20 @@ class UcpNativeContext(BaseModel):
 
     def requires_paid_bookings(self) -> bool:
         return CAP_PAID_BOOKINGS in self.profile.capabilities
+
+    def declares_pay_at_service(self) -> bool:
+        """True when the business declares everything the pay-at-service checkout path needs.
+
+        USP 11.3.2: a business routing ``at_service`` through a checkout declares
+        ``pay_at_service`` *and* ``dev.ucp.common.payment.terms``; declaring the
+        first without the second is malformed, so it is not treated as declared.
+        """
+        caps = self.profile.capabilities
+        return (
+            CAP_PAY_AT_SERVICE in caps
+            and CAP_PAYMENT_TERMS in caps
+            and CAP_CHECKOUT in caps
+        )
 
     def usp_authorization(self) -> Optional[AuthorizationPolicy]:
         """The ``config.authorization`` policy on the ``dev.usp-protocol.services`` binding.

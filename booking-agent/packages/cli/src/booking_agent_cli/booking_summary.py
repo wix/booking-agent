@@ -104,7 +104,7 @@ def price_text(session: Any, price_info: Dict[str, Any]) -> Optional[str]:
         return "Free"
     if not price:
         return None
-    if route == "at_service":
+    if route in ("at_service", "pay_at_service"):
         return f"{price}, paid to the business at the appointment (nothing is charged now)"
     if route == "deposit_required":
         return (
@@ -151,6 +151,18 @@ def payment_context_text(session: Any, total_display: Optional[str]) -> str:
     return text
 
 
+def pay_at_service_line(session: Any) -> str:
+    """What is owed and when, from the business's own accepted payment term."""
+    term = getattr(session, "accepted_term", None)
+    schedules = term.get("schedules") if isinstance(term, dict) else None
+    for schedule in schedules or []:
+        description = schedule.get("description") if isinstance(schedule, dict) else None
+        plain = description.get("plain") if isinstance(description, dict) else None
+        if isinstance(plain, str) and plain.strip():
+            return f"Nothing was charged. {plain.strip()}"
+    return "Nothing was charged. Payment is due at your appointment."
+
+
 def booked_message(session: Any) -> str:
     """Plain-language "you're booked" text built from saved state.
 
@@ -171,6 +183,8 @@ def booked_message(session: Any) -> str:
     link = getattr(session, "calendar_event_html_link", None)
     if link:
         text += f"\nAdded to your Google Calendar: {link}"
+    if getattr(session, "payment_route", None) == "pay_at_service":
+        text += "\n" + pay_at_service_line(session)
     booking_url = getattr(getattr(session, "booking", None), "booking_url", None)
     if booking_url:
         text += f"\nTo view, change, or cancel it later (worth saving): {booking_url}"

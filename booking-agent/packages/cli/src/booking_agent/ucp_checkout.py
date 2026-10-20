@@ -5,6 +5,7 @@ import json
 import logging
 import uuid
 from dataclasses import dataclass
+from datetime import datetime
 from enum import Enum
 from typing import Any, Dict, List, Optional
 
@@ -489,6 +490,129 @@ def immediate_schedule_amount(term: Dict[str, Any]) -> Optional[int]:
     return amount
 
 
+PAY_AT_SERVICE_CAPABILITY = "dev.usp-protocol.services.pay_at_service"
+SETTLEMENT_MODE_OFFLINE = "offline"
+#: Disclosure code the business emits for a pay-at-service checkout (USP 11.3.5 S8).
+PAYMENT_DUE_AT_SERVICE_CODE = "payment_due_at_service"
+
+
+def is_offline_settled(checkout: Any) -> bool:
+    """True when the checkout declares ``settlement.mode == "offline"`` (USP 11.3.3)."""
+    settlement = checkout.get("settlement") if isinstance(checkout, dict) else None
+    return isinstance(settlement, dict) and settlement.get("mode") == SETTLEMENT_MODE_OFFLINE
+
+
+def _instants_equal(a: Any, b: Any) -> bool:
+    """Compare two RFC 3339 instants, tolerating a differing UTC offset spelling."""
+    if a == b:
+        return True
+    try:
+        left = datetime.fromisoformat(str(a).replace("Z", "+00:00"))
+        right = datetime.fromisoformat(str(b).replace("Z", "+00:00"))
+    except ValueError:
+        return False
+    if left.tzinfo is None or right.tzinfo is None:
+        return False
+    return left == right
+
+
+def _is_at_service_term(term: Any) -> bool:
+    schedules = term.get("schedules") if isinstance(term, dict) else None
+    return (
+        isinstance(schedules, list)
+        and bool(schedules)
+        and all(isinstance(s, dict) and s.get("type") == "at_service" for s in schedules)
+    )
+
+
+def validate_offline_settlement(
+    checkout: Dict[str, Any],
+    *,
+    negotiated_capabilities: Optional[Dict[str, Any]] = None,
+    persisted_term: Optional[Dict[str, Any]] = None,
+    slot_start: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Validate a pay-at-service checkout (USP 11.3) and return its selected term.
+
+    Fails closed on anything the extension does not define: an unknown settlement
+    mode, a settlement without the terms it names (S1), more than one offline term
+    (S2), a ``due_at`` that is not the slot start (S3), or a selected term other
+    than the offline one (S4 applies only when the offline term is selected).
+    """
+    settlement = checkout.get("settlement")
+    if not isinstance(settlement, dict):
+        raise UcpProfileValidationError("Checkout settlement must be an object.")
+    if settlement.get("mode") != SETTLEMENT_MODE_OFFLINE:
+        raise UcpProfileValidationError(
+            f"Checkout settlement mode {settlement.get('mode')!r} is not supported."
+        )
+    term_id = settlement.get("term_id")
+    if not isinstance(term_id, str) or not term_id:
+        raise UcpProfileValidationError("Checkout settlement is missing term_id.")
+    caps = negotiated_capabilities or {}
+    missing = [
+        cap for cap in (PAY_AT_SERVICE_CAPABILITY, PAYMENT_TERMS_CAPABILITY) if cap not in caps
+    ]
+    if missing:
+        raise UcpProfileValidationError(
+            "Checkout declared pay-at-service settlement without negotiated capabilities "
+            f"{missing!r}."
+        )
+    payment = checkout.get("payment") if isinstance(checkout.get("payment"), dict) else {}
+    terms = payment.get("terms")
+    selected_id = payment.get("selected_term_id")
+    if not isinstance(terms, list) or not terms or not selected_id:
+        raise UcpProfileValidationError(
+            "Checkout settlement requires payment.terms and payment.selected_term_id."
+        )
+    named = [t for t in terms if isinstance(t, dict) and t.get("id") == term_id]
+    if len(named) != 1:
+        raise UcpProfileValidationError(
+            "Checkout settlement.term_id must match exactly one payment.terms[].id."
+        )
+    term = named[0]
+    offline_terms = [t for t in terms if _is_at_service_term(t)]
+    if len(offline_terms) != 1 or offline_terms[0] is not term:
+        raise UcpProfileValidationError(
+            "A pay-at-service checkout must offer exactly one pay-at-service term, "
+            "and settlement.term_id must name it."
+        )
+    if selected_id != term_id:
+        raise UcpProfileValidationError(
+            "The pay-at-service term is not the selected payment term, so the booking "
+            "cannot be completed without a payment instrument."
+        )
+    total = checkout_total_minor_units(checkout)
+    if total is None:
+        raise UcpProfileValidationError("Checkout totals must include a type=total amount.")
+    amounts: list[int] = []
+    for schedule in term["schedules"]:
+        amount = _schedule_amount(schedule)
+        if amount is None or amount <= 0:
+            raise UcpProfileValidationError(
+                "Each pay-at-service schedule must carry a positive integer amount."
+            )
+        amounts.append(amount)
+        due_at = schedule.get("due_at")
+        if not due_at:
+            raise UcpProfileValidationError(
+                "Pay-at-service schedule must set due_at to the slot start."
+            )
+        if slot_start and not _instants_equal(due_at, slot_start):
+            raise UcpProfileValidationError(
+                "Pay-at-service due_at must equal the booked slot start."
+            )
+    if sum(amounts) != int(total):
+        raise UcpProfileValidationError(
+            "Pay-at-service schedule amounts must sum to the checkout total."
+        )
+    if persisted_term is not None and persisted_term != term:
+        raise UcpProfileValidationError(
+            "The payment term changed since it was quoted. Do not complete this booking."
+        )
+    return term
+
+
 def validate_payment_terms(
     checkout: Dict[str, Any],
     *,
@@ -496,13 +620,33 @@ def validate_payment_terms(
     require_terms: bool = False,
     persisted_term: Optional[Dict[str, Any]] = None,
     slot_start: Optional[str] = None,
+    expect_offline_settlement: bool = False,
 ) -> Optional[Dict[str, Any]]:
     """Validate UCP payment terms on a checkout. Returns the selected term or None.
 
     Deposits require the negotiated terms capability, exactly one selected term,
     schedules that sum to checkout total, exactly one positive immediate amount,
     and an at-service balance with due_at.
+
+    A checkout routed as pay-at-service (``expect_offline_settlement``) must carry
+    an offline ``settlement`` and is validated by :func:`validate_offline_settlement`;
+    any other route that receives a ``settlement`` fails closed rather than being
+    treated as an ordinary charge.
     """
+    has_settlement = "settlement" in checkout
+    if has_settlement != expect_offline_settlement:
+        raise UcpProfileValidationError(
+            "Checkout carries a settlement this booking was not routed for."
+            if has_settlement
+            else "This booking was routed as pay-at-service but the checkout has no settlement."
+        )
+    if has_settlement:
+        return validate_offline_settlement(
+            checkout,
+            negotiated_capabilities=negotiated_capabilities,
+            persisted_term=persisted_term,
+            slot_start=slot_start,
+        )
     payment = checkout.get("payment") if isinstance(checkout.get("payment"), dict) else {}
     terms = payment.get("terms") if isinstance(payment, dict) else None
     has_terms = isinstance(terms, list) and len(terms) > 0
