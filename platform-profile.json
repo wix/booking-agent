@@ -38,6 +38,14 @@
           "spec": "https://usp-protocol.dev/specification#7-ucp-native-mode",
           "version": "2026-08-20"
         }
+      ],
+      "dev.usp-protocol.services.pay_at_service": [
+        {
+          "extends": "dev.ucp.shopping.checkout",
+          "schema": "https://usp-protocol.dev/schemas/services/pay_at_service.json",
+          "spec": "https://usp-protocol.dev/specification#pay-at-service-settlement-extension",
+          "version": "2026-08-20"
+        }
       ]
     },
     "payment_handlers": {
