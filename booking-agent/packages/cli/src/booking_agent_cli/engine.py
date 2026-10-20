@@ -150,6 +150,8 @@ def recommend_next(session: Session) -> str | None:
             "booking-agent flow pay request --payment-method-id <id>"
         )
     if phase == "PAYMENT_PENDING":
+        if getattr(session, "payment_route", None) == "pay_at_service":
+            return "booking-agent flow pay ucp-complete"
         sr = session.payment.spend_request_id
         if sr:
             return f"booking-agent flow pay ucp-complete --spend-request-id {sr}"

@@ -105,7 +105,7 @@ booking-agent --help
 booking-agent flow --help
 ```
 
-**Scope today:** the v2 agent slice books only businesses that satisfy the UCP-native paid-bookings gate. It rejects redirect checkout, deposits, pay-at-service, and any other explicit payment timing except `at_booking`. Free services still skip payment. Discovery sends the user's free-text request and does not add a structured `categories[]` filter. Embedded USP `confirm-payment` and MPP are not supported yet.
+**Scope today:** the v2 agent slice books only businesses that satisfy the UCP-native paid-bookings gate. It rejects redirect checkout and any payment timing it does not know. Deposits go through checkout with negotiated payment terms, pay-at-appointment services are booked directly or, when the business declares the pay-at-service extension, through a checkout that completes with no payment instrument, and free services skip payment. Discovery sends the user's free-text request and does not add a structured `categories[]` filter. Embedded USP `confirm-payment` and MPP are not supported yet.
 
 ## Configuration
 
@@ -128,7 +128,7 @@ skill at an immutable tag, `skill-v<frontmatter version>`, and signs it with the
 signs the wheels, so a harness can pin and verify the exact text it follows:
 
 ```bash
-curl -fsSLO https://raw.githubusercontent.com/wix/booking-agent/skill-v0.55.0/booking-agent/skills/booking-agent/SKILL.md
+curl -fsSLO https://raw.githubusercontent.com/wix/booking-agent/skill-v0.56.0/booking-agent/skills/booking-agent/SKILL.md
 gh attestation verify SKILL.md \
   --repo wix/booking-agent \
   --signer-workflow wix/booking-agent/.github/workflows/release.yml

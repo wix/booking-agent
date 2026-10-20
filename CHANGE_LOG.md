@@ -1,5 +1,16 @@
 # Change Log
 
+## 20/10/26 at 13:45:51 by [Ran Yahalom](mailto:ranya@wix.com)
+
+- Released as 0.8.0 (skill 0.56.0). A service paid at the appointment can now be booked through the business's checkout when the business declares the pay-at-service extension, and the booking completes with an empty `payment` and no Link spend request. The business now answers these bookings with a checkout and an order, and it refuses a payment instrument on them rather than ignoring it, so a client that kept sending one would break; USP 11.3.5 S4/S5 (not base UCP, whose schema only permits an empty `payment`) defines the instrument-free completion
+- Routing is by the business's declaration, not the service alone: a business that does not declare the extension keeps the direct booking path, because USP 7.6.1 forbids routing a pay-at-appointment service through a checkout the business has not declared the extension for. A declaration also needs the payment-terms extension (11.3.2), and the live checkout is re-checked before it is created
+- Added strict validation of the offline settlement (unknown mode, a term that is not the selected one, more than one offline term, a `due_at` that is not the slot start, amounts that do not sum to the total all fail closed), so a booking that looks confirmed with no record of how it will be paid cannot be completed. An empty payment-handler set is not treated as a reason to leave for the business's site
+- The `payment_due_at_service` disclosure is now shown before the booking completes (completion needs `--disclosures-confirmed`), and the confirmation says nothing was charged and what is due at the appointment, instead of the deposit-only handling it had before
+- Declared the extension in the hosted platform profile (regenerated `platform-profile.json`) and in the skill, and removed the stale README and CONTRIBUTING claim that pay-at-service always fails closed. Rollout is `deferred` with `ecosystem_ready: false`: the new path was proven only against loopback mocks, and no hosted replay against a live business that declares the extension has been run
+- Added loopback end-to-end and unit tests for both the declared and undeclared cases. The opt-in staging-registry search test fails the same way on unchanged 0.7.0 (live business profiles do not resolve), so it is not caused by this change
+
+---
+
 ## 19/10/26 at 13:05:12 by [Ran Yahalom](mailto:ranya@wix.com)
 
 - Rolled out 0.5.0 (`available`), 0.6.0 (`available`) and 0.7.0 (`recommended`) together, with `ecosystem_ready: true`, because a deferred release holds back everything after it (installing 0.7.0 brings 0.5.0 and 0.6.0), so flipping only the newest would have left installed assistants on 0.4.2 never offered anything. After this, an assistant on 0.4.2, 0.5.0 or 0.6.0 is offered 0.7.0 with its consent

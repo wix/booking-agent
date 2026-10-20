@@ -17,6 +17,7 @@ CAP_CATALOG = "dev.usp-protocol.services.catalog"
 CAP_AVAILABILITY = "dev.usp-protocol.services.availability"
 CAP_BOOKINGS = "dev.usp-protocol.services.bookings"
 CAP_PAID_BOOKINGS = "dev.usp-protocol.services.paid_bookings"
+CAP_PAY_AT_SERVICE = "dev.usp-protocol.services.pay_at_service"
 
 
 class NamespaceOriginError(ValueError):

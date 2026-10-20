@@ -28,6 +28,7 @@ from __future__ import annotations
 from typing import Any, Callable, Dict, List
 
 from .ucp_negotiation import _capabilities_from_doc
+from .namespace import CAP_PAY_AT_SERVICE
 from .ucp_profile import CAP_PAID_BOOKINGS, UcpProfileValidationError
 
 
@@ -91,9 +92,14 @@ def _paid_bookings_handler(echoed_versions: List[str], platform_supported: List[
     _validate_versions_supported(CAP_PAID_BOOKINGS, echoed_versions, platform_supported)
 
 
+def _pay_at_service_handler(echoed_versions: List[str], platform_supported: List[str]) -> None:
+    _validate_versions_supported(CAP_PAY_AT_SERVICE, echoed_versions, platform_supported)
+
+
 # namespace -> handler. Register new capabilities (e.g. AP2) here.
 CAPABILITY_HANDLERS: Dict[str, CapabilityHandler] = {
     CAP_PAID_BOOKINGS: _paid_bookings_handler,
+    CAP_PAY_AT_SERVICE: _pay_at_service_handler,
 }
 
 

@@ -367,3 +367,157 @@ def test_a_restart_and_a_changed_persistent_root_mid_booking_lose_nothing(
     assert final["phase"] == "CONFIRMED"
     assert final["user_message"].startswith("You're booked")
     assert load_session().id == booked_id
+
+
+# ---------------------------------------------------------------------------
+# Pay at the appointment (USP 11.3 pay_at_service): checkout, no instrument.
+# ---------------------------------------------------------------------------
+
+def _offline_env(tmp_path, monkeypatch, **stack_kwargs):
+    """Offline loopback stack wired like ``offline_http_env`` but with stack options."""
+    from support.offline_stack.stack import OfflineHttpStack
+
+    stack = OfflineHttpStack(**stack_kwargs)
+    _port, base_url = stack.start()
+    monkeypatch.setenv("BOOKING_AGENT_SESSION_DIR", str(tmp_path))
+    monkeypatch.setenv("USP_REGISTRY_URL", f"{base_url}/registry/search_services")
+    monkeypatch.setenv("USP_AGENT_PROFILE_URL", stack.platform_profile_url)
+    monkeypatch.delenv("GOOGLE_CALENDAR_CLIENT_ID", raising=False)
+    import booking_agent_cli.commands.flow as flow
+    from booking_agent_cli.link_cli import AuthStatus
+
+    monkeypatch.setattr(flow, "get_auth_status", lambda: AuthStatus(authenticated=True))
+    from support.mock.link_cli import mock_link_cli_user_info
+
+    mock_link_cli_user_info(
+        monkeypatch, {"name": "Ada Lovelace", "email": "ada@booking-agent.test"}
+    )
+    return stack
+
+
+@pytest.fixture
+def pay_at_service_env(tmp_path, monkeypatch):
+    stack = _offline_env(tmp_path, monkeypatch, pay_at_service=True)
+    yield stack
+    stack.stop()
+
+
+@pytest.fixture
+def undeclared_at_service_env(tmp_path, monkeypatch):
+    """An at_service service on a business that does not declare pay_at_service."""
+    stack = _offline_env(tmp_path, monkeypatch, at_service=True)
+    yield stack
+    stack.stop()
+
+
+def _no_link_payment(monkeypatch):
+    """Any attempt to create a Link spend request or fetch a token is a test failure."""
+    import booking_agent_cli.commands.flow as flow
+    from booking_agent_cli import payment_token
+
+    def boom(*_a, **_k):
+        raise AssertionError("pay-at-service must not touch Link payment")
+
+    monkeypatch.setattr(flow, "create_spend_request", boom)
+    monkeypatch.setattr(payment_token, "shared_payment_token_source", boom)
+
+
+def test_pay_at_service_books_through_checkout_with_no_instrument(
+    runner, pay_at_service_env, monkeypatch,
+):
+    """Declared pay_at_service: checkout + order, empty ``payment``, disclosure shown first."""
+    from booking_agent_cli.session import load_session
+
+    _no_link_payment(monkeypatch)
+    _service_id, book = _drive_offline_ucp_to_payment_pending(runner, pay_at_service_env)
+    assert book["data"]["payment_route"] == "pay_at_service"
+    assert book["data"]["payment_due"] == "at_service"
+    assert book["data"]["ucp_spt_network_id"] is None
+    assert book["next_command"] == (
+        "booking-agent flow pay ucp-complete --disclosures-confirmed"
+    )
+    disclosures = book["data"]["payment_disclosures"]
+    assert [d["code"] for d in disclosures] == ["payment_due_at_service"]
+    assert disclosures[0]["presentation"] == "disclosure"
+    assert book["data"]["payment_schedules"][0]["type"] == "at_service"
+
+    # No Link payment is requested for a booking paid at the appointment.
+    r = _invoke(runner, "flow", "pay", "request", "--payment-method-id", "pm_test")
+    assert r.exit_code == 1
+    assert _stdout_json(r)["data"]["error"]["code"] == "pay_not_required"
+
+    # The disclosure must be shown before anything completes (USP 11.3.5 S8).
+    r = _invoke(runner, "flow", "pay", "ucp-complete")
+    assert r.exit_code == 1
+    assert _stdout_json(r)["data"]["error"]["code"] == "disclosures_unconfirmed"
+    assert pay_at_service_env.checkout_store.complete_bodies == []
+
+    r = _invoke(runner, "flow", "pay", "ucp-complete", "--disclosures-confirmed")
+    assert r.exit_code == 0, r.stdout + r.stderr
+    final = _stdout_json(r)
+    assert final["phase"] == "CONFIRMED"
+    assert final["user_message"].startswith("You're booked")
+    assert "Nothing was charged" in final["user_message"]
+    # S4/S5: UCP requires the payment object, and it carries no instruments.
+    bodies = pay_at_service_env.checkout_store.complete_bodies
+    assert [b["payment"] for b in bodies] == [{}]
+    session = load_session()
+    assert session.payment.order_id
+    assert session.payment.status == "not_required"
+    assert session.payment.spend_request_id is None
+
+    r = _invoke(runner, "flow", "validate-skill-compliance")
+    assert r.exit_code == 0, r.stdout + r.stderr
+    assert _stdout_json(r)["data"]["compliant"] is True
+
+
+def test_at_service_without_the_extension_stays_on_the_direct_path(
+    runner, undeclared_at_service_env, monkeypatch,
+):
+    """USP 7.6.1: a platform MUST NOT route at_service through an undeclared checkout."""
+    _no_link_payment(monkeypatch)
+    stack = undeclared_at_service_env
+    r = _invoke(runner, "flow", "init", "--user-request", _USER_REQUEST, "--force")
+    assert r.exit_code == 0, r.stdout + r.stderr
+    assert _invoke(runner, "flow", "prereq", "check").exit_code == 0
+    r = _invoke(runner, "flow", "discover", "--query", "AC repair Yuma")
+    row = _stdout_json(r)["data"]["services"][0]
+    r = _invoke(
+        runner, "flow", "business", "use",
+        "--profile-url", row["profile_url"], "--service-id", row["service_id"],
+    )
+    assert r.exit_code == 0, r.stdout + r.stderr
+    data = _stdout_json(r)["data"]
+    assert data["payment_route"] == "at_service"
+    assert data["checkout_mode"] == "direct"
+    assert stack.checkout_store.sessions == {}
+
+
+def test_pay_at_service_fails_closed_when_the_checkout_has_no_settlement(
+    runner, pay_at_service_env, monkeypatch,
+):
+    """Routed as pay-at-service but answered as an ordinary charge: refuse, create no booking."""
+    store = pay_at_service_env.checkout_store
+    original = store.create_checkout
+
+    def without_settlement(body):
+        session = original(body)
+        session.pop("settlement", None)
+        return session
+
+    monkeypatch.setattr(store, "create_checkout", without_settlement)
+    with pytest.raises(AssertionError, match="no settlement"):
+        _drive_offline_ucp_to_payment_pending(runner, pay_at_service_env)
+    assert store.complete_bodies == []
+
+
+def test_business_rejects_instruments_on_an_offline_checkout(pay_at_service_env):
+    """The mock business enforces S5 so a platform that sent one would be caught."""
+    store = pay_at_service_env.checkout_store
+    created = store.create_checkout({"currency": "USD", "booking": {"service_id": "svc"}})
+    status, payload = store.complete_checkout_checked(
+        created["id"],
+        {"payment": {"instruments": [{"handler_id": "stripe_payments", "type": "link"}]}},
+    )
+    assert status == 400
+    assert payload["code"] == "validation_error"

@@ -13,7 +13,18 @@ from .ucp_checkout_store import UcpCheckoutStore
 MOCK_UCP_PORT = 8199
 
 
-def minimal_ucp_profile(*, checkout_base: str, usp_base: str) -> Dict[str, Any]:
+def minimal_ucp_profile(
+    *, checkout_base: str, usp_base: str, pay_at_service: bool = False,
+) -> Dict[str, Any]:
+    doc = _minimal_ucp_profile(checkout_base=checkout_base, usp_base=usp_base)
+    if pay_at_service:
+        doc["ucp"]["capabilities"]["dev.usp-protocol.services.pay_at_service"] = [
+            {"version": "2026-08-20", "extends": "dev.ucp.shopping.checkout"}
+        ]
+    return doc
+
+
+def _minimal_ucp_profile(*, checkout_base: str, usp_base: str) -> Dict[str, Any]:
     return {
         "ucp": {
             "version": "2026-04-08",
@@ -172,18 +183,18 @@ class _UcpHandler(BaseHTTPRequestHandler):
             self._send_json(200, session)
             return
         if "/checkout-sessions/" in path and path.endswith("/complete"):
-            self._read_json()
+            complete_body = self._read_json()
             if not self._proof_accepted("POST"):
                 return
             cid = path.rsplit("/", 2)[-2]
             if not self.checkout_store:
                 self.send_error(500)
                 return
-            completed = self.checkout_store.complete_checkout(cid)
-            if not completed:
+            status, payload = self.checkout_store.complete_checkout_checked(cid, complete_body)
+            if payload is None:
                 self.send_error(404)
                 return
-            self._send_json(200, completed)
+            self._send_json(status, payload)
             return
         self.send_error(404)
 

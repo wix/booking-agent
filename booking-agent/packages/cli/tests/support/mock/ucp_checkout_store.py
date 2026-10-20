@@ -30,8 +30,13 @@ class UcpCheckoutStore:
         *,
         profile_doc: Dict[str, Any],
         spt_network_id: Optional[str] = None,
+        pay_at_service: bool = False,
     ) -> None:
         self.profile_doc = profile_doc
+        #: Answer every booking checkout as a pay-at-service one (USP 11.3).
+        self.pay_at_service = pay_at_service
+        #: Every body POSTed to complete, in order, so tests can see what was sent.
+        self.complete_bodies: list = []
         env_nid = (os.environ.get("BOOKING_AGENT_UCP_TEST_NETWORK_ID") or "").strip()
         self.spt_network_id = (spt_network_id or env_nid or None)
         self.sessions: Dict[str, Dict[str, Any]] = {}
@@ -72,6 +77,7 @@ class UcpCheckoutStore:
             "dev.ucp.shopping.checkout",
             "dev.ucp.shopping.order",
             "dev.usp-protocol.services.paid_bookings",
+            "dev.usp-protocol.services.pay_at_service",
             "dev.ucp.common.payment.terms",
         )
         return {ns: copy.deepcopy(caps[ns]) for ns in active if ns in caps}
@@ -145,11 +151,78 @@ class UcpCheckoutStore:
                     "description": {"plain": "The remaining balance is due at the appointment."},
                 }
             ]
+        if self.pay_at_service:
+            self._make_pay_at_service(session, booking, amount)
         self.sessions[cid] = session
         return session
 
+    @staticmethod
+    def _make_pay_at_service(
+        session: Dict[str, Any], booking: Dict[str, Any], amount: int,
+    ) -> None:
+        """Shape the checkout the way a business declaring pay_at_service answers it."""
+        slot = booking.get("slot") if isinstance(booking.get("slot"), dict) else {}
+        start = slot.get("start") or "2026-10-14T10:00:00-04:00"
+        session["ucp"]["payment_handlers"] = {}
+        session["payment"] = {
+            "selected_term_id": "pt_at_service",
+            "terms": [
+                {
+                    "id": "pt_at_service",
+                    "title": "Pay at your appointment",
+                    "schedules": [
+                        {
+                            "id": "sched_at_service",
+                            "type": "at_service",
+                            "description": {"plain": f"Due at your appointment on {start}."},
+                            "due_at": start,
+                            "amount": amount,
+                        }
+                    ],
+                }
+            ],
+        }
+        session["settlement"] = {
+            "mode": "offline",
+            "term_id": "pt_at_service",
+            "accepted_methods": ["cash", "card_in_person"],
+        }
+        session["messages"] = [
+            {
+                "type": "warning",
+                "code": "payment_due_at_service",
+                "content": (
+                    f"Nothing is charged for this booking now. The full price of "
+                    f"{amount / 100:.2f} USD is due at your appointment on {start}."
+                ),
+                "path": "$.payment.selected_term_id",
+                "presentation": "disclosure",
+            }
+        ]
+
     def get_checkout(self, checkout_id: str) -> Optional[Dict[str, Any]]:
         return self.sessions.get(checkout_id)
+
+    def complete_checkout_checked(
+        self, checkout_id: str, body: Optional[Dict[str, Any]],
+    ) -> tuple[int, Optional[Dict[str, Any]]]:
+        """Complete like a business: S5 rejects instruments on an offline-settled checkout."""
+        self.complete_bodies.append(body)
+        session = self.sessions.get(checkout_id)
+        if not session:
+            return 404, None
+        payment = (body or {}).get("payment") if isinstance(body, dict) else None
+        instruments = payment.get("instruments") if isinstance(payment, dict) else None
+        settlement = session.get("settlement")
+        if isinstance(settlement, dict) and settlement.get("mode") == "offline" and instruments:
+            return 400, {
+                "code": "validation_error",
+                "message": (
+                    "This booking is settled at the appointment, so no payment instrument "
+                    "may be submitted for it. Complete the checkout with no instruments."
+                ),
+            }
+        return 200, self.complete_checkout(checkout_id)
 
     def complete_checkout(self, checkout_id: str) -> Optional[Dict[str, Any]]:
         session = self.sessions.get(checkout_id)

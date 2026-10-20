@@ -80,6 +80,7 @@ class _OfflineHandler(BaseHTTPRequestHandler):
     profile_doc: Dict[str, Any] = {}
     platform_doc: Dict[str, Any] = {}
     checkout_store: Optional[UcpCheckoutStore] = None
+    at_service: bool = False
 
     def log_message(self, format: str, *args) -> None:  # noqa: A003
         pass
@@ -125,6 +126,9 @@ class _OfflineHandler(BaseHTTPRequestHandler):
             if not svc:
                 self.send_error(404)
                 return
+            if self.at_service:
+                policies = svc.policies.model_copy(update={"payment_timing": "at_service"})
+                svc = svc.model_copy(update={"policies": policies})
             self._send_json(200, {"service": svc.model_dump(by_alias=True, exclude_none=True)})
             return
         self.send_error(404)
@@ -169,15 +173,16 @@ class _OfflineHandler(BaseHTTPRequestHandler):
             self._send_json(200, session)
             return
         if "/checkout-sessions/" in path and path.endswith("/complete"):
+            complete_body = self._read_json()
             cid = path.rsplit("/", 2)[-2]
             if not self.checkout_store:
                 self.send_error(500)
                 return
-            completed = self.checkout_store.complete_checkout(cid)
-            if not completed:
+            status, payload = self.checkout_store.complete_checkout_checked(cid, complete_body)
+            if payload is None:
                 self.send_error(404)
                 return
-            self._send_json(200, completed)
+            self._send_json(status, payload)
             return
         self.send_error(404)
 
@@ -185,7 +190,18 @@ class _OfflineHandler(BaseHTTPRequestHandler):
 class OfflineHttpStack:
     """Registry + USP REST + UCP on one loopback port."""
 
-    def __init__(self, port: int = 0) -> None:
+    def __init__(
+        self,
+        port: int = 0,
+        *,
+        at_service: bool = False,
+        pay_at_service: bool = False,
+    ) -> None:
+        """``at_service`` serves the AC repair service as pay-at-appointment;
+        ``pay_at_service`` additionally makes the business declare the extension and
+        answer with an offline-settlement checkout (USP 11.3)."""
+        self._at_service = at_service or pay_at_service
+        self._pay_at_service = pay_at_service
         self._requested_port = port
         self.port = port
         self.base_url = ""
@@ -207,13 +223,18 @@ class OfflineHttpStack:
         profile_doc = minimal_ucp_profile(
             checkout_base=self.checkout_base,
             usp_base=self.usp_base,
+            pay_at_service=self._pay_at_service,
         )
+        _OfflineHandler.at_service = self._at_service
         _OfflineHandler.base_url = self.base_url
         _OfflineHandler.usp_base = self.usp_base
         _OfflineHandler.checkout_base = self.checkout_base
         _OfflineHandler.profile_doc = profile_doc
         _OfflineHandler.platform_doc = minimal_platform_profile()
-        _OfflineHandler.checkout_store = UcpCheckoutStore(profile_doc=profile_doc)
+        _OfflineHandler.checkout_store = UcpCheckoutStore(
+            profile_doc=profile_doc, pay_at_service=self._pay_at_service,
+        )
+        self.checkout_store = _OfflineHandler.checkout_store
 
     def start(self) -> Tuple[int, str]:
         """Bind, serve in a daemon thread, return (port, base_url)."""

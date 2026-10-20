@@ -1,0 +1,20 @@
+{
+  "change_type": "feature",
+  "cli_version": "0.8.0",
+  "details_url": "https://github.com/wix/booking-agent/releases/tag/v0.8.0",
+  "ecosystem_ready": false,
+  "readiness_evidence": [
+    "Not ready to offer: no hosted replay against a live Wix site that declares pay-at-service has been run, and the business side was reported ready (merged and green) but not yet generally available when this was written.",
+    "Offline: the full test suite passes, including new loopback end-to-end tests for a business that declares the pay-at-service extension (checkout, disclosure shown first, completion with an empty payment, no Link payment) and for one that does not (booking stays direct).",
+    "Existing businesses stay compatible: a service paid at the appointment is booked through a checkout only when the business declares the extension; otherwise the direct booking path is unchanged. Paid, deposit and free bookings are untouched.",
+    "The saved booking file keeps format 2 and gains no required field; a session saved by 0.7.0 resumes unchanged."
+  ],
+  "relevant_capabilities": [
+    "booking",
+    "payment"
+  ],
+  "schema_version": 1,
+  "skill_version": "0.56.0",
+  "update_status": "deferred",
+  "user_summary": "Bookings paid at the appointment can now go through the business's checkout, so you get an order record while nothing is charged until you arrive."
+}

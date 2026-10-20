@@ -1,6 +1,7 @@
 """Tests for the shared USP/UCP platform identity and profile artifact."""
 from __future__ import annotations
 
+import inspect
 import json
 from pathlib import Path
 
@@ -16,6 +17,7 @@ from booking_agent.platform_profile import (
 from booking_agent.ucp_negotiation import intersect_ucp_capabilities, load_platform_profile
 from booking_agent.rest_client import USPBusinessRestClient
 from booking_agent.ucp_checkout import UcpCheckoutClient, build_paid_bookings_create_body
+from booking_agent_cli.payment_helpers import complete_ucp_checkout_async
 
 # The hosted artifact sits at the repository root, above booking-agent/.
 _ARTIFACT = Path(__file__).resolve().parents[5] / "platform-profile.json"
@@ -86,6 +88,10 @@ def test_published_capabilities_match_client_surface():
         ucp_client_capabilities.add("dev.ucp.common.payment.terms")
     if callable(build_paid_bookings_create_body):
         ucp_client_capabilities.add("dev.usp-protocol.services.paid_bookings")
+    # pay_at_service is declared only because the client can complete a checkout
+    # with no payment instrument (USP 11.3.5 S4/S5).
+    if "without_instrument" in inspect.signature(complete_ucp_checkout_async).parameters:
+        ucp_client_capabilities.add("dev.usp-protocol.services.pay_at_service")
 
     assert set(artifact["usp"]["capabilities"]) == usp_client_capabilities
     assert set(artifact["ucp"]["capabilities"]) == ucp_client_capabilities
@@ -153,3 +159,14 @@ async def test_load_platform_profile_fetches_configured_url_over_http(monkeypatc
 
     assert doc == platform_profile_doc()
     assert requested == [profile_url]
+
+
+def test_platform_profile_declares_pay_at_service_per_usp_11_3_2():
+    entry = platform_profile_doc()["ucp"]["capabilities"][
+        "dev.usp-protocol.services.pay_at_service"
+    ][0]
+    assert entry["version"] == "2026-08-20"
+    assert entry["extends"] == "dev.ucp.shopping.checkout"
+    assert entry["schema"] == "https://usp-protocol.dev/schemas/services/pay_at_service.json"
+    # 11.3.2: declaring pay_at_service without the terms extension is malformed.
+    assert "dev.ucp.common.payment.terms" in platform_profile_doc()["ucp"]["capabilities"]

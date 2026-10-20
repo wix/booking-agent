@@ -1,5 +1,5 @@
 ---
-version: 0.55.0
+version: 0.56.0
 name: booking-agent
 description: |
   Books time-based services via USP from a Link wallet. Use when the user wants to book, schedule, reserve, or pay for a service from a business (haircut, lesson, repair, class, appointment, consult). The `booking-agent` CLI owns the booking state machine and refuses to proceed when human gates are skipped. Sign the user in to Link on your own, right after install and at the start of every booking (`booking-agent flow link-auth connect`, then start `booking-agent flow link-auth poll` in the background and post the sign-in URL in the same turn, exactly like `pay poll`); never wait for the user to ask to sign in or to say they approved. After `booking-agent flow business use`, follow `next_command` through `use-ucp-checkout-mode`; businesses without native checkout fail closed. Payment uses `booking-agent flow pay request` (default returns immediately with the approval URL), then start `booking-agent flow pay poll` in the background and post the approval URL to the user in the same turn; the poll finishes checkout once they approve. Confirm through `booking-agent flow book poll --wait`; never start an inbound webhook. Surface the approval URL exactly once. Personal identification (name, phone, email, address) must always come from the user's Link account via `link-cli`, never from chat or placeholders. Before any location-based search, the CLI proposes the Link shipping address and the user confirms it or gives another; online services skip this. Talk to the user in plain everyday language only; never expose CLI, UCP, auth, session, or other implementation details unless they explicitly ask.
@@ -19,7 +19,7 @@ metadata:
         - link-cli
     install:
       - kind: uv
-        package: "booking-agent-cli==0.7.0"
+        package: "booking-agent-cli==0.8.0"
         bins: [booking-agent]
 user-invocable: true
 ---
@@ -220,7 +220,7 @@ To take a fixed, published version instead of the latest, fetch it at the releas
 workflow signs it under, and check the signature before you follow it:
 
 ```bash
-curl -fsSLO https://raw.githubusercontent.com/wix/booking-agent/skill-v0.55.0/booking-agent/skills/booking-agent/SKILL.md
+curl -fsSLO https://raw.githubusercontent.com/wix/booking-agent/skill-v0.56.0/booking-agent/skills/booking-agent/SKILL.md
 gh attestation verify SKILL.md \
   --repo wix/booking-agent \
   --signer-workflow wix/booking-agent/.github/workflows/release.yml
@@ -245,17 +245,17 @@ before installing:
 
 ```bash
 dir="$HOME/.booking-agent/verified-wheels"
-uvx pip download "booking-agent-cli==0.7.0" --no-deps --only-binary :all: -d "$dir"
+uvx pip download "booking-agent-cli==0.8.0" --no-deps --only-binary :all: -d "$dir"
 uvx pypi-attestations==0.0.30 verify pypi --repository https://github.com/wix/booking-agent \
-  "$dir/booking_agent_cli-0.7.0-py3-none-any.whl"
-uv tool install --force "$dir/booking_agent_cli-0.7.0-py3-none-any.whl"
+  "$dir/booking_agent_cli-0.8.0-py3-none-any.whl"
+uv tool install --force "$dir/booking_agent_cli-0.8.0-py3-none-any.whl"
 
 booking-agent --help
 ```
 
 Install only the wheel whose verify step passed, never one that failed it. If `uvx` is not
-available, install the same pinned release with `uv tool install booking-agent-cli==0.7.0` or
-`pipx install booking-agent-cli==0.7.0`; the CLI checks its own files against the signed release
+available, install the same pinned release with `uv tool install booking-agent-cli==0.8.0` or
+`pipx install booking-agent-cli==0.8.0`; the CLI checks its own files against the signed release
 on the first `booking-agent flow init` and refuses to book or pay if they do not match.
 
 Harnesses that read the `install` block in this skill's metadata do this for you. Do not go on
@@ -308,7 +308,7 @@ prints each effective setting and where it came from; `booking-agent config init
 
 The CLI decides whether a newer version is worth mentioning; you never decide from version
 numbers or release pages. Pass this skill's version on every `flow init` (`--skill-version
-0.55.0`, from the frontmatter above), so the CLI can tell when these instructions and the
+0.56.0`, from the frontmatter above), so the CLI can tell when these instructions and the
 installed CLI no longer match.
 
 - When a command returns `awaiting_user: update_consent`, ask the question in `prompt` in plain
@@ -470,7 +470,7 @@ confirmation email or on the business's page (`booking_url`). Do not invent a lo
 **Step 1b — Create a new session:**
 
 ```bash
-booking-agent flow init --user-request "<user's exact request>" --skill-version 0.55.0 \
+booking-agent flow init --user-request "<user's exact request>" --skill-version 0.56.0 \
   --skill-path "<absolute path of the SKILL.md you loaded>"
 ```
 
@@ -786,8 +786,7 @@ If `flow book` fails with `mandatory_acceptance_pending`, show the user any poli
 `flow book`. **Never** accept policies or tick boxes on their behalf.
 
 If `data.checkout_links` or `data.checkout_policies` are present after a successful book, show
-those links before payment. If the merchant sent none, say nothing about policies; do not tell
-the user policies are "missing."
+those links before payment. If none were sent, say nothing about policies.
 
 **Free and pay-at-appointment bookings (`free`, `at_service`).** `flow book` places the booking
 directly and `next_command` is `booking-agent flow book poll --wait`. Before running it, tell the user
@@ -795,6 +794,9 @@ in one short plain message what `data.booking_narration` says: the request is in
 charged (or the price is paid at the appointment), and you are now waiting for the business to
 confirm. Then run `book poll --wait` and report the result. Never create a payment and skip
 Steps 6b to 6d.
+
+**Pay-at-appointment with a checkout (`pay_at_service`).** Nothing is charged; skip `pay request`. Show every `data.payment_disclosures` item (`content_display`) and the amount
+due at the appointment, then run `pay ucp-complete --disclosures-confirmed`. If `merchant_quote.total_changed`, get approval and add `--total-confirmed`.
 
 **Deposit bookings (`deposit_required`).** Before any charge, show `data.due_now_display` (the
 deposit charged now), the amount due at the appointment, and every item in
@@ -927,8 +929,9 @@ UCP `complete_checkout` (CLI builds this internally): `handler_id: "stripe_payme
 
 **Payment notes (error recovery only):**
 
-- A live catalog with `payment_timing: at_service` is booked directly. Tell the user the quoted
-  price is paid at the appointment. Do not run a payment command.
+- A live catalog with `payment_timing: at_service` is booked directly or, when `data.payment_route`
+  is `pay_at_service`, through a checkout. Tell the user the quoted price is paid at the
+  appointment. Never run `pay request` for it.
 - A live catalog with `payment_timing: deposit_required` goes through checkout. Charge only the
   due-now (immediate) amount from the payment term. Show every disclosure and the amount due at
   the appointment, then pass `--disclosures-confirmed` on `pay request` after the user agrees.
@@ -963,8 +966,7 @@ data, credentials, or shared payment tokens.
 
 ### Step 8 and after the booking
 
-Nothing to run: `pay poll` (and `book poll --wait` for free or pay-at-appointment bookings) adds the
-calendar event and returns the final answer. See Step 7.
+Nothing to run; Step 7's command already added the calendar event.
 
 ## Important
 

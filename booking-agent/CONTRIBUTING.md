@@ -41,7 +41,7 @@ booking-agent flow discover --query "haircut"
 booking-agent flow validate-skill-compliance  # before declaring success
 ```
 
-`buyer resolve` and payment require an authenticated `link-cli`. The v2 flow books only UCP-native businesses and does not require a browser. It fails closed for redirect checkout, deposits, pay-at-service, and other explicit payment timing values besides `at_booking`. Discovery remains free-text only and must not add a structured `categories[]` filter.
+`buyer resolve` and payment require an authenticated `link-cli`. The v2 flow books only UCP-native businesses and does not require a browser. It fails closed for redirect checkout and payment timing values it does not know. A pay-at-appointment service goes through a checkout only when the business declares `dev.usp-protocol.services.pay_at_service` (USP 11.3), and then completes with no payment instrument. Discovery remains free-text only and must not add a structured `categories[]` filter.
 
 To enable Google Calendar conflict checking, set the `GOOGLE_CALENDAR_*` settings listed by `booking-agent config show` in your `.env`. `.env` is gitignored. Never commit OAuth client secrets or other credentials. Without calendar credentials, use `booking-agent flow calendar skip` to proceed.
 

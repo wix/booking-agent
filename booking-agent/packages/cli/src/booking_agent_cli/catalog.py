@@ -670,15 +670,28 @@ def payment_price_for_session(
 
 
 DIRECT_BOOKING_ROUTES = frozenset({"free", "at_service"})
-CHECKOUT_BOOKING_ROUTES = frozenset({"at_booking", "deposit_required"})
+CHECKOUT_BOOKING_ROUTES = frozenset({"at_booking", "deposit_required", "pay_at_service"})
+# Routes where nothing is collected through the booking flow: no Link spend
+# request, no payment instrument. ``pay_at_service`` still goes through a UCP
+# checkout (so an order exists); ``free`` and ``at_service`` do not.
+NO_PAYMENT_ROUTES = frozenset({"free", "at_service", "pay_at_service"})
 
 
-def classify_payment_route(live_service: Dict[str, Any]) -> Dict[str, Any]:
+def classify_payment_route(
+    live_service: Dict[str, Any],
+    *,
+    pay_at_service_declared: bool = False,
+) -> Dict[str, Any]:
     """Classify a live service into a per-service payment route.
 
     Timing is a service property, not a business property. Mixed catalogs
     (at_booking, at_service, deposit_required, free on one profile) must route
     each service independently.
+
+    An ``at_service`` service takes the ``pay_at_service`` checkout route only
+    when the business declares the pay-at-service extension; otherwise it keeps
+    the direct route (USP 7.6.1: a platform MUST NOT route ``at_service``
+    through a checkout the business has not declared the extension for).
     """
     policies = live_service.get("policies") if isinstance(live_service, dict) else None
     pricing = live_service.get("pricing") if isinstance(live_service, dict) else None
@@ -734,7 +747,8 @@ def classify_payment_route(live_service: Dict[str, Any]) -> Dict[str, Any]:
     if timing == "at_booking":
         return {"route": "at_booking", "timing": timing, "refusal": None}
     if timing == "at_service":
-        return {"route": "at_service", "timing": timing, "refusal": None}
+        route = "pay_at_service" if pay_at_service_declared else "at_service"
+        return {"route": route, "timing": timing, "refusal": None}
     if timing == "deposit_required":
         return {
             "route": "deposit_required",
@@ -758,9 +772,12 @@ def payment_timing_refusal(
     live_service: Dict[str, Any],
     *,
     allow_deposits: bool = True,
+    pay_at_service_declared: bool = False,
 ) -> Optional[Dict[str, str]]:
     """Return a fail-closed error when this service cannot be booked."""
-    classified = classify_payment_route(live_service)
+    classified = classify_payment_route(
+        live_service, pay_at_service_declared=pay_at_service_declared
+    )
     if classified["refusal"] is not None:
         return classified["refusal"]
     if classified["route"] == "deposit_required" and not allow_deposits:
@@ -779,9 +796,13 @@ def payment_timing_changed_refusal(
     live_service: Dict[str, Any],
 ) -> Optional[Dict[str, str]]:
     """Fail closed when a later live read disagrees with the discovered timing."""
-    classified = classify_payment_route(live_service)
     previous = getattr(session, "payment_timing", None)
     previous_route = getattr(session, "payment_route", None)
+    # The business's declaration was read when the route was chosen; the live
+    # service read only re-checks the service's own timing.
+    classified = classify_payment_route(
+        live_service, pay_at_service_declared=previous_route == "pay_at_service"
+    )
     new_timing = classified["timing"]
     new_route = classified["route"]
     if previous is None and previous_route is None:
