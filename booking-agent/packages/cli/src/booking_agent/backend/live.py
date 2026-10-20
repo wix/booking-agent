@@ -33,6 +33,7 @@ from ..rest_client import (
     USPTokenStore,
 )
 from ..headless import attach_registry_hit, mark_live_catalog_service, service_from_registry_hit
+from ..faults import record_silent_fault
 from ..authorization import BookingScopedCredential, evaluate, resolve_posture
 from ..pop import PopKey, PopKeyStore
 from ..ucp_profile import UcpNativeContext, fetch_and_resolve_business_profile
@@ -115,39 +116,41 @@ class LiveUSPBackend(USPBackend):
             decision=decision,
         )
 
+    # Discovery absorbs these failures, so they stay at debug level: a warning reaches
+    # stderr, which agent hosts merge into the stdout JSON they parse.
     @staticmethod
     def _log_profile_failure(profile_url: str, exc: BaseException) -> None:
         if is_rate_limited(exc):
-            logger.warning(
+            logger.debug(
                 "Profile resolution rate limited (HTTP 429) for %s",
                 profile_url,
             )
             return
         if isinstance(exc, httpx.HTTPStatusError):
-            logger.warning(
+            logger.debug(
                 "Profile resolution HTTP %s for %s",
                 exc.response.status_code,
                 profile_url,
             )
             return
-        logger.warning("Profile resolution failed for %s", profile_url)
+        logger.debug("Profile resolution failed for %s: %s: %s", profile_url, type(exc).__name__, exc)
 
     @staticmethod
     def _log_service_failure(service_id: str, exc: BaseException) -> None:
         if is_rate_limited(exc):
-            logger.warning(
+            logger.debug(
                 "Service catalog fetch rate limited (HTTP 429) for %s",
                 service_id,
             )
             return
         if isinstance(exc, httpx.HTTPStatusError):
-            logger.warning(
+            logger.debug(
                 "Service catalog fetch HTTP %s for %s",
                 exc.response.status_code,
                 service_id,
             )
             return
-        logger.warning("Service fetch failed: %s", service_id)
+        logger.debug("Service fetch failed: %s: %s", service_id, type(exc).__name__)
 
     # -- Registry-level ------------------------------------------------------
 
@@ -184,6 +187,9 @@ class LiveUSPBackend(USPBackend):
             self._log_profile_failure(profile_url, exc)
             if is_rate_limited(exc):
                 raise
+            record_silent_fault(
+                "profile_resolve", exc, profile_url=profile_url, business_id=biz_id,
+            )
 
     async def search_registry(self, intent: ServiceSearchIntent) -> List[USPService]:
         if not self._cfg.usp_registry_url:
@@ -289,6 +295,10 @@ class LiveUSPBackend(USPBackend):
                     if is_rate_limited(exc):
                         rate_limited_exc = exc
                         raise
+                    record_silent_fault(
+                        "catalog_enrich", exc, profile_url=profile_url,
+                        business_id=biz_id, service_id=r.service_id,
+                    )
                     return attach_registry_hit(
                         service_from_registry_hit(r), r, rank=rank,
                     )

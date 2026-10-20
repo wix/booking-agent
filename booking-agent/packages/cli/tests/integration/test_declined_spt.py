@@ -87,6 +87,7 @@ def checkout(runner, isolated_session, monkeypatch):
     session.payment.spend_approval_user_surfaced = True
     session.payment.payment_method_id = "pm_old"
     session.ucp_checkout_session_id = "chk_test"
+    session.policies_accepted_digest = session.policies_digest
     save_session(session)
 
     state = {"responses": [], "posts": [], "retrieves": [], "retrieve": None}

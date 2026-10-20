@@ -8,6 +8,7 @@ route must never mention charging the wallet.
 from support.fixtures.services import set_zero_price_free_service
 from support.mock.link_cli import YUMA_SHIPPING_ADDRESS, mock_link_cli_user_info
 from integration.test_flow_gates import (
+    _BOOK,
     _BUYER,
     _SERVICE_ID,
     _YUMA,
@@ -16,6 +17,7 @@ from integration.test_flow_gates import (
     _init,
     _invoke,
     _select_first_and_resolve,
+    _skip_calendar,
     _stdout_json,
 )
 
@@ -69,7 +71,7 @@ def test_jerusalem_business_phoenix_buyer_free_booking_end_to_end(
     assert use["data"]["business_timezone"] == _BUSINESS_TZ
     assert use["data"]["payment_route"] == "free"
 
-    _ok(_invoke(runner, "flow", "calendar", "skip"))
+    _ok(_skip_calendar(runner))
     avail = _ok(_invoke(runner, "flow", "availability", "--service-id", _SERVICE_ID))
     assert avail["data"]["business_timezone"] == _BUSINESS_TZ
     assert avail["data"]["buyer_timezone"] == _BUYER_TZ
@@ -114,11 +116,12 @@ def test_jerusalem_business_phoenix_buyer_free_booking_end_to_end(
     assert "this service is free" in prompt
     assert "wallet" not in prompt.lower()
     assert "charge" not in prompt.lower()
-    assert recap["next_command"] == "booking-agent flow book"
+    assert recap["awaiting_user"] == "booking_confirmation"
+    assert recap["next_command"].startswith("booking-agent flow book --user-confirmed")
     assert must_load().timezone_difference_shown is True
 
     # Book: no payment request, poll next, narration says nothing was charged.
-    booked = _ok(_invoke(runner, "flow", "book", "--service-id", _SERVICE_ID))
+    booked = _ok(_invoke(runner, *_BOOK))
     assert booked["next_command"] == "booking-agent flow book poll --wait"
     bdata = booked["data"]
     assert not bdata.get("payment_request")

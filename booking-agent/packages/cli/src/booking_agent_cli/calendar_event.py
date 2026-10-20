@@ -337,14 +337,6 @@ def _http_url(value: Any) -> Optional[str]:
     return None
 
 
-def _link_label(link: Dict[str, Any]) -> str:
-    raw = str(link.get("type") or link.get("rel") or "link").strip()
-    words = raw.replace("_", " ").replace("-", " ").strip()
-    if not words:
-        return "Link"
-    return words[:1].upper() + words[1:]
-
-
 def _fallback_links(session: Session) -> list[tuple[str, str]]:
     """Links the agent can already hand the buyer when no manage page was saved."""
     found: list[tuple[str, str]] = []
@@ -356,12 +348,12 @@ def _fallback_links(session: Session) -> list[tuple[str, str]]:
         seen.add(url)
         found.append((label, url))
 
+    from .booking_summary import extract_policy_links
+
     if session.business.profile_url:
         add("Business website", _http_url(public_business_url(session.business.profile_url)))
-    for link in session.ucp_checkout_links or []:
-        if not isinstance(link, dict):
-            continue
-        add(_link_label(link), _http_url(link.get("url") or link.get("href")))
+    for link in extract_policy_links(session.ucp_checkout_links):
+        add(link["label"], link["url"])
     return found
 
 

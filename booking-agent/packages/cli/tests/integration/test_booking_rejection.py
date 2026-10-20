@@ -10,6 +10,7 @@ from booking_agent_cli.session import must_load, save_session
 from support.fixtures.services import set_zero_price_free_service
 from support.mock.link_cli import YUMA_SHIPPING_ADDRESS, mock_link_cli_user_info
 from integration.test_flow_gates import (
+    _BOOK,
     _BUYER,
     _SERVICE_ID,
     _YUMA,
@@ -18,6 +19,7 @@ from integration.test_flow_gates import (
     _init,
     _invoke,
     _select_first_and_resolve,
+    _skip_calendar,
     _stdout_json,
 )
 
@@ -34,7 +36,7 @@ def direct_booking(runner, isolated_session, monkeypatch):
     _geocoder(monkeypatch, _YUMA)
     _init(runner)
     assert _business_use(runner).exit_code == 0
-    assert _invoke(runner, "flow", "calendar", "skip").exit_code == 0
+    assert _skip_calendar(runner).exit_code == 0
     assert _invoke(runner, "flow", "availability", "--service-id", _SERVICE_ID).exit_code == 0
     _select_first_and_resolve(runner, _stdout_json(_invoke(runner, "flow", "slots", "list")))
 
@@ -55,7 +57,7 @@ def direct_booking(runner, isolated_session, monkeypatch):
 
 
 def _book(runner) -> tuple[int, dict]:
-    r = _invoke(runner, "flow", "book", "--service-id", _SERVICE_ID)
+    r = _invoke(runner, *_BOOK)
     return r.exit_code, _stdout_json(r)
 
 
@@ -110,17 +112,21 @@ def test_a_repeated_profile_refusal_offers_a_support_report(runner, direct_booki
     assert keys == [keys[0], keys[0]]
 
 
-def test_a_changed_booking_gets_a_new_key(runner, direct_booking):
+def test_a_changed_booking_gets_a_new_key(runner, direct_booking, monkeypatch):
+    import booking_agent_cli.commands.flow as flow
+
     keys, outcomes = direct_booking
     outcomes.append(_profile_refused())
     _book(runner)
     session = must_load()
     session.booking_notes = "please call on arrival"
     save_session(session)
+    # A changed note needs a fresh yes to the recap; this test is only about the key.
+    monkeypatch.setattr(flow, "_require_recap_confirmed", lambda *_a, **_k: None)
 
-    code, _out = _book(runner)
+    code, out = _book(runner)
 
-    assert code == 0
+    assert code == 0, out
     assert len(keys) == 2 and keys[0] != keys[1]
 
 

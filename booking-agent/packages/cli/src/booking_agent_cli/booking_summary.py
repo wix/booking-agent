@@ -6,6 +6,7 @@ address, and price.
 """
 from __future__ import annotations
 
+import re
 from typing import Any, Dict, List, Optional
 
 from . import timezone_context as tz_context
@@ -114,6 +115,165 @@ def price_text(session: Any, price_info: Dict[str, Any]) -> Optional[str]:
     return f"{price}, charged now to your Link wallet"
 
 
+_ISO_DURATION_RE = re.compile(
+    r"^P(?:(?P<days>\d+)D)?(?:T(?:(?P<hours>\d+)H)?(?:(?P<minutes>\d+)M)?)?$"
+)
+# Links a checkout returns that are actions, not terms the business publishes.
+_ACTION_LINK_TYPES = frozenset({"continue"})
+
+
+def _duration_text(value: Any) -> Optional[str]:
+    """``PT24H`` -> ``24 hours``; anything else is returned as the business wrote it."""
+    if not isinstance(value, str) or not value.strip():
+        return None
+    match = _ISO_DURATION_RE.match(value.strip().upper())
+    if not match or not any(match.groupdict().values()):
+        return value.strip()
+    parts = []
+    for unit in ("days", "hours", "minutes"):
+        amount = match.group(unit)
+        if amount and int(amount):
+            word = unit if int(amount) != 1 else unit[:-1]
+            parts.append(f"{int(amount)} {word}")
+    return " ".join(parts) or "0 minutes"
+
+
+def _fee_text(amount: Any, live: Dict[str, Any]) -> Optional[str]:
+    if not isinstance(amount, int) or amount <= 0:
+        return None
+    from .catalog import _format_price_display
+
+    pricing = live.get("pricing") if isinstance(live.get("pricing"), dict) else {}
+    return _format_price_display(amount, pricing.get("currency")) or str(amount)
+
+
+def service_policy_lines(live_service: Any) -> List[str]:
+    """The cancellation and rescheduling policies the business published for the service."""
+    live = live_service if isinstance(live_service, dict) else {}
+    policies = live.get("policies") if isinstance(live.get("policies"), dict) else {}
+    lines: List[str] = []
+    cancel = policies.get("cancellation")
+    if isinstance(cancel, dict) and cancel.get("allowed") is not None:
+        if cancel.get("allowed") is False:
+            text = "Cancellation is not allowed"
+        else:
+            parts = []
+            free = _duration_text(cancel.get("free_cancellation_until"))
+            if free:
+                parts.append(f"free up to {free} before the appointment")
+            fee = _fee_text(cancel.get("late_cancellation_fee"), live)
+            if fee:
+                parts.append(f"a {fee} fee after that")
+            closed = _duration_text(cancel.get("no_cancellation_after"))
+            if closed:
+                parts.append(f"no cancellation within {closed} of the appointment")
+            text = "Cancellation allowed" + (f", {', '.join(parts)}" if parts else "")
+        lines.append(f"Cancellation policy: {text}.")
+    resched = policies.get("rescheduling")
+    if isinstance(resched, dict) and resched.get("allowed") is not None:
+        if resched.get("allowed") is False:
+            text = "Rescheduling is not allowed"
+        else:
+            parts = []
+            free = _duration_text(resched.get("free_reschedule_until"))
+            if free:
+                parts.append(f"free up to {free} before the appointment")
+            limit = resched.get("max_reschedules")
+            if isinstance(limit, int) and limit >= 0:
+                parts.append(f"at most {limit} time{'s' if limit != 1 else ''}")
+            fee = _fee_text(resched.get("fee"), live)
+            if fee:
+                parts.append(f"a {fee} fee")
+            text = "Rescheduling allowed" + (f", {', '.join(parts)}" if parts else "")
+        lines.append(f"Rescheduling policy: {text}.")
+    return lines
+
+
+def _http_url(value: Any) -> Optional[str]:
+    if not isinstance(value, str):
+        return None
+    url = value.strip()
+    return url if url.startswith(("https://", "http://")) else None
+
+
+def _link_label(kind: str, title: Any) -> str:
+    if isinstance(title, str) and title.strip():
+        return title.strip()
+    words = kind.replace("_", " ").replace("-", " ").strip()
+    return (words[:1].upper() + words[1:]) if words else "Link"
+
+
+def extract_policy_links(links: Any) -> List[Dict[str, str]]:
+    """Terms and policy links from a checkout: no ``rel=continue`` actions, no duplicates."""
+    out: List[Dict[str, str]] = []
+    seen: set = set()
+    for link in links or []:
+        if not isinstance(link, dict):
+            continue
+        kind = str(link.get("type") or link.get("rel") or "").strip().lower()
+        if kind in _ACTION_LINK_TYPES:
+            continue
+        url = _http_url(link.get("url") or link.get("href"))
+        if url is None or url in seen:
+            continue
+        seen.add(url)
+        out.append({"type": kind or "link", "label": _link_label(kind, link.get("title")), "url": url})
+    return out
+
+
+def _message_text(message: Dict[str, Any], zone: Optional[str]) -> Optional[str]:
+    description = message.get("description")
+    text = description.get("plain") if isinstance(description, dict) else None
+    for key in ("content", "text", "message", "title", "name"):
+        if isinstance(text, str) and text.strip():
+            break
+        text = message.get(key)
+    if not isinstance(text, str) or not text.strip():
+        return None
+    return tz_context.localize_instants_in_text(text.strip(), zone)
+
+
+def collect_provider_policies(session: Any) -> Dict[str, Any]:
+    """Everything the business published that the user accepts before the booking is final.
+
+    That is the service's cancellation and rescheduling policies, the checkout's policy
+    links (never ``rel=continue``) and policies, and its payment disclosures. The business
+    website the CLI derives from the profile and any text the CLI writes are not included,
+    so a business that sent none of these gets no policy step (``digest`` is None).
+    """
+    zone = session.business.timezone if getattr(session, "business", None) else None
+    lines = service_policy_lines(getattr(session, "live_service", None))
+    links = extract_policy_links(getattr(session, "ucp_checkout_links", None))
+    seen_urls = {link["url"] for link in links}
+    for policy in getattr(session, "ucp_checkout_policies", None) or []:
+        if not isinstance(policy, dict):
+            continue
+        url = _http_url(policy.get("url") or policy.get("href"))
+        if url and url not in seen_urls:
+            seen_urls.add(url)
+            kind = str(policy.get("type") or "policy").strip().lower()
+            links.append({"type": kind, "label": _link_label(kind, policy.get("title")), "url": url})
+        text = _message_text(policy, zone)
+        if text and not url:
+            lines.append(f"Policy: {text}")
+    for schedule in getattr(session, "payment_schedules", None) or []:
+        if isinstance(schedule, dict):
+            text = _message_text({"description": schedule.get("description")}, zone)
+            if text:
+                lines.append(f"Payment terms: {text}")
+    for disclosure in getattr(session, "payment_disclosures", None) or []:
+        if isinstance(disclosure, dict):
+            text = _message_text(disclosure, zone)
+            if text:
+                lines.append(text)
+    digest = None
+    if lines or links:
+        from .gates import digest as _digest
+
+        digest = _digest({"lines": lines, "links": [link["url"] for link in links]})
+    return {"lines": lines, "links": links, "digest": digest}
+
+
 def booking_recap_lines(
     session: Any, price_info: Dict[str, Any], *, dual: bool,
 ) -> List[str]:
@@ -131,6 +291,10 @@ def booking_recap_lines(
     ):
         if value:
             lines.append(f"{label}: {value}")
+    mismatch = getattr(session, "selection_mismatch", None)
+    if mismatch:
+        lines.append(f"Differs from your request: {mismatch}")
+    lines.extend(service_policy_lines(session.live_service))
     return lines
 
 

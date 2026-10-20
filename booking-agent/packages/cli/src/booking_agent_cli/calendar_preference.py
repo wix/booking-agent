@@ -37,25 +37,14 @@ def get_calendar_preference() -> Tuple[Optional[str], Optional[str]]:
     return store.last_calendar_state, store.last_calendar_mode
 
 
-def _infer_preference_from_connection(
-    connection: Dict[str, Any],
-) -> Tuple[Optional[str], Optional[str]]:
-    if not connection.get("connected"):
-        return None, None
-    if connection.get("supports_events"):
-        return "connected", CALENDAR_MODE_EVENTS
-    if connection.get("supports_freebusy"):
-        return "connected", CALENDAR_MODE_FREEBUSY
-    return None, None
-
-
 def _effective_preference(
     connection: Dict[str, Any],
 ) -> Tuple[Optional[str], Optional[str]]:
+    """The choice the user saved earlier. A token found on the device is never a choice."""
     state, mode = get_calendar_preference()
     if state and mode and _pref_applicable(state, mode, connection):
         return state, mode
-    return _infer_preference_from_connection(connection)
+    return None, None
 
 
 def stale_remembered_calendar_mode(connection: Dict[str, Any]) -> Optional[str]:
@@ -102,15 +91,14 @@ def try_apply_remembered_calendar_gate(
     *,
     before_connect_apply: Optional[Callable[[str], bool]] = None,
 ) -> Optional[RememberedCalendarResult]:
-    """Apply saved or inferred calendar preference when Google Calendar is connected."""
+    """Apply the calendar preference the user saved earlier, when Google Calendar is connected."""
     state, mode = _effective_preference(connection)
     if not _pref_applicable(state, mode, connection):
         return None
 
-    inferred = get_calendar_preference() != (state, mode)
-
     if state == "skipped" or mode == CALENDAR_MODE_NONE:
         session.calendar_gate_completed = True
+        session.calendar_remembered_applied = True
         session.calendar_state = "skipped"
         session.calendar_mode = CALENDAR_MODE_NONE
         transition(session, to="CALENDAR_GATE")
@@ -127,22 +115,20 @@ def try_apply_remembered_calendar_gate(
         return None
 
     session.calendar_gate_completed = True
+    session.calendar_remembered_applied = True
     session.calendar_state = "connected"
     session.calendar_mode = mode
     transition(session, to="CALENDAR_GATE")
     save_session(session)
-    save_calendar_preference(state="connected", mode=mode)
     if mode == CALENDAR_MODE_EVENTS:
         prompt = (
-            "Google Calendar is already connected"
-            + ("; using your saved preference" if not inferred else "")
-            + ": conflict checking and post-booking events. Ready to query availability."
+            "Google Calendar is already connected; using your saved preference: conflict "
+            "checking and post-booking events. Ready to query availability."
         )
     else:
         prompt = (
-            "Google Calendar is already connected"
-            + ("; using your saved preference" if not inferred else "")
-            + ": conflict checking (free/busy only). Ready to query availability."
+            "Google Calendar is already connected; using your saved preference: conflict "
+            "checking (free/busy only). Ready to query availability."
         )
     return RememberedCalendarResult(
         applied=True,

@@ -128,7 +128,7 @@ skill at an immutable tag, `skill-v<frontmatter version>`, and signs it with the
 signs the wheels, so a harness can pin and verify the exact text it follows:
 
 ```bash
-curl -fsSLO https://raw.githubusercontent.com/wix/booking-agent/skill-v0.56.0/booking-agent/skills/booking-agent/SKILL.md
+curl -fsSLO https://raw.githubusercontent.com/wix/booking-agent/skill-v0.57.0/booking-agent/skills/booking-agent/SKILL.md
 gh attestation verify SKILL.md \
   --repo wix/booking-agent \
   --signer-workflow wix/booking-agent/.github/workflows/release.yml
@@ -156,6 +156,8 @@ The same skill runs in every agent runtime. The agent supplies what only it can 
 Every `booking-agent` command emits JSON. The agent reads `next_command` and `awaiting_user` on each response; the CLI drives the loop. Full contract in [SKILL.md](skills/booking-agent/SKILL.md).
 
 When a booking fails, the agent can offer the user a support report. With the user's consent, the CLI sends a redacted bundle of the session to the Booking Agent support team (`support@booking-agent.dev`); nothing is sent without that consent.
+
+Faults the user never sees are reported automatically, without a prompt: a business whose booking profile cannot be read or validated, a catalog entry that cannot be fetched, a warning from discovery, or the agent calling the CLI out of order. Such a report holds only the step, the exception type, a fixed log format string, the business's public profile host and path and registry IDs, an HTTP status or validation reason, the CLI and skill versions, and the OS family. It never holds the user's request, contact details, address, Link, payment, or calendar data, or any exception or log text. Each report is sent once a day at most, after the command has printed its output. Set `BOOKING_AGENT_FAULT_REPORTS=0` to turn this off; `booking-agent config show` shows the current value.
 
 ## Tests
 

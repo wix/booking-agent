@@ -1,0 +1,25 @@
+{
+  "change_type": "breaking",
+  "cli_version": "0.9.0",
+  "details_url": "https://github.com/wix/booking-agent/releases/tag/v0.9.0",
+  "ecosystem_ready": false,
+  "readiness_evidence": [
+    "Not ready to offer: the support ingest that receives automatic fault reports must be redeployed and smoke-tested first, and no hosted session has run this version yet.",
+    "Hosted replay: not run. Sign-in (the Link approval link is now always shown before polling), calendar (connect or skip only after the calendar question), and payment (policies accepted before paying, pay-at-service completed in two steps) changed and need one throwaway hosted booking before rollout.",
+    "Breaking for a mismatched skill: a booking now needs the user's yes on the summary (and on the business's policies when it sent any) through new flags, so a 0.56.0 skill driving this CLI stops at the new gates with recoverable errors. The bundled skill 0.57.0 matches.",
+    "Offline: the full test suite passes, including loopback end-to-end runs where checkout terms and privacy links block payment until accepted, and replays of the AC repair transcript that motivated the gates.",
+    "Existing businesses and the registry stay compatible: no USP, UCP, or platform profile version changed and no request shape changed; results whose profile cannot be resolved are now dropped client-side.",
+    "The saved booking file keeps its format version and gains only optional fields; a session saved by 0.8.0 resumes, and the new confirmations are asked again where needed."
+  ],
+  "relevant_capabilities": [
+    "search",
+    "sign_in",
+    "calendar",
+    "booking",
+    "payment"
+  ],
+  "schema_version": 1,
+  "skill_version": "0.57.0",
+  "update_status": "deferred",
+  "user_summary": "The assistant now shows you the booking summary and the business's policies and waits for your yes before anything is booked or paid."
+}

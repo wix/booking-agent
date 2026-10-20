@@ -87,8 +87,11 @@ def _emit_store_too_new(exc) -> None:
 
 def run() -> None:
     """Console entry point: the Typer app plus the uncaught-exception boundary."""
+    from booking_agent.faults import install_warning_collector
+
     from .session import SessionStoreTooNew
 
+    install_warning_collector()
     try:
         app()
     except (SystemExit, KeyboardInterrupt):
@@ -99,6 +102,18 @@ def run() -> None:
     except Exception:
         _emit_internal_error()
         raise SystemExit(1)
+    finally:
+        _finish_fault_reports()
+
+
+def _finish_fault_reports() -> None:
+    try:
+        sys.stdout.flush()
+        from .fault_reports import finish_command
+
+        finish_command()
+    except BaseException:
+        pass
 
 
 if __name__ == "__main__":

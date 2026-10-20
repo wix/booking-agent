@@ -1,6 +1,8 @@
 """Calendar status, modes, and create-event flow tests."""
 import json
 
+import pytest
+
 from booking_agent_cli.calendar_connection import remember_route
 from booking_agent_cli.main import app
 from booking_agent_cli.session import (
@@ -42,6 +44,7 @@ def _seed_session(
     phase: str = "BUSINESS_SELECTED",
     calendar_state: str = "unset",
     calendar_mode: str = "unset",
+    offered: bool = True,
 ):
     monkeypatch.setenv("BOOKING_AGENT_SESSION_DIR", str(tmp_path))
     monkeypatch.setenv("HOME", str(tmp_path))
@@ -56,11 +59,45 @@ def _seed_session(
         calendar_gate_completed=calendar_state != "unset",
         calendar_state=calendar_state,
         calendar_mode=calendar_mode,
+        calendar_ask_surfaced=offered,
         service_id="svc-1",
     )
     add_session(store, session)
     save_store(store)
     return session
+
+
+@pytest.mark.parametrize("argv", [
+    ["flow", "calendar", "skip"],
+    ["flow", "calendar", "skip", "--session-only"],
+    ["flow", "calendar", "connect", "--mode", "events", "--route", "local-oauth"],
+])
+def test_calendar_answer_without_offer_is_refused(runner, tmp_path, monkeypatch, argv):
+    _seed_session(tmp_path, monkeypatch, offered=False)
+    result = runner.invoke(app, argv)
+    assert result.exit_code == 1
+    body = _stdout_json(result)
+    assert body["data"]["error"]["code"] == "calendar_offer_not_shown"
+    assert body["next_command"] == "booking-agent flow calendar ask"
+    s = must_load()
+    assert s.calendar_gate_completed is False
+
+
+def test_calendar_ask_marks_offer_surfaced_and_reports_detected_token(runner, tmp_path, monkeypatch):
+    _seed_session(tmp_path, monkeypatch, offered=False)
+    remember_route("connector", _TOKEN_ENV)
+    monkeypatch.setenv(_TOKEN_ENV, "tok-write")
+    _tokeninfo_rejects(monkeypatch)
+    result = runner.invoke(app, ["flow", "calendar", "ask"])
+    assert result.exit_code == 0
+    body = _stdout_json(result)
+    s = must_load()
+    assert s.calendar_ask_surfaced is True
+    assert s.calendar_gate_completed is False
+    if body.get("awaiting_user") == "calendar_consent":
+        assert body["data"]["connector_token_detected"] is True
+    result = runner.invoke(app, ["flow", "calendar", "skip", "--session-only"])
+    assert result.exit_code == 0
 
 
 def test_calendar_skip_sets_mode_none(runner, tmp_path, monkeypatch):

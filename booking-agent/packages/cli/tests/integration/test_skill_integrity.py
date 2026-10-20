@@ -14,6 +14,7 @@ from integration.test_flow_gates import (
     _complete_checkout_mode_setup,
     _invoke,
     _satisfy_link_auth_gate,
+    _skip_calendar,
     _stdout_json,
 )
 
@@ -162,7 +163,7 @@ def test_booking_refuses_a_changed_skill_before_creating_it(runner, isolated_ses
     _init(runner)
     _invoke(runner, "flow", "prereq", "check")
     _complete_checkout_mode_setup(runner)
-    _invoke(runner, "flow", "calendar", "skip")
+    _skip_calendar(runner)
     _invoke(runner, "flow", "availability", "--service-id", _SERVICE_ID)
     slots = _stdout_json(_invoke(runner, "flow", "slots", "list"))
     _invoke(runner, "flow", "slots", "select", "--slot-id", slots["data"]["slots"][0]["slot_id"],

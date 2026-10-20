@@ -9,6 +9,8 @@ from typing import Any, Callable, Dict, Optional
 
 import httpx
 
+from booking_agent import settings
+
 # Wire name for the flow join key. Optional on the USP HTTP binding (Track S of
 # spec issue #160): send when bound, never require it on responses, never fail a
 # call because a peer omitted or ignored it.
@@ -35,9 +37,14 @@ _FORBIDDEN_FIELD_KEYS = frozenset({
 })
 
 _correlation_id: ContextVar[Optional[str]] = ContextVar("booking_agent_correlation_id", default=None)
-_event_sink: Callable[[Dict[str, Any]], None] = lambda record: sys.stderr.write(
-    json.dumps(record, default=str) + "\n"
-)
+
+
+def _default_sink(record: Dict[str, Any]) -> None:
+    if settings.get_bool("BOOKING_AGENT_STDERR_EVENTS"):
+        sys.stderr.write(json.dumps(record, default=str) + "\n")
+
+
+_event_sink: Callable[[Dict[str, Any]], None] = _default_sink
 
 
 def set_event_sink(sink: Callable[[Dict[str, Any]], None]) -> None:
@@ -49,7 +56,7 @@ def set_event_sink(sink: Callable[[Dict[str, Any]], None]) -> None:
 def reset_event_sink() -> None:
     """Restore the default stderr event sink."""
     global _event_sink
-    _event_sink = lambda record: sys.stderr.write(json.dumps(record, default=str) + "\n")
+    _event_sink = _default_sink
 
 
 def new_correlation_id() -> str:
