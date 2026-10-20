@@ -1,5 +1,11 @@
 # Change Log
 
+## 20/10/26 at 20:53:15 by [Ran Yahalom](mailto:ranya@wix.com)
+
+- Made the support report leak test deterministic: its fake gate code was the digits `4242`, which a report timestamp's microseconds can contain by chance, so the test failed intermittently in CI. The gate code is now letters, which no timestamp or ID in the report can produce
+
+---
+
 ## 20/10/26 at 20:31:17 by [Ran Yahalom](mailto:ranya@wix.com)
 
 - Released as 0.9.0 (skill 0.57.0), a breaking release below 1.0.0 because a booking now needs new confirmation flags: a transcript of an AC repair booking showed an agent skipping the calendar question, never showing the business's policies, booking without the user's yes on the summary, and editing state files by hand, so the steps that the skill only asked for are now enforced by the CLI and cannot be skipped by an agent that ignores the skill
