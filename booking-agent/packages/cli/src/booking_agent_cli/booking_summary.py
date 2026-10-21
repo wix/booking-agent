@@ -356,6 +356,8 @@ def booked_message(session: Any) -> str:
     link = getattr(session, "calendar_event_html_link", None)
     if link:
         text += f"\nAdded to your Google Calendar: {link}"
+    elif getattr(session, "calendar_skipped_unasked", False):
+        text += "\nNo calendar event was added: Google Calendar was not connected for this booking."
     if getattr(session, "payment_route", None) == "pay_at_service":
         text += "\n" + pay_at_service_line(session)
     booking_url = getattr(getattr(session, "booking", None), "booking_url", None)

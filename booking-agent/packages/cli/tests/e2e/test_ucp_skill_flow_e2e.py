@@ -502,6 +502,110 @@ def test_pay_at_service_books_through_checkout_with_no_instrument(
     assert _stdout_json(r)["data"]["compliant"] is True
 
 
+def _confirm_on_a_later_booking_read(monkeypatch, statuses):
+    """Production pay-at-service: the order confirms the booking after complete returns."""
+    import booking_agent_cli.booking_poll as booking_poll
+    import booking_agent_cli.commands.flow as flow
+    import booking_agent.observability as observability
+
+    reads = list(statuses)
+    events: list = []
+
+    def fetch(_session, booking_id):
+        status = reads.pop(0) if len(reads) > 1 else reads[0]
+        return SimpleNamespace(id=booking_id, status=SimpleNamespace(value=status))
+
+    monkeypatch.setattr(booking_poll, "fetch_booking", fetch)
+    monkeypatch.setattr(flow, "fetch_booking", fetch)
+    monkeypatch.setattr(flow, "_CAPTURED_POLL_INTERVAL_S", 0.01)
+    monkeypatch.setattr(observability, "_event_sink", events.append)
+    return events
+
+
+def _pending_complete_env(runner, env, monkeypatch, statuses):
+    _no_link_payment(monkeypatch)
+    env.checkout_store.confirm_on_complete = False
+    events = _confirm_on_a_later_booking_read(monkeypatch, statuses)
+    _drive_offline_ucp_to_payment_pending(runner, env)
+    r = _invoke(runner, "flow", "pay", "ucp-complete", "--policies-accepted")
+    return r, events
+
+
+def test_pay_at_service_waits_for_the_order_to_confirm_the_booking(
+    runner, pay_at_service_env, monkeypatch,
+):
+    """Complete returns ``completed`` with the booking still pending; nothing was charged."""
+    from booking_agent_cli.session import load_session
+
+    r, events = _pending_complete_env(
+        runner, pay_at_service_env, monkeypatch, ["pending", "pending", "confirmed"],
+    )
+
+    assert r.exit_code == 0, r.stdout + r.stderr
+    final = _stdout_json(r)
+    assert final["phase"] == "CONFIRMED"
+    assert final["user_message"].startswith("You're booked")
+    assert "Nothing was charged" in final["user_message"]
+    assert "payment went through" not in r.stdout
+    assert all(e["event"] != "payment_captured_booking_unconfirmed" for e in events)
+    session = load_session()
+    assert session.payment.status == "not_required"
+    assert session.payment.order_id
+    assert session.payment.spend_request_id is None
+    assert session.payment.captured_unconfirmed is False
+
+    r = _invoke(runner, "flow", "book", "poll")
+    assert r.exit_code == 0, r.stdout + r.stderr
+    assert load_session().payment.status == "not_required"
+
+
+def test_pay_at_service_confirmation_timeout_says_nothing_was_charged(
+    runner, pay_at_service_env, monkeypatch,
+):
+    import booking_agent_cli.commands.flow as flow
+    from booking_agent_cli.session import load_session
+
+    monkeypatch.setattr(flow, "_PAY_AT_SERVICE_CONFIRM_TIMEOUT_S", 0.05)
+    r, events = _pending_complete_env(runner, pay_at_service_env, monkeypatch, ["pending"])
+
+    assert r.exit_code == 1
+    out = _stdout_json(r)
+    assert out["data"]["error"]["code"] == "booking_confirmation_pending"
+    assert out["next_command"] == "booking-agent flow book poll --wait"
+    assert "nothing was charged" in out["user_message"]
+    assert all(e["event"] != "payment_captured_booking_unconfirmed" for e in events)
+    session = load_session()
+    assert session.payment.status == "not_required"
+    assert session.payment.captured_unconfirmed is False
+    assert session.payment.order_id
+
+    _confirm_on_a_later_booking_read(monkeypatch, ["confirmed"])
+    r = _invoke(runner, "flow", "book", "poll", "--wait", "--poll-interval", "0.01")
+    assert r.exit_code == 0, r.stdout + r.stderr
+    final = _stdout_json(r)
+    assert final["phase"] == "CONFIRMED"
+    assert "Nothing was charged" in final["user_message"]
+    assert load_session().payment.status == "not_required"
+
+
+def test_pay_at_service_canceled_while_waiting_is_not_booked(
+    runner, pay_at_service_env, monkeypatch,
+):
+    from booking_agent_cli.session import load_session
+
+    r, _events = _pending_complete_env(
+        runner, pay_at_service_env, monkeypatch, ["pending", "canceled"],
+    )
+
+    assert r.exit_code == 1
+    out = _stdout_json(r)
+    assert out["data"]["error"]["code"] == "booking_not_confirmed"
+    assert "Nothing was charged" in out["user_message"]
+    session = load_session()
+    assert session.flow_phase == "FAILED"
+    assert session.payment.status == "not_required"
+
+
 def test_at_service_without_the_extension_stays_on_the_direct_path(
     runner, undeclared_at_service_env, monkeypatch,
 ):

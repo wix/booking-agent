@@ -63,6 +63,8 @@ def minor_units(value: Any) -> Optional[int]:
 
 
 def money_captured(session: Session) -> bool:
+    if session.payment_route == "pay_at_service":
+        return False
     return session.payment.status == "paid" or bool(session.payment.order_id)
 
 

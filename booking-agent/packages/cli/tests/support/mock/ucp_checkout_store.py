@@ -37,6 +37,9 @@ class UcpCheckoutStore:
         self.pay_at_service = pay_at_service
         #: Every body POSTed to complete, in order, so tests can see what was sent.
         self.complete_bodies: list = []
+        #: False answers complete like production pay-at-service: the order exists and the
+        #: booking is still pending until a later booking read shows it confirmed.
+        self.confirm_on_complete = True
         env_nid = (os.environ.get("BOOKING_AGENT_UCP_TEST_NETWORK_ID") or "").strip()
         self.spt_network_id = (spt_network_id or env_nid or None)
         self.sessions: Dict[str, Dict[str, Any]] = {}
@@ -237,7 +240,10 @@ class UcpCheckoutStore:
             **session,
             "status": "completed",
             "order_id": order_id,
-            "booking": {**booking, "booking_status": "confirmed"},
+            "booking": {
+                **booking,
+                "booking_status": "confirmed" if self.confirm_on_complete else "pending",
+            },
         }
         if selected is not None:
             completed["order"] = {

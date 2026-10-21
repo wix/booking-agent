@@ -153,10 +153,15 @@ def complete_calendar_gate_with_preference(
     save_calendar_preference(state=state, mode=mode)
 
 
-def skip_calendar_gate_session_only(session: Session) -> None:
-    """Complete the gate as skipped for this session without persisting a store preference."""
+def skip_calendar_gate_session_only(session: Session, *, unasked: bool = False) -> None:
+    """Complete the gate as skipped for this session without persisting a store preference.
+
+    ``unasked``: the user did not choose this (no way to connect the calendar here), so the
+    booked message says no event was added.
+    """
     session.calendar_gate_completed = True
     session.calendar_state = "skipped"
     session.calendar_mode = CALENDAR_MODE_NONE
+    session.calendar_skipped_unasked = unasked
     transition(session, to="CALENDAR_GATE")
     save_session(session)

@@ -377,9 +377,24 @@ def diagnose() -> Dict[str, object]:
                 "kind": "configured_root_not_applied", "path": str(state), "severity": "problem",
             })
             root_hint = root_hint or configured
-    persistence: Dict[str, object] = {"folder": root_hint or None, "survived_restart": None}
+    persistence: Dict[str, object] = {
+        "folder": root_hint or None, "survived_restart": None, "survived_restart_basis": None,
+    }
+    starts = runtime_starts(state)
+    persistence["runtime_starts"] = starts
     if root_hint:
         persistence["survived_restart"] = survived_restart(Path(root_hint))
+        if persistence["survived_restart"] is True:
+            persistence["survived_restart_basis"] = "boot_id_changed"
+        elif starts >= 2:
+            persistence["survived_restart"] = True
+            persistence["survived_restart_basis"] = "second_runtime_read_the_saved_booking"
+        elif persistence["survived_restart"] is None:
+            persistence["survived_restart_basis"] = (
+                "boot_id_unavailable" if current_boot_id() is None else "no_boot_marker_yet"
+            )
+        else:
+            persistence["survived_restart_basis"] = "same_boot_id_so_not_shown"
         if persistence["survived_restart"] is False:
             findings.append({
                 "kind": "folder_not_yet_shown_to_survive_a_restart",
@@ -596,3 +611,63 @@ def survived_restart(root: Path) -> Optional[bool]:
     if boot is None:
         return None
     return bool(previous.get("survived")) or previous.get("first") != boot
+
+
+# ---------------------------------------------------------------------------
+# "Has this runtime looked at the saved booking yet?"
+# ---------------------------------------------------------------------------
+
+RESUME_CHECK_ENV = "BOOKING_AGENT_RESUME_CHECK"
+
+
+def _resume_marker(session_file: Path) -> Path:
+    import hashlib
+
+    key = hashlib.sha256(str(session_file).encode()).hexdigest()[:16]
+    return Path(tempfile.gettempdir()) / f"booking-agent-seen-{key}"
+
+
+def resume_check_enabled() -> bool:
+    return (settings.get(RESUME_CHECK_ENV) or "").strip().lower() not in ("0", "false", "off", "no")
+
+
+def runtime_has_seen(session_file: Path) -> bool:
+    """False in a runtime that has not read this saved booking since it started.
+
+    The marker lives in the temporary folder, which a fresh sandbox does not keep while the
+    folder holding the booking is kept. A conversation that starts from a saved booking must
+    read ``flow status`` before it changes anything, because the saved question is the only
+    thing a bare "yes" can answer.
+    """
+    return _resume_marker(session_file).exists()
+
+
+_STARTS_FILE = ".runtime-starts"
+
+
+def runtime_starts(home: Optional[Path] = None) -> int:
+    """How many runtimes have read the saved booking, counted in the kept folder."""
+    try:
+        return int(json.loads(((home or settings.booking_agent_home()) / _STARTS_FILE).read_text())["count"])
+    except (OSError, ValueError, KeyError, TypeError):
+        return 0
+
+
+def mark_runtime_seen(session_file: Path) -> None:
+    """Remember that this runtime read the saved booking; count each new runtime.
+
+    The count lives beside the saved booking, so a second runtime reading the same folder
+    proves it survived a restart even on hosts whose sandboxes share one boot id.
+    """
+    marker = _resume_marker(session_file)
+    if marker.exists():
+        return
+    try:
+        home = session_file.parent
+        write_private_text(home / _STARTS_FILE, json.dumps({"count": runtime_starts(home) + 1}))
+    except OSError:
+        pass
+    try:
+        marker.write_text(time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()))
+    except OSError:
+        pass

@@ -189,13 +189,52 @@ def _flow_setup(ctx: typer.Context) -> None:
     from .. import config_loader
 
     clear_last_http_failure()
+    config_loader.load()
     sub = ctx.invoked_subcommand
+    _resume_check(sub)
     if sub not in (None, "init", "sessions"):
         session = load_session()
         if session is not None:
             record_command(session)
             save_session(session)
-    config_loader.load()
+
+
+# Commands a new conversation may run before it has read the saved booking.
+_BEFORE_RESUME_CHECK = frozenset({None, "init", "sessions", "status", "support-report"})
+_MARKS_RESUME_CHECK = frozenset({"init", "sessions", "status"})
+
+
+def _resume_check(sub: Optional[str]) -> None:
+    """Make a runtime that did not start this booking read ``flow status`` first.
+
+    A new conversation can hold a saved booking that is waiting for the user's yes. Reading
+    the state is a CLI step so no skill text has to remember it.
+    """
+    from .. import runtime_prepare
+    from ..session import session_path
+
+    if not runtime_prepare.resume_check_enabled():
+        return
+    path = session_path()
+    if sub in _MARKS_RESUME_CHECK:
+        runtime_prepare.mark_runtime_seen(path)
+        return
+    if sub in _BEFORE_RESUME_CHECK or runtime_prepare.runtime_has_seen(path):
+        return
+    session = load_session()
+    if session is None:
+        return
+    emit_error(
+        session.flow_phase,
+        code="resume_check_required",
+        message=(
+            "This conversation did not start this booking. Run `booking-agent flow status`, "
+            "read it, and follow its next_command. The user's reply answers only the question "
+            "status shows; never list times again or start over."
+        ),
+        next_command="booking-agent flow status",
+    )
+    raise typer.Exit(code=1)
 
 
 # ---------------------------------------------------------------------------
@@ -1233,6 +1272,15 @@ def _bulk_cancel_one(session: Session, reason: Optional[str]) -> Dict[str, Any]:
         }
     finally:
         bind_session_observability(None)
+    if status_val == _CHECKOUT_ABANDONED:
+        return {
+            "outcome": "canceled",
+            "status": status_val,
+            "cancellation": None,
+            "refund_follow_up": None,
+            "calendar": None,
+            "user_message": _checkout_abandoned_message(session),
+        }
     row: Dict[str, Any] = {
         "outcome": "canceled" if status_val == "canceled" else "inactive",
         "status": status_val,
@@ -3426,7 +3474,7 @@ def _require_calendar_offer(session: Session) -> None:
 
 def _emit_calendar_unavailable(session: Session, status: dict, mode: str, *, data: Optional[dict]) -> None:
     session.calendar_technical_fallback = True
-    skip_calendar_gate_session_only(session)
+    skip_calendar_gate_session_only(session, unasked=True)
     out = dict(data or {})
     out.update(status)
     out["calendar_state"] = "skipped"
@@ -3641,6 +3689,12 @@ def calendar_skip(
         "--session-only",
         help="Skip calendar checking for this booking only; keep the saved preference",
     ),
+    no_route: bool = typer.Option(
+        False,
+        "--no-route",
+        help="With --session-only: this runtime has no way to connect Google Calendar, so the "
+        "user was not asked. The booked message then says no event was added.",
+    ),
 ) -> None:
     session = must_load()
     try:
@@ -3651,7 +3705,7 @@ def calendar_skip(
     _require_calendar_offer(session)
     _stop_pending_sign_in()
     if session_only:
-        skip_calendar_gate_session_only(session)
+        skip_calendar_gate_session_only(session, unasked=no_route)
         emit(_agent_out(
             session,
             prompt=(
@@ -4578,6 +4632,11 @@ def _adopt_response_timezone(session: Session, response_zones: Dict[str, Any]) -
     return out
 
 
+_PAST_TIME_CHOICE_PHASES = frozenset({
+    "BUYER_RESOLVED", "BOOKED", "PAYMENT_PENDING", "CONFIRMED",
+})
+
+
 @app.command("availability")
 def availability(
     service_id: Optional[str] = typer.Option(None, "--service-id"),
@@ -4589,6 +4648,12 @@ def availability(
         help="Single calendar day to query (YYYY-MM-DD). Sets a full-day window when "
         "--from/--to are not given. Use this to honor a specific requested date.",
     ),
+    change_time: bool = typer.Option(
+        False,
+        "--change-time",
+        help="The user asked for a different time after the summary was shown. Drops the "
+        "chosen slot and the summary, and lists times again.",
+    ),
 ) -> None:
     """Query availability for the selected business + service."""
     session = must_load()
@@ -4597,6 +4662,23 @@ def availability(
         require_calendar_gate(session)
     except GateError as e:
         raise _handle_gate(session, e)
+    if session.flow_phase in _PAST_TIME_CHOICE_PHASES:
+        if not (change_time and session.flow_phase == "BUYER_RESOLVED"):
+            from ..engine import recommend_next
+
+            emit_error(
+                session.flow_phase,
+                code="availability_after_slot_confirmed",
+                message=(
+                    "A time is already chosen for this booking. Do not list times again: run "
+                    "`booking-agent flow status` and follow next_command. Only if the user "
+                    "asks for a different time at the summary, add `--change-time`."
+                ),
+                next_command=recommend_next(session) or "booking-agent flow status",
+            )
+            raise typer.Exit(code=1)
+        session.slot_id = None
+        session.slot_user_confirmed = False
 
     if session.business.timezone and _valid_iana_timezone(session.business.timezone) is None:
         emit_error(
@@ -4616,6 +4698,7 @@ def availability(
             session.flow_phase,
             code="missing_service_id",
             message="--service-id is required (use the value from `flow discover`).",
+            next_command="booking-agent flow discover",
         )
         raise typer.Exit(code=1)
 
@@ -6481,6 +6564,9 @@ def _complete_pay_at_service(
 
     session.payment.order_id = str(result.get("order_id") or "") or None
     session.payment.status = "not_required"
+    save_session(session)
+    if result.get("booking_confirmation_pending"):
+        _await_pay_at_service_confirmation(session)
     from ..flow_timings import apply_pending_timings
 
     apply_pending_timings(session)
@@ -6489,6 +6575,64 @@ def _complete_pay_at_service(
     if not emit_result:
         return
     _finish_post_payment_steps(session)
+
+
+_PAY_AT_SERVICE_CONFIRM_TIMEOUT_S = 120.0
+
+
+def _await_pay_at_service_confirmation(session: Session) -> None:
+    """Wait for the order to confirm a pay-at-service booking (USP 11.3.5 S6).
+
+    The business accepted the order and charged nothing; the booking confirms
+    shortly after. Returns once it is confirmed and raises ``typer.Exit`` otherwise.
+    """
+    business = _business_label(session)
+    try:
+        from booking_agent.step_timing import timed_step_sync
+
+        with timed_step_sync("confirm"):
+            booking = wait_for_booking_terminal(
+                session,
+                deadline_ts=time.time() + _PAY_AT_SERVICE_CONFIRM_TIMEOUT_S,
+                poll_interval=_CAPTURED_POLL_INTERVAL_S,
+            )
+    except Exception as e:  # noqa: BLE001 - the order exists whatever the read failure was
+        save_session(session)
+        emit_error(
+            session.flow_phase,
+            code="booking_confirmation_pending",
+            message=(
+                f"{e} The business accepted the order and nothing was charged; the booking "
+                "is not confirmed yet. Post user_message, then run next_command. Do not "
+                "complete the checkout again and do not describe a payment."
+            ),
+            user_message=(
+                f"{business} accepted your booking request and nothing was charged. They "
+                "haven't confirmed the appointment yet, so I'm still checking with them."
+            ),
+            next_command="booking-agent flow book poll --wait",
+            forbidden=["booking-agent flow pay ucp-complete", "booking-agent flow pay request"],
+            data={"booking_id": session.booking.id, "order_id": session.payment.order_id},
+        )
+        raise typer.Exit(code=1)
+    status_val = apply_booking_status(session, booking)
+    save_session(session)
+    if status_val in ("confirmed", "completed"):
+        return
+    emit_error(
+        session.flow_phase,
+        code="booking_not_confirmed",
+        message=(
+            f"The business marked the booking {status_val} instead of confirming it. Nothing "
+            "was charged. Post user_message, then stop."
+        ),
+        user_message=(
+            f"{business} didn't confirm this appointment, so you're not booked. Nothing was "
+            "charged."
+        ),
+        data={"booking_id": session.booking.id, "status": status_val},
+    )
+    raise typer.Exit(code=1)
 
 
 def _pay_ucp_complete_impl(
@@ -7035,12 +7179,17 @@ def book_poll(
         raise typer.Exit(code=1)
 
     was_captured_unconfirmed = session.payment.captured_unconfirmed
+    offline_order_waiting = (
+        session.payment_route == "pay_at_service"
+        and bool(session.payment.order_id)
+        and session.flow_phase != "CONFIRMED"
+    )
     status_val = apply_booking_status(session, b)
     if was_captured_unconfirmed and session.flow_phase == "CONFIRMED":
         session.payment.captured_unconfirmed = False
     save_session(session)
 
-    if was_captured_unconfirmed and session.flow_phase == "CONFIRMED":
+    if (was_captured_unconfirmed or offline_order_waiting) and session.flow_phase == "CONFIRMED":
         _finish_post_payment_steps(session)
         return
     if was_captured_unconfirmed and status_val in ("canceled", "no_show"):
@@ -7130,6 +7279,21 @@ def book_cancel(
         )
         raise typer.Exit(code=1)
 
+    if status_val == _CHECKOUT_ABANDONED:
+        emit(_agent_out(
+            session,
+            user_message=_checkout_abandoned_message(session),
+            prompt="The checkout was canceled before booking. Post user_message to the user as is.",
+            data={
+                "booking_id": bid,
+                "status": _CHECKOUT_ABANDONED,
+                "cancellation": None,
+                "refund_follow_up": None,
+                "calendar": None,
+            },
+        ))
+        return
+
     follow_up = settlement.get("refund_follow_up")
     calendar = _remove_calendar_event_after_cancel(session) if status_val == "canceled" else None
     user_message = (
@@ -7184,6 +7348,20 @@ class _CancelNeedsHuman(Exception):
         self.handoff = handoff or {}
 
 
+class _CheckoutAbandoned(Exception):
+    """The open checkout was canceled; its never-confirmed booking stays pending."""
+
+
+_CHECKOUT_ABANDONED = "checkout_abandoned"
+
+
+def _checkout_abandoned_message(session: Session) -> str:
+    return (
+        f"I canceled your checkout with {_business_label(session)}. Nothing was booked "
+        "and nothing was charged."
+    )
+
+
 class _CancelFailed(Exception):
     """The cancel did not go through; ``data`` still carries the buyer's way out."""
 
@@ -7204,6 +7382,12 @@ def _cancel_and_record(
     http_status: Optional[int] = None
     try:
         booking, fee = asyncio.run(_cancel_booking_async(session, booking_id, reason))
+    except _CheckoutAbandoned:
+        from ..engine import transition
+
+        transition(session, to="FAILED")
+        save_session(session)
+        return _CHECKOUT_ABANDONED, {}
     except _CancelNeedsHuman:
         save_session(session)
         raise
@@ -7343,7 +7527,7 @@ def _captured_amount_minor(session: Session, booking: Any) -> Optional[int]:
     """
     from ..calendar_event import _payment_route
 
-    if _payment_route(session) in ("free", "at_service"):
+    if _payment_route(session) in ("free", "at_service", "pay_at_service"):
         return None
     payment = _record_field(booking, "payment")
     booking_paid = str(_record_field(payment, "status") or "") in _CAPTURED_PAYMENT_STATUSES
@@ -7451,7 +7635,9 @@ def _cancel_needs_human_message(session: Session, booking_id: Optional[str], err
     lines.extend(service_policy_lines(session.live_service))
     for link in extract_policy_links(handoff.get("merchant_links") or session.ucp_checkout_links):
         lines.append(f"{link['label']}: {link['url']}")
-    if _payment_captured(session) or session.payment.order_id:
+    if session.payment_route != "pay_at_service" and (
+        _payment_captured(session) or session.payment.order_id
+    ):
         lines.append(
             f"If you paid, ask {business} for a refund when you cancel, and give them the "
             "references above so they can find your payment."
@@ -7551,6 +7737,8 @@ async def _manage_url_for_cancel(
 
 
 async def _cancel_booking_async(session: Session, booking_id: str, reason: Optional[str]):
+    if session.ucp_checkout_abandoned:
+        raise _CheckoutAbandoned()
     backend = resolve_backend()
     profile = await backend.resolve_profile(session.business.profile_url)
     endpoint = profile.rest_endpoint
@@ -7609,14 +7797,18 @@ async def _cancel_booking_async(session: Session, booking_id: str, reason: Optio
                 checkout,
                 expected_booking_id=booking_id,
             )
-            if booking_context is not None:
-                return (
-                    SimpleNamespace(
-                        id=booking_context["booking_id"],
-                        status=BookingStatus(booking_context["booking_status"]),
-                    ),
-                    None,
-                )
+            if booking_context is None:
+                # USP 7.5 lets the business leave a never-confirmed booking pending:
+                # it holds no slot and cannot be charged, so there is nothing to cancel.
+                session.ucp_checkout_abandoned = True
+                raise _CheckoutAbandoned()
+            return (
+                SimpleNamespace(
+                    id=booking_context["booking_id"],
+                    status=BookingStatus(booking_context["booking_status"]),
+                ),
+                None,
+            )
 
     manage_url = await _manage_url_for_cancel(
         session,

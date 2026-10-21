@@ -274,6 +274,22 @@ def test_unknown_price_after_a_captured_charge_is_refused(runner, seed):
     assert obj["data"]["error"]["code"] == "reschedule_price_unknown"
 
 
+def test_unknown_price_on_a_pay_at_service_order_is_not_refused(runner, seed):
+    """The pay-at-service order id is a reference, not a charge, so nothing can go wrong."""
+    unpriced = _service().model_copy(update={"pricing": None})
+    session = _confirmed_session(
+        live_service={},
+        ucp_checkout_amount_minor=None,
+        payment_route="pay_at_service",
+        payment=PaymentRef(status="not_required", order_id="ord_1"),
+    )
+    seed(FakeBackend(service=unpriced, slots=[_slot("slot_new", 3, 14)]), session)
+    _invoke(runner, "reschedule", "start")
+    _invoke(runner, "reschedule", "availability")
+    _invoke(runner, "reschedule", "select", "--slot-id", "slot_new", "--user-confirmed")
+    assert load_session().reschedule_slot_id == "slot_new"
+
+
 def test_selection_and_apply_both_require_user_confirmation(runner, seed):
     seed(FakeBackend(slots=[_slot("slot_new", 3, 14)]))
     _invoke(runner, "reschedule", "start")
