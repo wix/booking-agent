@@ -246,10 +246,10 @@ def test_ucp_skill_flow_e2e_over_http(runner, offline_http_env, monkeypatch):
     assert _stdout_json(r)["data"]["compliant"] is True
 
 
-def test_checkout_terms_and_privacy_links_block_payment_until_accepted(
+def test_checkout_terms_and_privacy_links_are_shown_without_a_second_question(
     runner, offline_http_env, monkeypatch,
 ):
-    """Replay: a checkout with terms and a privacy policy must not be paid before the yes."""
+    """Replay: checkout terms and privacy links reach the user; the summary yes covers them."""
     import support.mock.ucp_checkout_store as checkout_store
 
     monkeypatch.setattr(checkout_store, "checkout_links", lambda: [
@@ -259,20 +259,17 @@ def test_checkout_terms_and_privacy_links_block_payment_until_accepted(
     ])
     _service_id, book = _drive_offline_ucp_to_payment_pending(runner, offline_http_env)
 
-    assert book["awaiting_user"] == "policy_acceptance"
+    assert book.get("awaiting_user") is None
     urls = [link["url"] for link in book["data"]["policy_links"]]
     assert urls == ["https://merchant.test/terms", "https://merchant.test/privacy"]
     assert "https://merchant.test/terms" in book["user_message"]
     assert "https://merchant.test/privacy" in book["user_message"]
+    assert "https://merchant.test/checkout/continue" not in book["user_message"]
+    assert "--policies-accepted" not in book["next_command"]
 
     captured: dict = {}
     _stub_link_spend_request(monkeypatch, "lsrq_policies", captured)
     r = _invoke(runner, "flow", "pay", "request", "--payment-method-id", "pm_test")
-    assert r.exit_code == 1, r.stdout
-    assert _stdout_json(r)["data"]["error"]["code"] == "policies_not_accepted"
-    assert captured == {}
-
-    r = _invoke(runner, "flow", "pay", "request", "--payment-method-id", "pm_test", "--policies-accepted")
     assert r.exit_code == 0, r.stdout + r.stderr
     assert captured
 

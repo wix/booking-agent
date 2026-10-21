@@ -5028,7 +5028,7 @@ def _book_command(session: Session, *, user_confirmed: bool = True) -> str:
     parts = ["booking-agent flow book"]
     if user_confirmed:
         parts.append("--user-confirmed")
-    if _books_directly(session) and collect_provider_policies(session)["digest"]:
+    if collect_provider_policies(session)["digest"]:
         parts.append("--policies-accepted")
     return " ".join(parts)
 
@@ -5217,18 +5217,17 @@ def buyer_resolve(
     session.recap_surfaced = True
     session.recap_digest = digest({"recap": data["booking_recap_lines"]})
     session.recap_confirmed_digest = None
-    if _books_directly(session):
-        policies = collect_provider_policies(session)
-        if policies["digest"]:
-            session.policies_surfaced = True
-            session.policies_digest = policies["digest"]
-            data.update(_policy_view(policies))
-            buyer_prompt += (
-                " The business sent policies, which the user must accept before this "
-                "booking: after the recap, also show every line of data.policy_lines and "
-                "every data.policy_links URL as a raw URL, and make the one question ask "
-                "whether they confirm the booking and accept those policies."
-            )
+    policies = collect_provider_policies(session)
+    if policies["digest"]:
+        session.policies_surfaced = True
+        session.policies_digest = policies["digest"]
+        data.update(_policy_view(policies))
+        buyer_prompt += (
+            " The business sent policies, which the user must accept before this "
+            "booking: after the recap, also show every line of data.policy_lines and "
+            "every data.policy_links URL as a raw URL, and make the one question ask "
+            "whether they confirm the booking and accept those policies."
+        )
     save_session(session)
     buyer_prompt += (
         " When they say yes, run next_command exactly; it records their confirmation."
@@ -5368,7 +5367,7 @@ def book(
         session, refreshed_live_service, resume_command="booking-agent flow book",
     )
     notes = session.booking_notes
-    if not dry_run and _books_directly(session):
+    if not dry_run:
         from ..booking_summary import collect_provider_policies
 
         policies = collect_provider_policies(session)
@@ -5451,6 +5450,7 @@ def book(
     at_service = session.payment_route == "at_service"
     pay_at_service = session.payment_route == "pay_at_service"
     checkout_policies = None
+    checkout_links: List[Dict[str, str]] = []
     if checkout_path == "ucp":
         from ..booking_summary import collect_provider_policies
 
@@ -5460,6 +5460,7 @@ def book(
             session.policies_digest = checkout_policies["digest"]
             save_session(session)
         else:
+            checkout_links = checkout_policies["links"]
             checkout_policies = None
     next_pay = (
         "booking-agent flow pay ucp-complete"
@@ -5558,11 +5559,21 @@ def book(
         data_out.update(_policy_view(checkout_policies))
         user_message = _policy_message(checkout_policies)
         prompt_out += (
-            " **STOP.** The business sent policies with its checkout, and the booking is not "
-            "final until the user accepts them. user_message holds them; post it verbatim. "
-            + _POLICY_SHOW_TEXT
+            " **STOP.** The business's checkout added policies the user has not accepted, and "
+            "the booking is not final until they do. user_message holds them; post it "
+            "verbatim. " + _POLICY_SHOW_TEXT
         )
     elif not direct:
+        if checkout_links:
+            data_out["policy_links"] = list(checkout_links)
+            user_message = "\n".join(
+                ["The business's checkout links these terms for this booking:"]
+                + [f"{link['label']}: {link['url']}" for link in checkout_links]
+            )
+            prompt_out += (
+                " Post user_message verbatim (every link raw); the user's yes to the booking "
+                "summary covers them, so do not ask again."
+            )
         prompt_out += " Then run next_command."
     emit(_agent_out(
         session,

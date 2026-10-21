@@ -54,7 +54,7 @@ DEFAULT_SUPPORT_INGEST_URL = (
 # script's JSON reply is served. Only this exact host pair is ever followed.
 _APPS_SCRIPT_HOST = "script.google.com"
 _APPS_SCRIPT_ECHO_HOST = "script.googleusercontent.com"
-# The fixed refusal reasons ingest/apps-script/Code.gs replies with.
+# The fixed refusal reasons the support ingest replies with.
 INGEST_REJECTION_REASONS = frozenset({
     "no_body", "media_type", "too_large", "invalid_json", "schema", "rate_limited", "internal",
 })

@@ -1,10 +1,9 @@
 """Schema of the consented support note, and the check the CLI runs before storing
 or sending one.
 
-``ingest/apps-script/Schema.gs`` is generated from ``SUPPORT_BUNDLE_SCHEMA`` and the
-ingest checks every note against it with ``Validate.gs``. ``validate_bundle`` is the
-same subset validator in Python, so a note the ingest would reject never leaves the
-machine.
+The support ingest checks every note against ``SUPPORT_BUNDLE_SCHEMA`` with the same
+JSON Schema subset that ``validate_bundle`` implements, so a note the ingest would
+reject never leaves the machine.
 """
 from __future__ import annotations
 

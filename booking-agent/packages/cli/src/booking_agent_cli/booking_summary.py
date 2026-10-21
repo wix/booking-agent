@@ -148,7 +148,12 @@ def _fee_text(amount: Any, live: Dict[str, Any]) -> Optional[str]:
 
 
 def service_policy_lines(live_service: Any) -> List[str]:
-    """The cancellation and rescheduling policies the business published for the service."""
+    """The cancellation and rescheduling policies the business published for the service.
+
+    ``allowed`` is required, and a business with no policy configured still sends
+    ``allowed: true``, so a policy that is only ``allowed: true`` with no window, fee, or
+    limit says nothing the business chose and yields no line.
+    """
     live = live_service if isinstance(live_service, dict) else {}
     policies = live.get("policies") if isinstance(live.get("policies"), dict) else {}
     lines: List[str] = []
@@ -167,8 +172,9 @@ def service_policy_lines(live_service: Any) -> List[str]:
             closed = _duration_text(cancel.get("no_cancellation_after"))
             if closed:
                 parts.append(f"no cancellation within {closed} of the appointment")
-            text = "Cancellation allowed" + (f", {', '.join(parts)}" if parts else "")
-        lines.append(f"Cancellation policy: {text}.")
+            text = f"Cancellation allowed, {', '.join(parts)}" if parts else None
+        if text:
+            lines.append(f"Cancellation policy: {text}.")
     resched = policies.get("rescheduling")
     if isinstance(resched, dict) and resched.get("allowed") is not None:
         if resched.get("allowed") is False:
@@ -184,8 +190,9 @@ def service_policy_lines(live_service: Any) -> List[str]:
             fee = _fee_text(resched.get("fee"), live)
             if fee:
                 parts.append(f"a {fee} fee")
-            text = "Rescheduling allowed" + (f", {', '.join(parts)}" if parts else "")
-        lines.append(f"Rescheduling policy: {text}.")
+            text = f"Rescheduling allowed, {', '.join(parts)}" if parts else None
+        if text:
+            lines.append(f"Rescheduling policy: {text}.")
     return lines
 
 
@@ -234,12 +241,14 @@ def _message_text(message: Dict[str, Any], zone: Optional[str]) -> Optional[str]
 
 
 def collect_provider_policies(session: Any) -> Dict[str, Any]:
-    """Everything the business published that the user accepts before the booking is final.
+    """Everything the business published for the user to see before the booking is final.
 
-    That is the service's cancellation and rescheduling policies, the checkout's policy
-    links (never ``rel=continue``) and policies, and its payment disclosures. The business
-    website the CLI derives from the profile and any text the CLI writes are not included,
-    so a business that sent none of these gets no policy step (``digest`` is None).
+    ``lines`` are the service's cancellation and rescheduling policies, the checkout's policy
+    texts, payment terms, and disclosures; ``links`` are the checkout's policy links (never
+    ``rel=continue``). ``digest`` covers ``lines`` only: the user accepts the lines with the
+    booking summary, and links a checkout adds later are shown without a new question, so a
+    checkout re-asks only when it adds lines. The business website the CLI derives from the
+    profile and any text the CLI writes are not included; with no lines ``digest`` is None.
     """
     zone = session.business.timezone if getattr(session, "business", None) else None
     lines = service_policy_lines(getattr(session, "live_service", None))
@@ -267,10 +276,10 @@ def collect_provider_policies(session: Any) -> Dict[str, Any]:
             if text:
                 lines.append(text)
     digest = None
-    if lines or links:
+    if lines:
         from .gates import digest as _digest
 
-        digest = _digest({"lines": lines, "links": [link["url"] for link in links]})
+        digest = _digest({"lines": lines})
     return {"lines": lines, "links": links, "digest": digest}
 
 

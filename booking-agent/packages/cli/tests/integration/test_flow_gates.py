@@ -2898,7 +2898,11 @@ def test_pay_request_persists_disclosure_confirmation_before_retry(
     runner, isolated_session, monkeypatch,
 ):
     _advance_to_payment_pending(runner, isolated_session, monkeypatch)
-    _set_deposit_disclosures(disclosures=[])
+    _set_deposit_disclosures(disclosures=[{
+        "presentation": "disclosure",
+        "code": "balance_due_at_service",
+        "description": {"plain": "The remaining balance is due at the appointment."},
+    }])
     pay = ("flow", "pay", "request", "--payment-method-id", "pm_test", "--context", "x" * 100)
 
     first = _invoke(runner, *pay)

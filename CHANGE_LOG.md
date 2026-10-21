@@ -1,5 +1,19 @@
 # Change Log
 
+## 21/10/26 at 08:09:43 by [Ran Yahalom](mailto:ranya@wix.com)
+
+- Removed `scripts/generate_ingest_schemas.py` and its drift test: generating the support ingest's files and checking them for drift now lives with the ingest itself, so this public repository carries no code or paths for the support ingest and the check runs where the ingest's files are rather than being skipped here
+- Reworded the schema module docstrings and a `support_report.py` comment to describe the support ingest's contract without naming its internal files
+
+---
+
+## 21/10/26 at 08:09:22 by [Ran Yahalom](mailto:ranya@wix.com)
+
+- Part of 0.9.0. A cancellation or rescheduling policy that is only the schema's required `allowed: true`, with no window, fee, or limit, no longer counts as a business policy, because businesses with no policy configured still send that default and users were being asked to accept a bare "Cancellation allowed" the business never set
+- The user now accepts the business's policies in the same question as the booking summary on every route, and `flow book` enforces it, so paid and pay-at-service checkouts no longer add a second policy question in the common case. Policy links a checkout adds afterwards (terms, privacy, refund) are shown to the user without a new question; payment asks again only when the checkout adds policy text, payment terms, or disclosures the user has not seen
+
+---
+
 ## 20/10/26 at 20:53:15 by [Ran Yahalom](mailto:ranya@wix.com)
 
 - Made the support report leak test deterministic: its fake gate code was the digits `4242`, which a report timestamp's microseconds can contain by chance, so the test failed intermittently in CI. The gate code is now letters, which no timestamp or ID in the report can produce

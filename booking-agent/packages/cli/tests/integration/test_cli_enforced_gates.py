@@ -56,7 +56,7 @@ def test_no_policies_when_the_business_sent_none():
     assert policies == {"lines": [], "links": [], "digest": None}
 
 
-def test_terms_and_privacy_links_are_policies_and_continue_is_not():
+def test_terms_and_privacy_links_are_shown_but_need_no_acceptance_of_their_own():
     from booking_agent_cli.booking_summary import collect_provider_policies
 
     links = [
@@ -70,11 +70,13 @@ def test_terms_and_privacy_links_are_policies_and_continue_is_not():
     assert [link["url"] for link in policies["links"]] == [
         "https://shop.test/terms", "https://shop.test/privacy",
     ]
-    assert policies["digest"]
-    changed = collect_provider_policies(_policy_session(
-        ucp_checkout_links=[*links, {"type": "refund_policy", "url": "https://shop.test/refunds"}],
+    assert policies["digest"] is None
+    with_text = collect_provider_policies(_policy_session(
+        ucp_checkout_links=links,
+        ucp_checkout_policies=[{"type": "refund", "description": {"plain": "No refunds."}}],
     ))
-    assert changed["digest"] != policies["digest"]
+    assert with_text["lines"] == ["Policy: No refunds."]
+    assert with_text["digest"]
 
 
 def test_service_cancellation_and_rescheduling_rules_are_policies():
@@ -91,6 +93,27 @@ def test_service_cancellation_and_rescheduling_rules_are_policies():
         "Rescheduling policy: Rescheduling is not allowed.",
     ]
     assert policies["digest"]
+
+
+def test_a_policy_that_is_only_the_required_allowed_flag_is_not_a_business_policy():
+    from booking_agent_cli.booking_summary import collect_provider_policies
+
+    live = {"policies": {"cancellation": {"allowed": True}, "rescheduling": {"allowed": True}}}
+
+    assert collect_provider_policies(_policy_session(live_service=live)) == {
+        "lines": [], "links": [], "digest": None,
+    }
+
+
+_POLICY_LINES = ["Cancellation policy: Cancellation allowed, free up to 2 hours before the appointment."]
+
+
+@pytest.fixture
+def business_policies(monkeypatch):
+    """The mock services send only ``allowed: true``; give the business a real policy."""
+    import booking_agent_cli.booking_summary as booking_summary
+
+    monkeypatch.setattr(booking_summary, "service_policy_lines", lambda _live: list(_POLICY_LINES))
 
 
 # ---------------------------------------------------------------------------
@@ -116,7 +139,7 @@ def _direct_booking_to_recap(runner, monkeypatch) -> dict:
 
 
 def test_buyer_resolve_shows_policies_with_the_summary_on_a_direct_booking(
-    runner, isolated_session, monkeypatch,
+    runner, isolated_session, monkeypatch, business_policies,
 ):
     recap = _direct_booking_to_recap(runner, monkeypatch)
 
@@ -129,7 +152,7 @@ def test_buyer_resolve_shows_policies_with_the_summary_on_a_direct_booking(
 
 
 def test_direct_booking_without_policy_acceptance_books_nothing(
-    runner, isolated_session, monkeypatch,
+    runner, isolated_session, monkeypatch, business_policies,
 ):
     _direct_booking_to_recap(runner, monkeypatch)
 
@@ -181,12 +204,9 @@ def test_a_summary_that_changed_after_the_user_saw_it_needs_a_new_yes(
     assert load_session().booking.id is None
 
 
-def test_no_policy_step_when_the_business_sent_no_policies(
+def test_no_policy_step_when_the_business_set_no_policy(
     runner, isolated_session, monkeypatch,
 ):
-    import booking_agent_cli.booking_summary as booking_summary
-
-    monkeypatch.setattr(booking_summary, "service_policy_lines", lambda _live: [])
     recap = _direct_booking_to_recap(runner, monkeypatch)
 
     assert recap["next_command"] == "booking-agent flow book --user-confirmed"
@@ -197,10 +217,10 @@ def test_no_policy_step_when_the_business_sent_no_policies(
 
 
 # ---------------------------------------------------------------------------
-# Paid UCP bookings: the policies are accepted on `pay request`
+# Paid UCP bookings: the policies are accepted with the summary too
 # ---------------------------------------------------------------------------
 
-def _paid_booking_to_payment_pending(runner) -> dict:
+def _paid_booking_to_recap(runner) -> dict:
     _init(runner)
     _complete_checkout_mode_setup(runner)
     _skip_calendar(runner)
@@ -209,8 +229,7 @@ def _paid_booking_to_payment_pending(runner) -> dict:
     slot_id = slots["data"]["slots"][0]["slot_id"]
     _invoke(runner, "flow", "slots", "select", "--slot-id", slot_id, "--user-confirmed")
     _satisfy_link_auth_gate()
-    _invoke(runner, "flow", "buyer", "resolve")
-    r = _invoke(runner, *_BOOK_CONFIRMED)
+    r = _invoke(runner, "flow", "buyer", "resolve")
     assert r.exit_code == 0, r.stdout + r.stderr
     return _stdout_json(r)
 
@@ -218,27 +237,40 @@ def _paid_booking_to_payment_pending(runner) -> dict:
 _PAY = ("flow", "pay", "request", "--payment-method-id", "pm_test", "--context", "x" * 100)
 
 
-def test_paid_checkout_shows_policies_and_pay_request_waits_for_acceptance(
-    runner, isolated_session,
+def test_paid_checkout_asks_for_the_policies_with_the_summary_not_again_at_payment(
+    runner, isolated_session, business_policies,
 ):
-    book = _paid_booking_to_payment_pending(runner)
+    recap = _paid_booking_to_recap(runner)
+    assert recap["data"]["policy_lines"] == _POLICY_LINES
+    assert recap["next_command"] == "booking-agent flow book --user-confirmed --policies-accepted"
 
-    assert book["awaiting_user"] == "policy_acceptance"
-    assert book["next_command"].endswith("--policies-accepted")
-    assert book["data"]["policy_lines"]
-
-    r = _invoke(runner, *_PAY)
+    r = _invoke(runner, *_BOOK_CONFIRMED)
     assert r.exit_code == 1, r.stdout
     assert _error_code(r) == "policies_not_accepted"
-    assert load_session().payment.spend_request_id is None
+    assert load_session().booking.id is None
 
-
-def test_policies_that_changed_after_they_were_shown_are_asked_again(
-    runner, isolated_session,
-):
-    _paid_booking_to_payment_pending(runner)
     session = load_session()
-    session.ucp_checkout_links = [{"type": "terms_of_service", "url": "https://shop.test/new-terms"}]
+    session.ucp_checkout_links = [{"type": "terms_of_service", "url": "https://shop.test/terms"}]
+    save_session(session)
+    r = _invoke(runner, *_BOOK_CONFIRMED, "--policies-accepted")
+    assert r.exit_code == 0, r.stdout + r.stderr
+    book = _stdout_json(r)
+    assert book.get("awaiting_user") is None
+    assert "--policies-accepted" not in book["next_command"]
+
+    r = _invoke(runner, *_PAY)
+    assert _error_code(r) != "policies_not_accepted"
+
+
+def test_a_checkout_that_adds_policy_text_asks_again_before_payment(
+    runner, isolated_session, business_policies,
+):
+    _paid_booking_to_recap(runner)
+    r = _invoke(runner, *_BOOK_CONFIRMED, "--policies-accepted")
+    assert r.exit_code == 0, r.stdout + r.stderr
+    accepted = load_session().policies_accepted_digest
+    session = load_session()
+    session.ucp_checkout_policies = [{"type": "refund", "description": {"plain": "No refunds."}}]
     save_session(session)
 
     r = _invoke(runner, *_PAY, "--policies-accepted")
@@ -247,8 +279,12 @@ def test_policies_that_changed_after_they_were_shown_are_asked_again(
     body = _stdout_json(r)
     assert body["data"]["error"]["code"] == "policies_not_accepted"
     assert "changed" in body["data"]["error"]["message"]
-    assert "https://shop.test/new-terms" in body["user_message"]
-    assert load_session().policies_accepted_digest is None
+    assert "Policy: No refunds." in body["user_message"]
+    assert load_session().policies_accepted_digest == accepted
+    assert load_session().payment.spend_request_id is None
+
+    r = _invoke(runner, *_PAY, "--policies-accepted")
+    assert _error_code(r) != "policies_not_accepted"
 
 
 # ---------------------------------------------------------------------------
@@ -562,7 +598,7 @@ def test_a_cancel_the_agent_cannot_do_tells_the_user_where_and_what_to_quote():
     assert "https://koby.test/bookings/1" in message
     assert "Booking ID: bkg_1" in message
     assert "Order reference: ord_9" in message
-    assert "Cancellation policy: Cancellation allowed." in message
+    assert "Cancellation policy" not in message
     assert "https://koby.test/refunds" in message
     assert "https://koby.test/checkout" not in message
 

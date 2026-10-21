@@ -2,9 +2,8 @@
 
 A fault report is sent without asking the user, so it may hold only facts about the
 client and about a business's public profile, never anything about the user.
-``ingest/apps-script/FaultSchema.gs`` is generated from ``FAULT_REPORT_SCHEMA`` and the
-ingest checks every report against it with the same ``Validate.gs`` subset that
-``validate_bundle`` mirrors here.
+The support ingest checks every report against ``FAULT_REPORT_SCHEMA`` with the same
+JSON Schema subset that ``validate_bundle`` implements.
 """
 from __future__ import annotations
 

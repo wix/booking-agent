@@ -787,7 +787,8 @@ total only.
 **Business policies.** On `awaiting_user: policy_acceptance` or `policies_not_accepted`, post
 `user_message` (every policy line and raw link), ask whether they accept, and **STOP**. Run
 `next_command` (it adds `--policies-accepted`) only after a yes; on a no, do not book. No policies
-sent: say nothing about them.
+sent: say nothing about them. Links `flow book` shows with no `awaiting_user`: post them, ask
+nothing.
 
 **Free and pay-at-appointment bookings (`free`, `at_service`).** `flow book` places the booking
 directly and `next_command` is `booking-agent flow book poll --wait`. Before running it, tell the user
@@ -802,8 +803,8 @@ ucp-complete`). If `merchant_quote.total_changed`, get approval and add `--total
 
 **Deposit bookings (`deposit_required`).** Before any charge, show `data.due_now_display` (the
 deposit charged now), the amount due at the appointment, and every item in
-`data.payment_schedules` and `data.payment_disclosures`, and get the user's agreement. Then run
-`pay request` with `--policies-accepted`. Quote schedule times from `due_at_display` and
+`data.payment_schedules` and `data.payment_disclosures`, get the user's agreement, then run
+`next_command`. Quote schedule times from `due_at_display` and
 disclosure text from `content_display`; never quote raw `due_at` or timestamps inside
 `content`.
 
