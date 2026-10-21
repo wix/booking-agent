@@ -1,5 +1,26 @@
 # Change Log
 
+## 21/10/26 at 12:40:46 by [Ran Yahalom](mailto:ranya@wix.com)
+
+- Released as 0.9.1 (skill 0.57.1), deferred with `ecosystem_ready: false` until a hosted replay passes: the hosted replay of 0.9.0 failed, and 0.9.0 stays deferred, so this release carries both
+- Made a new runtime read the saved booking first: any state-changing `flow` command in a runtime that has not run `flow status` (a marker in the temporary folder, which a fresh sandbox does not keep) now refuses with `resume_check_required` and points at `flow status`. The replay showed an assistant in a new conversation answering "no active session" or guessing; this is enforced by the CLI instead of skill text. `BOOKING_AGENT_RESUME_CHECK=0` turns it off
+- Counted each new runtime beside the saved booking (`.runtime-starts`) and made `runtime doctor` report `survived_restart_basis`: it said `null` on a host whose sandboxes share one boot id, which proved nothing either way
+- Added `calendar skip --session-only --no-route` and a saved `calendar_skipped_unasked` flag: both replays skipped the calendar without asking, so the booked message had no event link and said nothing. It now says no calendar event was added when the user did not choose to skip. The skill now treats a connector the platform lists but the user has not connected as a route
+- Updated the skill (0.57.1): a new conversation starts at `flow status` and a reply answers only the question status shows; trimmed repeated text to stay inside the size budget
+- Folder names such as the kept `/app/.agents` stay out of the CLI (a test forbids naming hosts), so the persistence question is unchanged; CLI persistence of the install itself was not done because a CLI cannot run when it is missing
+
+---
+
+## 21/10/26 at 12:21:04 by [Ran Yahalom](mailto:ranya@wix.com)
+
+- Stopped a forgotten `--service-id` on `flow availability` from queuing a support note on its first occurrence: the hosted replay of 0.9.0 showed the error had no recovery command, so it counted as an unknown failure and left a note waiting that the user was never asked about. The error now names `flow discover` as the recovery and is listed with the agent-contract codes that never offer a note
+- Made `flow status` drop a waiting note once the booking has moved past the step the note describes, instead of showing only the consent question: after a restart the user's "yes" to the booking summary was read as consent to send the note
+- Refused `flow availability` once a time is chosen and the summary is shown (`availability_after_slot_confirmed`) unless the user asks for another time (`--change-time`, summary stage only): re-listing times had moved a booking back from the summary and discarded the confirmed slot
+- Added `test_resume_after_restart.py` covering the three behaviors above; the full suite passes
+- Not released: the version, skill text, resume check, folder suggestion, and calendar changes from the plan are still to do, so release 0.9.0 stays deferred
+
+---
+
 ## 21/10/26 at 08:09:43 by [Ran Yahalom](mailto:ranya@wix.com)
 
 - Removed `scripts/generate_ingest_schemas.py` and its drift test: generating the support ingest's files and checking them for drift now lives with the ingest itself, so this public repository carries no code or paths for the support ingest and the check runs where the ingest's files are rather than being skipped here

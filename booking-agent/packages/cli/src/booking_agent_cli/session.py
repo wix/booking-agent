@@ -282,6 +282,8 @@ class Session:
     mismatch_digest: Optional[str] = None
     calendar_ask_surfaced: bool = False  # `calendar ask` showed the calendar offer
     calendar_remembered_applied: bool = False  # a preference the user saved earlier was applied
+    # The agent skipped the calendar without the user choosing to (no way to connect it here).
+    calendar_skipped_unasked: bool = False
     calendar_technical_fallback: bool = False  # connecting failed for a reason outside the user
     time_preference_mode: Optional[str] = None  # range | at | from | asap | any
     desired_time_ranges: Optional[List[Dict[str, Any]]] = None  # discover's time flags, wire form
@@ -963,6 +965,7 @@ def _session_from_dict(raw: Dict[str, Any]) -> Session:
         mismatch_digest=raw.get("mismatch_digest"),
         calendar_ask_surfaced=bool(raw.get("calendar_ask_surfaced", False)),
         calendar_remembered_applied=bool(raw.get("calendar_remembered_applied", False)),
+        calendar_skipped_unasked=bool(raw.get("calendar_skipped_unasked", False)),
         calendar_technical_fallback=bool(raw.get("calendar_technical_fallback", False)),
         time_preference_mode=raw.get("time_preference_mode"),
         desired_time_ranges=list(raw.get("desired_time_ranges") or []) or None,

@@ -129,11 +129,14 @@ POLL_COMMANDS = frozenset({"book poll", "pay poll", "link-auth poll"})
 # The agent skipped a step the CLI orders or passed a confirmation the user was never
 # shown. The fix is the agent's next command, so a repeat is never the user's problem.
 AGENT_CONTRACT_CODES = frozenset({
+    "availability_after_slot_confirmed",
     "booking_confirmation_required",
     "calendar_offer_not_shown",
     "mismatch_not_surfaced",
+    "missing_service_id",
     "policies_not_accepted",
     "purge_not_surfaced",
+    "resume_check_required",
     "time_preference_not_structured",
 })
 NEVER_OFFER_CODES = frozenset({
@@ -544,6 +547,7 @@ SESSION_RULES: Dict[str, FieldRule] = {
     "mismatch_digest": EXCLUDE,
     "calendar_ask_surfaced": EXCLUDE,
     "calendar_remembered_applied": EXCLUDE,
+    "calendar_skipped_unasked": EXCLUDE,
     "calendar_technical_fallback": EXCLUDE,
     "time_preference_mode": EXCLUDE,
     "desired_time_ranges": EXCLUDE,
@@ -1055,6 +1059,21 @@ def consent_output(session: Session, report: Dict[str, Any]) -> AgentOutput:
     )
 
 
+def _stale(session: Session, report: Dict[str, Any]) -> bool:
+    """The booking moved on after the failure the note describes.
+
+    The agent recovered and carried on, so the user was never asked, and a later bare
+    "yes" must not be taken as the answer to a question they never saw. The note is
+    dropped (not declined), so a later failure can still offer one.
+    """
+    from .session import VALID_PHASES
+
+    phase = (report.get("error") or {}).get("phase")
+    if phase not in VALID_PHASES or session.flow_phase not in VALID_PHASES:
+        return False
+    return VALID_PHASES.index(session.flow_phase) > VALID_PHASES.index(phase)
+
+
 def status_gate(session: Session) -> Optional[AgentOutput]:
     """Consent gate for `flow status` while a note waits for the user's answer."""
     try:
@@ -1062,6 +1081,9 @@ def status_gate(session: Session) -> Optional[AgentOutput]:
         if report is None:
             return None
         if report is _CORRUPT:
+            _restore(session)
+            return None
+        if _stale(session, report):
             _restore(session)
             return None
         if session.support_report_send_failures:

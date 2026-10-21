@@ -17,6 +17,8 @@ def _reset_paid_bookings():
 def _host_keeps_files(monkeypatch):
     """Tests are a host that keeps its own files; the init gate has its own tests."""
     monkeypatch.setenv("BOOKING_AGENT_PERSISTENCE", "none")
+    # The resume check has its own tests; the rest drive one runtime from start to finish.
+    monkeypatch.setenv("BOOKING_AGENT_RESUME_CHECK", "0")
     from booking_agent_cli import runtime_prepare
 
     # Test folders live under the system temp dir; the durability checks have their own tests.

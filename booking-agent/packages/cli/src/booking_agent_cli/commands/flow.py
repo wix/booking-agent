@@ -189,13 +189,52 @@ def _flow_setup(ctx: typer.Context) -> None:
     from .. import config_loader
 
     clear_last_http_failure()
+    config_loader.load()
     sub = ctx.invoked_subcommand
+    _resume_check(sub)
     if sub not in (None, "init", "sessions"):
         session = load_session()
         if session is not None:
             record_command(session)
             save_session(session)
-    config_loader.load()
+
+
+# Commands a new conversation may run before it has read the saved booking.
+_BEFORE_RESUME_CHECK = frozenset({None, "init", "sessions", "status", "support-report"})
+_MARKS_RESUME_CHECK = frozenset({"init", "sessions", "status"})
+
+
+def _resume_check(sub: Optional[str]) -> None:
+    """Make a runtime that did not start this booking read ``flow status`` first.
+
+    A new conversation can hold a saved booking that is waiting for the user's yes. Reading
+    the state is a CLI step so no skill text has to remember it.
+    """
+    from .. import runtime_prepare
+    from ..session import session_path
+
+    if not runtime_prepare.resume_check_enabled():
+        return
+    path = session_path()
+    if sub in _MARKS_RESUME_CHECK:
+        runtime_prepare.mark_runtime_seen(path)
+        return
+    if sub in _BEFORE_RESUME_CHECK or runtime_prepare.runtime_has_seen(path):
+        return
+    session = load_session()
+    if session is None:
+        return
+    emit_error(
+        session.flow_phase,
+        code="resume_check_required",
+        message=(
+            "This conversation did not start this booking. Run `booking-agent flow status`, "
+            "read it, and follow its next_command. The user's reply answers only the question "
+            "status shows; never list times again or start over."
+        ),
+        next_command="booking-agent flow status",
+    )
+    raise typer.Exit(code=1)
 
 
 # ---------------------------------------------------------------------------
@@ -3426,7 +3465,7 @@ def _require_calendar_offer(session: Session) -> None:
 
 def _emit_calendar_unavailable(session: Session, status: dict, mode: str, *, data: Optional[dict]) -> None:
     session.calendar_technical_fallback = True
-    skip_calendar_gate_session_only(session)
+    skip_calendar_gate_session_only(session, unasked=True)
     out = dict(data or {})
     out.update(status)
     out["calendar_state"] = "skipped"
@@ -3641,6 +3680,12 @@ def calendar_skip(
         "--session-only",
         help="Skip calendar checking for this booking only; keep the saved preference",
     ),
+    no_route: bool = typer.Option(
+        False,
+        "--no-route",
+        help="With --session-only: this runtime has no way to connect Google Calendar, so the "
+        "user was not asked. The booked message then says no event was added.",
+    ),
 ) -> None:
     session = must_load()
     try:
@@ -3651,7 +3696,7 @@ def calendar_skip(
     _require_calendar_offer(session)
     _stop_pending_sign_in()
     if session_only:
-        skip_calendar_gate_session_only(session)
+        skip_calendar_gate_session_only(session, unasked=no_route)
         emit(_agent_out(
             session,
             prompt=(
@@ -4578,6 +4623,11 @@ def _adopt_response_timezone(session: Session, response_zones: Dict[str, Any]) -
     return out
 
 
+_PAST_TIME_CHOICE_PHASES = frozenset({
+    "BUYER_RESOLVED", "BOOKED", "PAYMENT_PENDING", "CONFIRMED",
+})
+
+
 @app.command("availability")
 def availability(
     service_id: Optional[str] = typer.Option(None, "--service-id"),
@@ -4589,6 +4639,12 @@ def availability(
         help="Single calendar day to query (YYYY-MM-DD). Sets a full-day window when "
         "--from/--to are not given. Use this to honor a specific requested date.",
     ),
+    change_time: bool = typer.Option(
+        False,
+        "--change-time",
+        help="The user asked for a different time after the summary was shown. Drops the "
+        "chosen slot and the summary, and lists times again.",
+    ),
 ) -> None:
     """Query availability for the selected business + service."""
     session = must_load()
@@ -4597,6 +4653,23 @@ def availability(
         require_calendar_gate(session)
     except GateError as e:
         raise _handle_gate(session, e)
+    if session.flow_phase in _PAST_TIME_CHOICE_PHASES:
+        if not (change_time and session.flow_phase == "BUYER_RESOLVED"):
+            from ..engine import recommend_next
+
+            emit_error(
+                session.flow_phase,
+                code="availability_after_slot_confirmed",
+                message=(
+                    "A time is already chosen for this booking. Do not list times again: run "
+                    "`booking-agent flow status` and follow next_command. Only if the user "
+                    "asks for a different time at the summary, add `--change-time`."
+                ),
+                next_command=recommend_next(session) or "booking-agent flow status",
+            )
+            raise typer.Exit(code=1)
+        session.slot_id = None
+        session.slot_user_confirmed = False
 
     if session.business.timezone and _valid_iana_timezone(session.business.timezone) is None:
         emit_error(
@@ -4616,6 +4689,7 @@ def availability(
             session.flow_phase,
             code="missing_service_id",
             message="--service-id is required (use the value from `flow discover`).",
+            next_command="booking-agent flow discover",
         )
         raise typer.Exit(code=1)
 
