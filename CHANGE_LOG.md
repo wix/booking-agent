@@ -1,5 +1,43 @@
 # Change Log
 
+## 21/10/26 at 08:09:43 by [Ran Yahalom](mailto:ranya@wix.com)
+
+- Removed `scripts/generate_ingest_schemas.py` and its drift test: generating the support ingest's files and checking them for drift now lives with the ingest itself, so this public repository carries no code or paths for the support ingest and the check runs where the ingest's files are rather than being skipped here
+- Reworded the schema module docstrings and a `support_report.py` comment to describe the support ingest's contract without naming its internal files
+
+---
+
+## 21/10/26 at 08:09:22 by [Ran Yahalom](mailto:ranya@wix.com)
+
+- Part of 0.9.0. A cancellation or rescheduling policy that is only the schema's required `allowed: true`, with no window, fee, or limit, no longer counts as a business policy, because businesses with no policy configured still send that default and users were being asked to accept a bare "Cancellation allowed" the business never set
+- The user now accepts the business's policies in the same question as the booking summary on every route, and `flow book` enforces it, so paid and pay-at-service checkouts no longer add a second policy question in the common case. Policy links a checkout adds afterwards (terms, privacy, refund) are shown to the user without a new question; payment asks again only when the checkout adds policy text, payment terms, or disclosures the user has not seen
+
+---
+
+## 20/10/26 at 20:53:15 by [Ran Yahalom](mailto:ranya@wix.com)
+
+- Made the support report leak test deterministic: its fake gate code was the digits `4242`, which a report timestamp's microseconds can contain by chance, so the test failed intermittently in CI. The gate code is now letters, which no timestamp or ID in the report can produce
+
+---
+
+## 20/10/26 at 20:31:17 by [Ran Yahalom](mailto:ranya@wix.com)
+
+- Released as 0.9.0 (skill 0.57.0), a breaking release below 1.0.0 because a booking now needs new confirmation flags: a transcript of an AC repair booking showed an agent skipping the calendar question, never showing the business's policies, booking without the user's yes on the summary, and editing state files by hand, so the steps that the skill only asked for are now enforced by the CLI and cannot be skipped by an agent that ignores the skill
+- `flow book` now needs `--user-confirmed`, bound to a digest of the recap the user saw, so a booking can no longer be committed on a summary the user never confirmed or that changed afterwards
+- The business's cancellation and rescheduling policies, checkout policy links (terms, privacy, refund), and disclosures are collected and shown with the recap, and the step that commits the booking (`flow book` for direct routes, `pay request` for paid checkouts, `pay ucp-complete` for pay-at-service) needs `--policies-accepted` bound to a digest of exactly those policies. There is no policy step when the business sent no policies, since the acceptance is a contractual requirement owed to the provider, not a generic confirmation
+- Pay-at-service checkouts now complete in two steps (`flow book` surfaces, `pay ucp-complete` commits) so the policy acceptance happens before anything is committed
+- `calendar connect` and `calendar skip` now fail with `calendar_offer_not_shown` until the calendar question was asked, and a calendar connection found in the environment or cache is no longer taken as the user's choice, so the user always gets the choice; logout now says honestly what was disconnected
+- Discovery validates structured times, derives the availability window from the requested time range, drops results whose business profile cannot be resolved (answering `no_bookable_results` when none remain), detects a mismatch between the request and the chosen service and blocks `business use` until the user confirmed it, and lists asking about the search area before `search-area propose` as forbidden (the user was asked twice), because the transcript booked an unbookable business and an unrequested service
+- `business use` on a business whose profile fails to resolve now returns the recoverable `profile_resolve_failed` with a message offering the other results, instead of an internal error
+- Added `flow purge`, which deletes local booking state only after the user saw what will be removed and confirmed, so agents never need to touch state files; `forget`, `reset`, and `purge` keep calendar events of upcoming bookings
+- The Link approval link is always shown once before `link-auth poll` starts polling, cancellation now returns a `user_message`, and library events no longer print to stderr unless `BOOKING_AGENT_STDERR_EVENTS=1`, because the transcript's agent never showed the link and was confused by stderr noise
+- `validate-skill-compliance` now flags bookings committed without policy acceptance, recap confirmation, mismatch confirmation, the calendar question, or a structured time preference
+- Added automatic fault reports: when the CLI absorbs an error the user never sees (such as a broken business profile during discovery), it sends a small report with no user data (step, exception type, code-defined message template, failing host and path, registry IDs, versions) to the support ingest, at most once a day per fault, after the command's output is written and within one second. Turn it off with `BOOKING_AGENT_FAULT_REPORTS=0`. Tests guard that every absorbed exception in the live backend is recorded and that no buyer data can enter a report
+- Added `scripts/generate_ingest_schemas.py` and a drift test (run when `USP_SPEC_INGEST_DIR` is set) so the ingest's generated schema files stay identical to the CLI schemas
+- Release order: this version sends fault reports, so merge it only after the updated support ingest is deployed and its fault smoke test passes
+
+---
+
 ## 20/10/26 at 13:45:51 by [Ran Yahalom](mailto:ranya@wix.com)
 
 - Released as 0.8.0 (skill 0.56.0). A service paid at the appointment can now be booked through the business's checkout when the business declares the pay-at-service extension, and the booking completes with an empty `payment` and no Link spend request. The business now answers these bookings with a checkout and an order, and it refuses a payment instrument on them rather than ignoring it, so a client that kept sending one would break; USP 11.3.5 S4/S5 (not base UCP, whose schema only permits an empty `payment`) defines the instrument-free completion

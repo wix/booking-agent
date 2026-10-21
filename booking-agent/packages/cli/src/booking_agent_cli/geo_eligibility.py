@@ -1,4 +1,4 @@
-"""Geography helpers for Track A (issue #197): registry radius and location facts."""
+"""Geography helpers for registry radius and location facts."""
 from __future__ import annotations
 
 import math

@@ -43,7 +43,7 @@ def _stdout_json(result, *, index: int = -1):
     return objs[index]
 
 
-def _seed_slot_selected(tmp_path) -> Session:
+def _seed_slot_selected(tmp_path, *, url_surfaced: bool = True) -> Session:
     store = SessionStore()
     session = Session(
         user_request="Book AC repair",
@@ -52,6 +52,7 @@ def _seed_slot_selected(tmp_path) -> Session:
         checkout_prereq_completed=True,
         slot_id="slot-1",
         slot_user_confirmed=True,
+        link_auth_url_surfaced=url_surfaced,
     )
     add_session(store, session)
     save_store(store)
@@ -151,6 +152,38 @@ def test_link_auth_poll_waits_then_continues_flow(runner, isolated_session, monk
     assert body["next_command"] == "booking-agent flow buyer resolve"
     assert "user_message" not in body or not body["user_message"]
     assert load_store().sessions[0].link_auth_gate_completed is True
+
+
+def test_link_auth_poll_shows_a_url_the_user_never_saw(runner, isolated_session, monkeypatch):
+    _seed_slot_selected(isolated_session, url_surfaced=False)
+    flow = _signed_out(monkeypatch, pending=True)
+
+    def _must_not_poll(**_k):
+        raise AssertionError("poll must show the URL before waiting")
+
+    monkeypatch.setattr(flow, "poll_auth_until_authenticated", _must_not_poll)
+
+    r = _invoke(runner, "flow", "link-auth", "poll")
+    assert r.exit_code == 0, r.stdout + r.stderr
+    body = _stdout_json(r)
+    assert body["awaiting_user"] == "link_auth_approval"
+    assert body["user_message"] == URL
+    assert body["next_command"] == "booking-agent flow link-auth poll"
+    assert load_store().sessions[0].link_auth_url_surfaced is True
+
+
+def test_link_auth_connect_marks_url_surfaced_and_approval_clears_it(runner, isolated_session, monkeypatch):
+    _seed_slot_selected(isolated_session, url_surfaced=False)
+    flow = _signed_out(monkeypatch)
+    monkeypatch.setattr(flow, "poll_auth_until_authenticated", lambda **_k: AuthStatus(authenticated=True))
+
+    assert _invoke(runner, "flow", "link-auth", "connect").exit_code == 0
+    assert load_store().sessions[0].link_auth_url_surfaced is True
+    monkeypatch.setattr(
+        flow, "get_auth_status", lambda: AuthStatus(authenticated=False, verification_url=URL),
+    )
+    assert _invoke(runner, "flow", "link-auth", "poll").exit_code == 0
+    assert load_store().sessions[0].link_auth_url_surfaced is False
 
 
 def test_link_auth_poll_timeout_keeps_same_link(runner, isolated_session, monkeypatch):

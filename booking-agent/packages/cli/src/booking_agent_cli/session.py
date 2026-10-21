@@ -270,6 +270,44 @@ class Session:
     calendar_timezone: Optional[str] = None  # primary Google Calendar zone (events mode only)
     calendar_event_id: Optional[str] = None  # event created for this booking, so status can show it
     calendar_event_html_link: Optional[str] = None
+    # Surface-then-confirm gates. A confirmation is accepted only when an earlier command
+    # surfaced the content and the digest of what it showed still matches.
+    policies_surfaced: bool = False
+    policies_digest: Optional[str] = None  # digest of the business policies last shown
+    policies_accepted_digest: Optional[str] = None  # digest the user accepted
+    recap_surfaced: bool = False
+    recap_digest: Optional[str] = None
+    recap_confirmed_digest: Optional[str] = None
+    mismatch_surfaced: bool = False
+    mismatch_digest: Optional[str] = None
+    calendar_ask_surfaced: bool = False  # `calendar ask` showed the calendar offer
+    calendar_remembered_applied: bool = False  # a preference the user saved earlier was applied
+    calendar_technical_fallback: bool = False  # connecting failed for a reason outside the user
+    time_preference_mode: Optional[str] = None  # range | at | from | asap | any
+    desired_time_ranges: Optional[List[Dict[str, Any]]] = None  # discover's time flags, wire form
+    link_auth_url_surfaced: bool = False
+
+
+# Fields of the confirmation gates that describe one selection (business, service, slot).
+SELECTION_CONFIRMATION_FIELDS = (
+    "policies_surfaced",
+    "policies_digest",
+    "policies_accepted_digest",
+    "recap_surfaced",
+    "recap_digest",
+    "recap_confirmed_digest",
+    "mismatch_surfaced",
+    "mismatch_digest",
+)
+
+
+def reset_selection_confirmations(session: "Session", *, keep_mismatch: bool = False) -> None:
+    """Drop confirmations tied to an earlier selection so none carries over to a new one."""
+    defaults = {f.name: f.default for f in fields(Session)}
+    for name in SELECTION_CONFIRMATION_FIELDS:
+        if keep_mismatch and name.startswith("mismatch_"):
+            continue
+        setattr(session, name, defaults[name])
 
 
 @dataclass
@@ -289,6 +327,7 @@ class SessionStore:
     install_integrity_failure: Optional[Dict[str, Any]] = None
     # A loaded skill file that differs from the bundled skill ({skill_version, skill_path, ...}).
     skill_integrity_failure: Optional[Dict[str, Any]] = None
+    purge_surfaced: Optional[str] = None  # digest of the list `flow purge` last showed
     sessions: List[Session] = field(default_factory=list)
 
 
@@ -753,6 +792,8 @@ def _store_to_dict(store: SessionStore) -> Dict[str, Any]:
         d["install_integrity_failure"] = dict(store.install_integrity_failure)
     if store.skill_integrity_failure is not None:
         d["skill_integrity_failure"] = dict(store.skill_integrity_failure)
+    if store.purge_surfaced:
+        d["purge_surfaced"] = store.purge_surfaced
     return _restore_unknown(store, d)
 
 
@@ -779,6 +820,9 @@ def _store_from_dict(raw: Dict[str, Any]) -> SessionStore:
         install_verified=_dict_or_none(raw.get("install_verified")),
         install_integrity_failure=_dict_or_none(raw.get("install_integrity_failure")),
         skill_integrity_failure=_dict_or_none(raw.get("skill_integrity_failure")),
+        purge_surfaced=(
+            raw["purge_surfaced"] if isinstance(raw.get("purge_surfaced"), str) else None
+        ),
         sessions=[_session_from_dict(s) for s in (raw.get("sessions") or [])],
     )
     return _remember_unknown(store, raw, _STORE_KEYS)
@@ -909,6 +953,20 @@ def _session_from_dict(raw: Dict[str, Any]) -> Session:
         calendar_timezone=raw.get("calendar_timezone"),
         calendar_event_id=raw.get("calendar_event_id"),
         calendar_event_html_link=raw.get("calendar_event_html_link"),
+        policies_surfaced=bool(raw.get("policies_surfaced", False)),
+        policies_digest=raw.get("policies_digest"),
+        policies_accepted_digest=raw.get("policies_accepted_digest"),
+        recap_surfaced=bool(raw.get("recap_surfaced", False)),
+        recap_digest=raw.get("recap_digest"),
+        recap_confirmed_digest=raw.get("recap_confirmed_digest"),
+        mismatch_surfaced=bool(raw.get("mismatch_surfaced", False)),
+        mismatch_digest=raw.get("mismatch_digest"),
+        calendar_ask_surfaced=bool(raw.get("calendar_ask_surfaced", False)),
+        calendar_remembered_applied=bool(raw.get("calendar_remembered_applied", False)),
+        calendar_technical_fallback=bool(raw.get("calendar_technical_fallback", False)),
+        time_preference_mode=raw.get("time_preference_mode"),
+        desired_time_ranges=list(raw.get("desired_time_ranges") or []) or None,
+        link_auth_url_surfaced=bool(raw.get("link_auth_url_surfaced", False)),
     )
     return _remember_unknown(session, raw, _SESSION_KEYS)
 

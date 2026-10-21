@@ -60,6 +60,7 @@ def _business_use(runner):
 def _to_buyer_resolved(runner, *resolve_args):
     for cmd in (
         ["flow", "use-ucp-checkout-mode"],
+        ["flow", "calendar", "ask"],
         ["flow", "calendar", "skip"],
         ["flow", "availability", "--service-id", _SERVICE_ID],
     ):
@@ -94,7 +95,7 @@ def test_business_use_asks_for_the_service_address_then_book_sends_it(
 
     _to_buyer_resolved(runner)
     assert load_session().buyer_timezone == "America/Phoenix"
-    booked = _invoke(runner, "flow", "book")
+    booked = _invoke(runner, "flow", "book", "--user-confirmed", "--policies-accepted")
     assert booked.exit_code == 0, booked.stdout
     address = home_visit["delivery_address"]
     assert address["line1"] == "100 Test Street"
@@ -113,7 +114,7 @@ def test_book_refuses_a_home_visit_without_a_confirmed_address(runner, home_visi
     session.service_address = None
     save_session(session)
 
-    r = _invoke(runner, "flow", "book")
+    r = _invoke(runner, "flow", "book", "--user-confirmed", "--policies-accepted")
     assert r.exit_code == 1
     body = _stdout_json(r)
     assert body["data"]["error"]["code"] == "service_address_unconfirmed"
@@ -140,5 +141,5 @@ def test_recap_lines_echo_every_detail_and_book_sends_the_note(runner, home_visi
     assert "Note for the business: Window AC unit, completely unresponsive, brand unknown" in lines
     assert "booking_recap_lines verbatim" in recap["prompt"]
 
-    assert _invoke(runner, "flow", "book").exit_code == 0
+    assert _invoke(runner, "flow", "book", "--user-confirmed", "--policies-accepted").exit_code == 0
     assert home_visit["notes"] == "Window AC unit, completely unresponsive, brand unknown"

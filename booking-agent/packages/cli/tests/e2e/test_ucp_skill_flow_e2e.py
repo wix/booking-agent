@@ -159,6 +159,7 @@ def _drive_offline_ucp_to_payment_pending(runner, offline_stack):
     if "use-ucp-checkout-mode" in next_cmd:
         r = _invoke(runner, "flow", "use-ucp-checkout-mode")
         assert r.exit_code == 0, r.stdout + r.stderr
+    _invoke(runner, "flow", "calendar", "ask")
     _invoke(runner, "flow", "calendar", "skip")
     availability_result = _invoke(
         runner, "flow", "availability", "--service-id", service_id,
@@ -185,7 +186,7 @@ def _drive_offline_ucp_to_payment_pending(runner, offline_stack):
     store.sessions[0].link_auth_gate_completed = True
     save_store(store)
     _invoke(runner, "flow", "buyer", "resolve")
-    r = _invoke(runner, "flow", "book", "--service-id", service_id)
+    r = _invoke(runner, "flow", "book", "--service-id", service_id, "--user-confirmed")
     assert r.exit_code == 0, r.stdout + r.stderr
     book = _stdout_json(r)
     assert book["data"]["checkout_path"] == "ucp"
@@ -228,7 +229,7 @@ def test_ucp_skill_flow_e2e_over_http(runner, offline_http_env, monkeypatch):
     _service_id, _book = _drive_offline_ucp_to_payment_pending(runner, offline_http_env)
     _stub_link_spend_request(monkeypatch, "lsrq_skill_flow", {})
 
-    r = _invoke(runner, "flow", "pay", "request", "--payment-method-id", "pm_test")
+    r = _invoke(runner, "flow", "pay", "request", "--payment-method-id", "pm_test", "--policies-accepted")
     assert r.exit_code == 0, r.stdout + r.stderr
     r = _invoke(runner, "flow", "pay", "poll")
     assert r.exit_code == 0, r.stdout + r.stderr
@@ -243,6 +244,34 @@ def test_ucp_skill_flow_e2e_over_http(runner, offline_http_env, monkeypatch):
     r = _invoke(runner, "flow", "validate-skill-compliance")
     assert r.exit_code == 0, r.stdout + r.stderr
     assert _stdout_json(r)["data"]["compliant"] is True
+
+
+def test_checkout_terms_and_privacy_links_are_shown_without_a_second_question(
+    runner, offline_http_env, monkeypatch,
+):
+    """Replay: checkout terms and privacy links reach the user; the summary yes covers them."""
+    import support.mock.ucp_checkout_store as checkout_store
+
+    monkeypatch.setattr(checkout_store, "checkout_links", lambda: [
+        {"type": "terms_of_service", "url": "https://merchant.test/terms"},
+        {"type": "privacy_policy", "url": "https://merchant.test/privacy"},
+        {"rel": "continue", "url": "https://merchant.test/checkout/continue"},
+    ])
+    _service_id, book = _drive_offline_ucp_to_payment_pending(runner, offline_http_env)
+
+    assert book.get("awaiting_user") is None
+    urls = [link["url"] for link in book["data"]["policy_links"]]
+    assert urls == ["https://merchant.test/terms", "https://merchant.test/privacy"]
+    assert "https://merchant.test/terms" in book["user_message"]
+    assert "https://merchant.test/privacy" in book["user_message"]
+    assert "https://merchant.test/checkout/continue" not in book["user_message"]
+    assert "--policies-accepted" not in book["next_command"]
+
+    captured: dict = {}
+    _stub_link_spend_request(monkeypatch, "lsrq_policies", captured)
+    r = _invoke(runner, "flow", "pay", "request", "--payment-method-id", "pm_test")
+    assert r.exit_code == 0, r.stdout + r.stderr
+    assert captured
 
 
 def test_offline_full_spt_path_with_checkout_network_id(
@@ -268,6 +297,7 @@ def test_offline_full_spt_path_with_checkout_network_id(
         "--context",
         context,
         "--then-complete",
+        "--policies-accepted",
     )
     assert r.exit_code == 0, r.stdout + r.stderr
     assert captured["credential_type"] == "shared_payment_token"
@@ -359,7 +389,7 @@ def test_a_restart_and_a_changed_persistent_root_mid_booking_lose_nothing(
     assert not (keep_a / "booking-agent" / "booking-agent").exists()
 
     _stub_link_spend_request(monkeypatch, "lsrq_reset", {})
-    r = _invoke(runner, "flow", "pay", "request", "--payment-method-id", "pm_test")
+    r = _invoke(runner, "flow", "pay", "request", "--payment-method-id", "pm_test", "--policies-accepted")
     assert r.exit_code == 0, r.stdout + r.stderr
     r = _invoke(runner, "flow", "pay", "poll")
     assert r.exit_code == 0, r.stdout + r.stderr
@@ -433,26 +463,27 @@ def test_pay_at_service_books_through_checkout_with_no_instrument(
     assert book["data"]["payment_route"] == "pay_at_service"
     assert book["data"]["payment_due"] == "at_service"
     assert book["data"]["ucp_spt_network_id"] is None
-    assert book["next_command"] == (
-        "booking-agent flow pay ucp-complete --disclosures-confirmed"
-    )
+    assert book["next_command"] == "booking-agent flow pay ucp-complete --policies-accepted"
+    assert book["awaiting_user"] == "policy_acceptance"
+    assert any("https://example.com/terms" in line for line in book["user_message"].splitlines())
+    assert any("Nothing is charged" in line for line in book["data"]["policy_lines"])
     disclosures = book["data"]["payment_disclosures"]
     assert [d["code"] for d in disclosures] == ["payment_due_at_service"]
     assert disclosures[0]["presentation"] == "disclosure"
     assert book["data"]["payment_schedules"][0]["type"] == "at_service"
 
     # No Link payment is requested for a booking paid at the appointment.
-    r = _invoke(runner, "flow", "pay", "request", "--payment-method-id", "pm_test")
+    r = _invoke(runner, "flow", "pay", "request", "--payment-method-id", "pm_test", "--policies-accepted")
     assert r.exit_code == 1
     assert _stdout_json(r)["data"]["error"]["code"] == "pay_not_required"
 
     # The disclosure must be shown before anything completes (USP 11.3.5 S8).
     r = _invoke(runner, "flow", "pay", "ucp-complete")
     assert r.exit_code == 1
-    assert _stdout_json(r)["data"]["error"]["code"] == "disclosures_unconfirmed"
+    assert _stdout_json(r)["data"]["error"]["code"] == "policies_not_accepted"
     assert pay_at_service_env.checkout_store.complete_bodies == []
 
-    r = _invoke(runner, "flow", "pay", "ucp-complete", "--disclosures-confirmed")
+    r = _invoke(runner, "flow", "pay", "ucp-complete", "--policies-accepted")
     assert r.exit_code == 0, r.stdout + r.stderr
     final = _stdout_json(r)
     assert final["phase"] == "CONFIRMED"

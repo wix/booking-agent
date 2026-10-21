@@ -45,7 +45,7 @@ _BEARER = "Bearer eyJhbGciOiJIUzI1NiJ9.leaky"
 _CONTINUE = "https://merchant.test/checkout/chk_test?token=leak"
 _PM = "pm_secretcard"
 _LAT, _LNG = 51.523767, -0.158555
-_NOTES = "ring twice, gate code 4242"
+_NOTES = "ring twice, gate code QZXK"
 _RECIPIENT = "attacker@evil.test"
 
 
@@ -479,7 +479,7 @@ def _populate(session: Session) -> None:
 
 _SECRETS = (
     _BUYER_NAME, _BUYER_EMAIL, _BUYER_PHONE, _STREET, "Baker", _CREDENTIAL, "jkt_secret",
-    "eyJhbGciOiJIUzI1NiJ9", "token=leak", _PM, str(_LAT), str(_LNG), _NOTES, "4242",
+    "eyJhbGciOiJIUzI1NiJ9", "token=leak", _PM, str(_LAT), str(_LNG), _NOTES, "QZXK",
     "pi_secret_123", _RECIPIENT, "Lovelace",
 )
 

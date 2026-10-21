@@ -169,10 +169,11 @@ class UcpNativeContext(BaseModel):
                 continue
             if "authorization" in binding:
                 logger.warning(
-                    f"{SVC_SERVICES} binding declares a sibling 'authorization' member, "
+                    "%s binding declares a sibling 'authorization' member, "
                     "which USP prohibits; the policy MUST be published as "
                     "config.authorization. Treating this business as publishing no "
-                    "policy."
+                    "policy.",
+                    SVC_SERVICES,
                 )
                 misplaced = True
                 continue

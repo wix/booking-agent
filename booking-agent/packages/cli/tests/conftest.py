@@ -113,6 +113,20 @@ def _no_update_checks(monkeypatch):
     monkeypatch.setenv("BOOKING_AGENT_UPDATE_CHECK", "0")
 
 
+@pytest.fixture(autouse=True)
+def _no_fault_reports(monkeypatch):
+    """No automatic fault report reaches the real ingest; recorded faults never leak."""
+    from booking_agent import faults
+    from booking_agent_cli import fault_reports
+
+    monkeypatch.setenv("BOOKING_AGENT_FAULT_REPORTS", "0")
+    faults.drain()
+    fault_reports.collect()
+    yield
+    faults.drain()
+    fault_reports.collect()
+
+
 @pytest.fixture
 def isolated_session(tmp_path, monkeypatch):
     """Chdir into a tmp dir, set test env defaults, and inject the in-memory mocks."""

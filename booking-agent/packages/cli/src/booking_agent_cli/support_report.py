@@ -54,7 +54,7 @@ DEFAULT_SUPPORT_INGEST_URL = (
 # script's JSON reply is served. Only this exact host pair is ever followed.
 _APPS_SCRIPT_HOST = "script.google.com"
 _APPS_SCRIPT_ECHO_HOST = "script.googleusercontent.com"
-# The fixed refusal reasons ingest/apps-script/Code.gs replies with.
+# The fixed refusal reasons the support ingest replies with.
 INGEST_REJECTION_REASONS = frozenset({
     "no_body", "media_type", "too_large", "invalid_json", "schema", "rate_limited", "internal",
 })
@@ -90,10 +90,13 @@ SEND_FAILED_MESSAGE = (
 SKILL_TABLE_CODES = frozenset({
     "agent_profile_unresolvable", "cancel_failed", "cancel_forbidden",
     "cancel_open_selection_conflict", "cancel_open_selection_required", "cancel_unauthorized",
-    "checkout_total_unconfirmed", "disclosures_unconfirmed", "installation_unverified",
+    "booking_confirmation_required", "calendar_offer_not_shown",
+    "checkout_total_unconfirmed", "installation_unverified",
     "link_auth_expired", "link_auth_gate_not_completed", "link_auth_not_started",
-    "link_auth_timeout", "mandatory_acceptance_pending", "payment_timing_changed",
-    "payment_timing_not_supported", "profile_unreachable", "reschedule_not_actionable",
+    "link_auth_timeout", "mandatory_acceptance_pending", "mismatch_not_surfaced",
+    "no_bookable_results", "payment_timing_changed", "payment_timing_not_supported",
+    "policies_not_accepted", "profile_resolve_failed", "profile_unreachable", "purge_not_surfaced",
+    "reschedule_not_actionable",
     "reschedule_not_allowed", "service_not_available_in_area", "session_store_too_new",
     "shared_payment_token_not_issued", "skill_output_refused", "skill_path_invalid",
     "skill_unverified", "ucp_native_required", "update_failed", "update_not_confirmed",
@@ -117,18 +120,28 @@ SKILL_PROSE_CODES = frozenset({
     "search_area_not_user_confirmed", "search_area_unconfirmed", "service_address_unconfirmed",
     "service_details_changed", "session_active", "session_not_found", "slot_not_selected",
     "spend_request_not_approved", "spend_request_replacement_required",
-    "timezone_confirmation_required", "ucp_complete_failed",
+    "time_preference_not_structured", "timezone_confirmation_required", "ucp_complete_failed",
 })
 EXPECTED_CODES = SKILL_TABLE_CODES | SKILL_PROSE_CODES
 # The business is still working; seeing these again is progress, not a failed step.
 STILL_WORKING_CODES = frozenset({"complete_in_progress", "checkout_already_in_progress"})
 POLL_COMMANDS = frozenset({"book poll", "pay poll", "link-auth poll"})
+# The agent skipped a step the CLI orders or passed a confirmation the user was never
+# shown. The fix is the agent's next command, so a repeat is never the user's problem.
+AGENT_CONTRACT_CODES = frozenset({
+    "booking_confirmation_required",
+    "calendar_offer_not_shown",
+    "mismatch_not_surfaced",
+    "policies_not_accepted",
+    "purge_not_surfaced",
+    "time_preference_not_structured",
+})
 NEVER_OFFER_CODES = frozenset({
     "no_support_report",
     "support_report_not_confirmed",
     "support_report_send_failed",
     "support_report_unavailable",
-})
+}) | AGENT_CONTRACT_CODES
 # A terminal stop -> the commands its output forbids. Errors from those commands
 # afterwards are the agent breaking a rule, not a product failure.
 TERMINAL_STOP_FORBIDDEN: Dict[str, Tuple[str, ...]] = {
@@ -520,6 +533,21 @@ SESSION_RULES: Dict[str, FieldRule] = {
     # The event link opens the user's calendar entry; it never leaves the device.
     "calendar_event_id": EXCLUDE,
     "calendar_event_html_link": EXCLUDE,
+    # Gate bookkeeping; not part of the support bundle schema.
+    "policies_surfaced": EXCLUDE,
+    "policies_digest": EXCLUDE,
+    "policies_accepted_digest": EXCLUDE,
+    "recap_surfaced": EXCLUDE,
+    "recap_digest": EXCLUDE,
+    "recap_confirmed_digest": EXCLUDE,
+    "mismatch_surfaced": EXCLUDE,
+    "mismatch_digest": EXCLUDE,
+    "calendar_ask_surfaced": EXCLUDE,
+    "calendar_remembered_applied": EXCLUDE,
+    "calendar_technical_fallback": EXCLUDE,
+    "time_preference_mode": EXCLUDE,
+    "desired_time_ranges": EXCLUDE,
+    "link_auth_url_surfaced": EXCLUDE,
 }
 
 # Dataclass -> its rules table, for the classification test.
@@ -1087,7 +1115,11 @@ def _http_failure(status: int) -> Optional[str]:
 
 
 def _post_report(
-    url: str, body: bytes, *, transport: Optional[httpx.BaseTransport] = None,
+    url: str,
+    body: bytes,
+    *,
+    transport: Optional[httpx.BaseTransport] = None,
+    timeout: float = SEND_TIMEOUT_S,
 ) -> Optional[str]:
     """POST the note; returns None when delivered, else a short failure label.
 
@@ -1095,7 +1127,7 @@ def _post_report(
     rejection reason when it is one of ``INGEST_REJECTION_REASONS``, and
     ``rejected`` for any other refusal or an unreadable reply.
     """
-    with httpx.Client(timeout=SEND_TIMEOUT_S, follow_redirects=False, transport=transport) as client:
+    with httpx.Client(timeout=timeout, follow_redirects=False, transport=transport) as client:
         response = client.post(url, content=body, headers={"content-type": "application/json"})
         echo = _apps_script_echo_url(url, response)
         if echo is None:

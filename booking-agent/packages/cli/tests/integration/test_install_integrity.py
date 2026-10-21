@@ -12,6 +12,7 @@ from integration.test_flow_gates import (
     _init,
     _invoke,
     _satisfy_link_auth_gate,
+    _skip_calendar,
     _stdout_json,
 )
 
@@ -120,7 +121,7 @@ def test_booking_refuses_a_tampered_installation_before_creating_it(runner, inst
     _init(runner)
     _invoke(runner, "flow", "prereq", "check")
     _complete_checkout_mode_setup(runner)
-    _invoke(runner, "flow", "calendar", "skip")
+    _skip_calendar(runner)
     _invoke(runner, "flow", "availability", "--service-id", _SERVICE_ID)
     slots = _stdout_json(_invoke(runner, "flow", "slots", "list"))
     slot_id = slots["data"]["slots"][0]["slot_id"]

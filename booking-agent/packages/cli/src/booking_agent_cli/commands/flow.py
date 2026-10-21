@@ -166,6 +166,7 @@ from ..session import (
     load_session,
     load_store,
     must_load,
+    reset_selection_confirmations,
     save_session,
     save_store,
     session_slot_end,
@@ -206,6 +207,9 @@ FORBIDDEN = [
     "POST /availability/query with raw curl",
     "Hand-entered or placeholder buyer details",
     "Selecting a slot without user confirmation",
+    # The CLI asks this itself at `search-area propose`; asking earlier makes the user answer twice.
+    "Asking the user for their address or search area before `booking-agent flow "
+    "search-area propose` asks it",
 ]
 
 
@@ -857,24 +861,199 @@ def flow_evidence(
 def flow_logout() -> None:
     """Log out of Link and Google Calendar; keep upcoming bookings cancellable."""
     result = logout_identity()
+    if result.get("calendar_env_token_still_present"):
+        calendar_text = (
+            "Cleared Google Calendar on this device. Your platform still provides its own "
+            "Google Calendar connection, which this device cannot remove; the booking "
+            "assistant will not use it unless you turn Google Calendar on again. To remove "
+            "it entirely, disconnect Google Calendar in your platform's settings."
+        )
+    else:
+        calendar_text = "Disconnected Google Calendar on this device."
     emit(AgentOutput(
         phase="STORE",
         data=result,
         prompt=(
-            "Signed you out of Link and disconnected Google Calendar on this device. "
-            "Your upcoming bookings are still saved so you can cancel them."
+            f"Tell the user: Signed you out of Link. {calendar_text} Your upcoming bookings "
+            "are still saved so you can cancel them."
         ),
     ))
+
+
+def _calendar_cleanup_for_dropped_session(session: Session) -> Optional[Dict[str, Any]]:
+    """Calendar handling when a session leaves local history.
+
+    An event for a booking that is still live stays on the user's calendar (it is their
+    reminder of a real appointment); only its local record goes. Any other event is
+    deleted, so a forgotten request never leaves an appointment behind.
+    """
+    from ..calendar_event import _forget_event_id, existing_event_id
+
+    if not existing_event_id(session.id):
+        return None
+    if is_actionable(session):
+        from ..calendar_event import _load_sidecar
+
+        entry = _load_sidecar().get(session.id) or {}
+        _forget_event_id(session.id)
+        link = entry.get("html_link") if isinstance(entry, dict) else None
+        return {
+            "status": "kept",
+            "html_link": link,
+            "user_note": (
+                "Your appointment is still booked, so I left it on your Google Calendar"
+                + (f": {link}" if link else ".")
+            ),
+        }
+    result = _remove_calendar_event_after_cancel(session)
+    if result is not None and result.get("status") == "failed":
+        _forget_event_id(session.id)
+    return result
 
 
 @app.command("reset")
 def reset() -> None:
     """Remove the active session from the history store."""
-    removed = delete_session()
-    if not removed:
-        typer.echo("No active session to remove.")
+    active = get_active_session(load_store())
+    if active is None:
+        emit_error("STORE", code="no_session", message="No active session to remove.")
         raise typer.Exit(code=1)
-    typer.echo("Active session removed.")
+    calendar = _calendar_cleanup_for_dropped_session(active)
+    delete_session()
+    prompt = "Removed the current booking request from local history."
+    if calendar and calendar.get("user_note"):
+        prompt += " Tell the user: " + calendar["user_note"]
+    emit(AgentOutput(
+        phase="STORE",
+        data={"removed_session_id": active.id, "calendar": calendar},
+        prompt=prompt,
+    ))
+
+
+_PURGE_FILES = (
+    ".calendar-events.json", "profile_cache.json", "pop_keys.json",
+    "fault-queue.jsonl", "fault-sent.json",
+)
+_PURGE_FORBIDDEN = [
+    "Reading, printing, editing, or deleting booking-agent state files or link-cli config "
+    "with shell commands",
+    "Deleting files under /tmp or the booking-agent folder by hand",
+]
+
+
+def _purge_inventory(store: Any) -> Dict[str, Any]:
+    from ..calendar_event import _load_sidecar
+
+    live = [s for s in store.sessions if s.booking.id and is_actionable(s)]
+    return {
+        "sessions": len(store.sessions),
+        "upcoming_bookings": [
+            {"business_name": s.business.name, "booking_id": s.booking.id} for s in live
+        ],
+        "calendar_events": len(_load_sidecar()),
+    }
+
+
+def _purge_message(inventory: Dict[str, Any]) -> str:
+    lines = [
+        "This clears everything the booking assistant saved on this device:",
+        f"- {inventory['sessions']} saved booking request(s) and their history",
+        f"- {inventory['calendar_events']} Google Calendar event record(s); events for "
+        "requests that never became a booking are deleted from your calendar",
+        "- cached business profiles and the keys used to manage bookings",
+        "- problem reports about businesses that are still waiting to be sent",
+        "- your Link sign-in and Google Calendar connection on this device",
+    ]
+    upcoming = inventory["upcoming_bookings"]
+    if upcoming:
+        names = ", ".join(b["business_name"] or b["booking_id"] for b in upcoming)
+        lines.append(
+            f"Your upcoming booking(s) with {names} stay booked with the business, and I "
+            "won't be able to change or cancel them for you afterwards. Their calendar "
+            "events stay on your calendar."
+        )
+    lines.append("Do you want me to clear it all?")
+    return "\n".join(lines)
+
+
+@app.command("purge")
+def purge(
+    user_confirmed: bool = typer.Option(
+        False, "--user-confirmed",
+        help="The user said yes to the list the previous `flow purge` showed.",
+    ),
+) -> None:
+    """Clear all local booking-agent state after the user confirms (shows the list first)."""
+    from ..gates import digest
+
+    store = load_store()
+    inventory = _purge_inventory(store)
+    shown = digest(inventory)
+    if not (user_confirmed and store.purge_surfaced == shown):
+        stale = user_confirmed and store.purge_surfaced is not None
+        store.purge_surfaced = shown
+        save_store(store)
+        message = _purge_message(inventory)
+        if user_confirmed:
+            emit_error(
+                "STORE",
+                code="purge_not_surfaced",
+                message=(
+                    ("What would be deleted changed since the user saw it. " if stale else
+                     "--user-confirmed was passed before the user saw what will be deleted. ")
+                    + "Nothing was deleted. Post user_message, wait for their yes, then run "
+                    "next_command."
+                ),
+                next_command="booking-agent flow purge --user-confirmed",
+                forbidden=_PURGE_FORBIDDEN,
+                user_message=message,
+                data={"awaiting_user": "purge_confirmation", "inventory": inventory},
+            )
+            raise typer.Exit(code=1)
+        emit(AgentOutput(
+            phase="STORE",
+            awaiting_user="purge_confirmation",
+            user_message=message,
+            prompt=(
+                "Nothing was deleted yet. Post user_message verbatim and wait for the user's "
+                "answer. Only if they say yes, run next_command. Never clear state with shell "
+                "commands."
+            ),
+            next_command="booking-agent flow purge --user-confirmed",
+            forbidden=_PURGE_FORBIDDEN,
+            data={"inventory": inventory},
+        ))
+        return
+
+    calendar_notes = []
+    for session in list(store.sessions):
+        calendar = _calendar_cleanup_for_dropped_session(session)
+        if calendar and calendar.get("user_note") and calendar.get("status") != "deleted":
+            calendar_notes.append(calendar["user_note"])
+    identity = logout_identity()
+    from booking_agent.settings import booking_agent_home
+    from ..session import session_path
+
+    removed = []
+    for path in (session_path(), *(booking_agent_home() / name for name in _PURGE_FILES)):
+        try:
+            path.unlink()
+            removed.append(path.name)
+        except FileNotFoundError:
+            pass
+        except OSError:
+            pass
+    message = "Done. I cleared everything the booking assistant saved on this device."
+    if calendar_notes:
+        message += "\n" + "\n".join(calendar_notes)
+    emit(AgentOutput(
+        phase="STORE",
+        user_message=message,
+        prompt="Post user_message verbatim. Local state is cleared; start over with `flow init`.",
+        next_command="booking-agent flow init --user-request '<request>'",
+        forbidden=_PURGE_FORBIDDEN,
+        data={"removed_files": removed, "identity": identity, "inventory": inventory},
+    ))
 
 
 # ---------------------------------------------------------------------------
@@ -931,18 +1110,23 @@ def sessions_forget(
             )
             raise typer.Exit(code=1)
         target_id = active.id
-    if not forget_session(store, target_id):
+    target = next((s for s in store.sessions if s.id == target_id), None)
+    if target is None or not forget_session(store, target_id):
         emit_error(
             "STORE",
             code="session_not_found",
             message=f"Session '{target_id}' not found in store.",
         )
         raise typer.Exit(code=1)
+    calendar = _calendar_cleanup_for_dropped_session(target)
     save_store(store)
+    prompt = "Removed that booking from local history."
+    if calendar and calendar.get("user_note"):
+        prompt += " Tell the user: " + calendar["user_note"]
     emit(AgentOutput(
         phase="STORE",
-        data={"forgotten_session_id": target_id},
-        prompt="Removed that booking from local history.",
+        data={"forgotten_session_id": target_id, "calendar": calendar},
+        prompt=prompt,
     ))
 
 
@@ -1035,6 +1219,7 @@ def _bulk_cancel_one(session: Session, reason: Optional[str]) -> Dict[str, Any]:
             "outcome": "needs_human",
             "error": {"code": e.code, "message": e.message},
             "booking_url": e.booking_url,
+            "user_message": _cancel_needs_human_message(session, bid, e),
             **e.handoff,
         }
     except _CancelFailed as e:
@@ -1988,6 +2173,34 @@ def discover(
         )
         raise typer.Exit(code=1)
 
+    from ..gates import named_time
+
+    structured_time = bool(desired_at or desired_from or desired_range or asap)
+    spoken_time = named_time(effective_query) or named_time(session.user_request)
+    if spoken_time and not structured_time:
+        emit_error(
+            session.flow_phase,
+            code="time_preference_not_structured",
+            message=(
+                f"The request names a time ({spoken_time!r}) but no time flag was passed, "
+                "so the search would ignore it. Turn it into flags yourself; do not ask "
+                "the user again: --desired-range '<start>,<end>' (RFC 3339 with the user's "
+                "UTC offset) for a day or part of a day, --desired-at '<RFC 3339>' for an "
+                "exact time, --desired-from '<RFC 3339>' for 'from then on', or --asap for "
+                "'as soon as possible'. Keep --query free of the time words."
+            ),
+            next_command="booking-agent flow discover --desired-range '<start>,<end>'",
+            data={"named_time": spoken_time},
+        )
+        raise typer.Exit(code=1)
+    session.time_preference_mode = (
+        "asap" if asap
+        else "range" if desired_range
+        else "at" if desired_at
+        else "from" if desired_from
+        else "any"
+    )
+
     loc = None
     area = session.search_area if (session.search_area or {}).get("confirmed") else None
     if not (location and location.strip()) and area is not None:
@@ -2136,8 +2349,13 @@ def discover(
     session.discover_location_radius_km = loc.radius_km if loc else None
 
     results_summary = []
+    unreachable = 0
     for rank, service in enumerate(services):
         summary = discover_summary_from_service(service)
+        if summary.get("profile_resolved") is False:
+            # The business's profile cannot be read, so `business use` would fail on it.
+            unreachable += 1
+            continue
         if summary.get("search_rank") is None:
             summary["search_rank"] = rank
         refusal = geo_refusal_for_session(session, summary)
@@ -2151,11 +2369,34 @@ def discover(
     results_summary = sort_discover_summaries_by_rank(results_summary)
     session.discover_query = effective_query
     session.discover_services = results_summary
+    session.desired_time_ranges = [
+        preference.model_dump(mode="json", exclude_none=True)
+        for preference in intent.desired_service_time_ranges or []
+    ] or None
     save_session(session)
+    if unreachable and not results_summary:
+        emit_error(
+            session.flow_phase,
+            code="no_bookable_results",
+            message=(
+                f"The search found {unreachable} service(s), but none of their businesses "
+                "can take bookings right now. Tell the user and offer to search again "
+                "with different words or a wider area."
+            ),
+            next_command="booking-agent flow discover --query '<different words>'",
+            user_message=(
+                "I found matching businesses, but none of them can take bookings through "
+                "me right now. Want me to try a different search?"
+            ),
+            data={"unreachable_profiles_filtered": unreachable},
+        )
+        raise typer.Exit(code=1)
     discover_data: dict = {
         "services": results_summary,
         "discover_query": effective_query,
     }
+    if unreachable:
+        discover_data["unreachable_profiles_filtered"] = unreachable
     if intent.desired_service_time_ranges:
         discover_data["desired_service_time_ranges"] = [
             preference.model_dump(by_alias=True, exclude_none=True)
@@ -2193,7 +2434,8 @@ def discover(
             "own catalog when field_sources says live_catalog. When a row has "
             "discovery_mismatches, show the live value and add that the search listing "
             "said otherwise; never guess which one is right. If the user picks a result "
-            "you labeled less-direct, pass that label with --less-direct."
+            "you labeled less-direct, pass that label with --less-direct. `business use` "
+            "also detects a visit-type mismatch itself and stops until the user confirms it."
         ),
         next_command=(
             "booking-agent flow business use --profile-url <selected profile_url> "
@@ -2221,6 +2463,41 @@ def _discover_row(session: Session, service_id: Optional[str]) -> Optional[Dict[
     )
 
 
+def _emit_profile_resolve_failed(
+    session: Session,
+    service_id: Optional[str],
+    name: Optional[str],
+    profile_url: str,
+    exc: BaseException,
+) -> None:
+    """A business whose profile cannot be used is the business's fault, not the user's.
+
+    Planned outcome: the user hears that this business can't take bookings and picks
+    another result. Nobody is asked to report someone else's broken profile.
+    """
+    import logging
+
+    reason = f"{type(exc).__name__}: {exc}"
+    logging.getLogger(__name__).debug("Profile resolution failed for %s: %s", profile_url, reason)
+    row = _discover_row(session, service_id) or {}
+    business = (name or row.get("business_name") or "This business").strip()
+    emit_error(
+        session.flow_phase,
+        code="profile_resolve_failed",
+        message=(
+            f"The business profile could not be used for booking ({reason}). Nothing was "
+            "selected. Post user_message. The other discover results are still valid: run "
+            "business use for the one the user picks, or next_command for a new search."
+        ),
+        next_command="booking-agent flow discover",
+        user_message=(
+            f"{business} can't take bookings through me right now. "
+            "Would you like to pick one of the other results?"
+        ),
+        data={"profile_url": profile_url, "service_id": service_id, "reason": type(exc).__name__},
+    )
+
+
 def _business_use_command(
     profile_url: str,
     service_id: Optional[str],
@@ -2238,6 +2515,56 @@ def _business_use_command(
         parts += ["--less-direct", shlex.quote(less_direct)]
     parts += list(flags or [])
     return " ".join(parts)
+
+
+def _mismatch_stop(
+    session: Session,
+    profile_url: str,
+    service_id: Optional[str],
+    name: Optional[str],
+    label: str,
+    *,
+    mismatch_confirmed: bool,
+    details_confirmed: bool,
+    derived: bool,
+) -> bool:
+    """Stop for the user's confirmation of a less-direct result. True when it stopped.
+
+    ``--mismatch-confirmed`` counts only after an earlier call showed this exact
+    mismatch, so a confirmation cannot be passed before the user was asked.
+    """
+    from ..gates import digest
+
+    mismatch_digest = digest({"profile_url": profile_url, "service_id": service_id, "label": label})
+    if mismatch_confirmed and session.mismatch_surfaced and session.mismatch_digest == mismatch_digest:
+        return False
+    session.mismatch_surfaced = True
+    session.mismatch_digest = mismatch_digest
+    save_session(session)
+    flags = ["--mismatch-confirmed", *(["--details-confirmed"] if details_confirmed else [])]
+    data: Dict[str, Any] = {"less_direct": label, "service_id": service_id}
+    if derived:
+        data["mismatch_detected_by_cli"] = True
+    if mismatch_confirmed:
+        data["error"] = {
+            "code": "mismatch_not_surfaced",
+            "message": "--mismatch-confirmed was passed before this mismatch was shown to the user.",
+        }
+    emit(_agent_out(
+        session,
+        awaiting_user="intent_mismatch_confirmation",
+        prompt=(
+            "The user picked a result that does not fully match the request. Before "
+            "selecting it, ask one plain question that restates the mismatch (for "
+            f"example: \"This one is {label}. Do you still want it?\") and STOP. If they "
+            "agree, run next_command. Otherwise show the other results again."
+        ),
+        next_command=_business_use_command(
+            profile_url, service_id, name, less_direct=label, flags=flags,
+        ),
+        data=data,
+    ))
+    return True
 
 
 def _registry_service_timezone(session: Session, service_id: Optional[str]) -> Optional[str]:
@@ -2322,25 +2649,27 @@ def business_use(
     must still be asked before availability.
     """
     session = must_load()
-    if less_direct and less_direct.strip() and not mismatch_confirmed:
-        label = less_direct.strip()
-        emit(_agent_out(
-            session,
-            awaiting_user="intent_mismatch_confirmation",
-            prompt=(
-                "The user picked a result you labeled as a less-direct match. Before "
-                "selecting it, ask one plain question that restates the mismatch (for "
-                f"example: \"This one is {label}. Do you still want it?\") and STOP. If they "
-                "agree, re-run next_command. Otherwise show the other results again."
-            ),
-            next_command=_business_use_command(
-                profile_url, service_id, name, less_direct=label,
-                flags=["--mismatch-confirmed", *(["--details-confirmed"] if details_confirmed else [])],
-            ),
-            data={"less_direct": label, "service_id": service_id},
-        ))
+    label = (less_direct or "").strip() or None
+    derived = False
+    if label is None:
+        from ..gates import derived_mismatch_label
+
+        row = _discover_row(session, service_id) or {}
+        channel = row.get("channel")
+        label = derived_mismatch_label(
+            session.user_request,
+            list(session.discover_services or []),
+            service_id=service_id,
+            channel=channel.get("type") if isinstance(channel, dict) else channel,
+        )
+        derived = label is not None
+    if label is not None and _mismatch_stop(
+        session, profile_url, service_id, name, label,
+        mismatch_confirmed=mismatch_confirmed, details_confirmed=details_confirmed,
+        derived=derived,
+    ):
         return
-    session.selection_mismatch = (less_direct or "").strip() or None
+    session.selection_mismatch = label
 
     async def _resolve():
         from booking_agent.ucp_profile import fetch_and_resolve_business_profile
@@ -2350,9 +2679,14 @@ def business_use(
     try:
         profile, uctx = asyncio.run(_resolve())
     except Exception as e:
-        raise _emit_flow_http_error(
-            session.flow_phase, e, default_code="profile_resolve_failed",
-        )
+        from booking_agent.http_retry import is_rate_limited
+
+        if is_rate_limited(e):
+            raise _emit_flow_http_error(
+                session.flow_phase, e, default_code="profile_resolve_failed",
+            )
+        _emit_profile_resolve_failed(session, service_id, name, profile_url, e)
+        raise typer.Exit(code=1)
 
     try:
         timezone_facts = _resolve_business_timezone(
@@ -2433,6 +2767,24 @@ def business_use(
                 message=timing_refusal["message"],
             )
             raise typer.Exit(code=1)
+        if session.selection_mismatch is None:
+            from ..catalog import channel_type as _channel_type
+            from ..gates import derived_mismatch_label
+
+            live_label = derived_mismatch_label(
+                session.user_request,
+                list(session.discover_services or []),
+                service_id=service_id,
+                channel=_channel_type(live_service_summary_data),
+            )
+            if live_label is not None:
+                if _mismatch_stop(
+                    session, profile_url, service_id, name, live_label,
+                    mismatch_confirmed=mismatch_confirmed,
+                    details_confirmed=details_confirmed, derived=True,
+                ):
+                    return
+                session.selection_mismatch = live_label
         session.service_id = service_id
         session.live_service = live_service_summary_data
         from ..geo_eligibility import distance_facts_for_session, geo_refusal_for_session
@@ -2467,6 +2819,7 @@ def business_use(
             return
 
     discovered = _discover_row(session, service_id) or {}
+    reset_selection_confirmations(session, keep_mismatch=True)
     session.business = Business(
         profile_url=profile_url,
         rest_endpoint=profile.rest_endpoint,
@@ -2626,6 +2979,8 @@ def _link_auth_phase(session: Optional[Session]) -> str:
 def _link_auth_record(session: Optional[Session], completed: bool) -> None:
     if session is not None:
         session.link_auth_gate_completed = completed
+        if completed:
+            session.link_auth_url_surfaced = False
         save_session(session)
 
 
@@ -2754,6 +3109,8 @@ def link_auth_connect(
     _link_auth_record(session, False)
     out = AgentOutput(phase=phase)
     if session is not None:
+        session.link_auth_url_surfaced = True
+        save_session(session)
         out = _agent_out(session)
     out.awaiting_user = AWAITING_LINK_AUTH_APPROVAL
     out.user_message = verification_url
@@ -2841,6 +3198,21 @@ def link_auth_poll(
             next_command=LINK_AUTH_CONNECT,
         )
         raise typer.Exit(code=1)
+    if session is not None and not session.link_auth_url_surfaced:
+        # Waiting on a sign-in the user was never shown would hang until it times out.
+        session.link_auth_url_surfaced = True
+        save_session(session)
+        out = _agent_out(session)
+        out.awaiting_user = AWAITING_LINK_AUTH_APPROVAL
+        out.user_message = status.verification_url
+        out.prompt = (
+            "The user has not seen the Link sign-in URL yet. Show user_message as the raw "
+            f"URL and ask them to sign in to Link. {LINK_AUTH_POLL_BACKGROUND_INSTRUCTION}"
+        )
+        out.next_command = LINK_AUTH_POLL
+        out.data = {**out.data, "verification_url": status.verification_url}
+        emit(out)
+        return
 
     _poll_link_auth(session, poll_interval=poll_interval, timeout=timeout)
 
@@ -3025,7 +3397,35 @@ def _reconnect_route(status: dict) -> Tuple[Optional[str], Optional[str]]:
     return None, None
 
 
+def _calendar_offer_shown(session: Session) -> bool:
+    return (
+        session.calendar_ask_surfaced
+        or session.calendar_remembered_applied
+        or session.calendar_technical_fallback
+        or session.calendar_gate_completed
+    )
+
+
+def _require_calendar_offer(session: Session) -> None:
+    """`calendar connect` and `calendar skip` answer the offer `calendar ask` shows (I1)."""
+    if _calendar_offer_shown(session):
+        return
+    emit_error(
+        session.flow_phase,
+        code="calendar_offer_not_shown",
+        message=(
+            "The user was never offered Google Calendar for this booking. Run "
+            "`booking-agent flow calendar ask` first and follow its output; it either applies "
+            "the user's saved choice or tells you to ask them."
+        ),
+        next_command="booking-agent flow calendar ask",
+        forbidden=list(FORBIDDEN),
+    )
+    raise typer.Exit(code=1)
+
+
 def _emit_calendar_unavailable(session: Session, status: dict, mode: str, *, data: Optional[dict]) -> None:
+    session.calendar_technical_fallback = True
     skip_calendar_gate_session_only(session)
     out = dict(data or {})
     out.update(status)
@@ -3071,6 +3471,7 @@ def _emit_calendar_reconnect_if_stale(
         {"choice": "reconnect", "mode": mode, "command": reconnect},
         {"choice": "continue_without_calendar", "command": _CALENDAR_SKIP_SESSION_ONLY},
     ]
+    session.calendar_ask_surfaced = True
     save_session(session)
     emit(_agent_out(
         session,
@@ -3193,6 +3594,10 @@ def calendar_ask() -> None:
         return
 
     local_oauth = bool(status.get("local_oauth_configured"))
+    known_route, known_env = remembered_route()
+    connector_env = known_env if known_route == ROUTE_CONNECTOR and valid_token_env_name(known_env) else None
+    connector_token_detected = bool(connector_env and host_token(connector_env))
+    session.calendar_ask_surfaced = True
     save_session(session)
     emit(_agent_out(
         session,
@@ -3209,11 +3614,15 @@ def calendar_ask() -> None:
             "confirmation, or (3) neither. Map (1) and (2) to "
             "`booking-agent flow calendar connect --mode freebusy|events` with "
             f"`--route {ROUTE_CONNECTOR} --token-env <NAME>` or `--route {ROUTE_LOCAL_OAUTH}`, "
-            "and (3) to `booking-agent flow calendar skip`."
+            "and (3) to `booking-agent flow calendar skip`. A Google Calendar token that is "
+            "already available (data.connector_token_detected) is not the user's answer; "
+            "still ask."
         ),
         next_command=None,
         data={
             "local_oauth_configured": local_oauth,
+            "connector_token_detected": connector_token_detected,
+            **({"detected_token_env": connector_env} if connector_token_detected else {}),
             "calendar_routes": list(CALENDAR_ROUTES),
             "calendar_choices": [
                 {"choice": "freebusy", "command": "booking-agent flow calendar connect --mode freebusy --route <ROUTE>"},
@@ -3239,6 +3648,7 @@ def calendar_skip(
         require_checkout_prereq(session)
     except GateError as e:
         raise _handle_gate(session, e)
+    _require_calendar_offer(session)
     _stop_pending_sign_in()
     if session_only:
         skip_calendar_gate_session_only(session)
@@ -3297,6 +3707,7 @@ def calendar_connect(
         require_checkout_prereq(session)
     except GateError as e:
         raise _handle_gate(session, e)
+    _require_calendar_offer(session)
 
     if mode not in _VALID_CALENDAR_MODES:
         emit_error(
@@ -3446,6 +3857,8 @@ def _connect_via_local_oauth(session: Session, *, mode: str, timeout: int) -> No
         return
 
     if not local_oauth_configured():
+        session.calendar_technical_fallback = True
+        save_session(session)
         emit_error(
             session.flow_phase,
             code="calendar_oauth_not_configured",
@@ -3470,6 +3883,8 @@ def _connect_via_local_oauth(session: Session, *, mode: str, timeout: int) -> No
     try:
         result = asyncio.run(_go())
     except CallbackPortBusy as e:
+        session.calendar_technical_fallback = True
+        save_session(session)
         emit_error(
             session.flow_phase,
             code="calendar_callback_port_busy",
@@ -3849,6 +4264,37 @@ def _resolve_window(
     return start or auto_start, end or auto_end
 
 
+def _preferred_window(session: Session) -> Optional[tuple]:
+    """``(from, to)`` from the first time preference passed to ``discover``, or None.
+
+    A day the user named ("tomorrow") must not fall back to the generic two-week window.
+    """
+    preference = (session.desired_time_ranges or [None])[0]
+    if not isinstance(preference, dict):
+        return None
+    tz_name = session.business.timezone if session.business else None
+    zone = _window_zone(tz_name)
+
+    def _instant(value: Any) -> Optional[datetime]:
+        try:
+            parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        except ValueError:
+            return None
+        return parsed if parsed.tzinfo else None
+
+    start = _instant(preference.get("start") or preference.get("at"))
+    if start is None:
+        return None
+    if preference.get("at"):
+        return _day_window(start.astimezone(zone).date().isoformat(), tz_name)
+    end = _instant(preference.get("end")) if preference.get("end") else None
+    if end is None:
+        end = start + timedelta(days=14)
+    if _valid_iana_timezone(tz_name) is None:
+        return start.date().isoformat(), end.date().isoformat()
+    return start.astimezone(zone).isoformat(), end.astimezone(zone).isoformat()
+
+
 CONFIRMED_ADDRESS_TIMEZONE_SOURCE = "confirmed_address"
 
 
@@ -4174,7 +4620,8 @@ def availability(
         raise typer.Exit(code=1)
 
     try:
-        window_from, window_to = _resolve_window(
+        preferred = None if (start or end or target_date) else _preferred_window(session)
+        window_from, window_to = preferred or _resolve_window(
             start, end, target_date, session.business.timezone,
         )
     except ValueError:
@@ -4410,6 +4857,8 @@ def slots_select(
         raise typer.Exit(code=1)
 
     session.timezone_conflict_confirmed = bool(gate)
+    if session.slot_id != chosen.slot_id:
+        reset_selection_confirmations(session, keep_mismatch=True)
     session.slot_id = chosen.slot_id
     session.slot_user_confirmed = True
     session.timezone_difference_shown = (
@@ -4456,6 +4905,132 @@ def _selected_slot_view(session: Session, *, dual: bool) -> Optional[Dict[str, A
         )
         view["buyer_timezone"] = session.buyer_timezone
     return view
+
+
+def _books_directly(session: Session) -> bool:
+    """True when ``flow book`` itself commits the booking (no UCP checkout follows)."""
+    if session.payment_route in ("free", "at_service"):
+        return True
+    return not (session.checkout_mode == "ucp_native" and session.ucp_checkout_rest_base)
+
+
+def _current_recap(session: Session) -> tuple[List[str], str]:
+    """The recap lines ``buyer resolve`` shows and their digest, from the saved session."""
+    from ..booking_summary import booking_recap_lines
+    from ..catalog import payment_price_for_session
+    from ..gates import digest
+
+    lines = booking_recap_lines(
+        session, payment_price_for_session(session), dual=_selected_slot_zones_differ(session),
+    )
+    return lines, digest({"recap": lines})
+
+
+def _policy_view(policies: Dict[str, Any]) -> Dict[str, Any]:
+    return {"policy_lines": list(policies["lines"]), "policy_links": list(policies["links"])}
+
+
+def _policy_message(policies: Dict[str, Any]) -> str:
+    """The provider's policies as plain text, every link as a raw URL."""
+    parts = ["Before booking, please review and accept the business's policies:"]
+    parts.extend(policies["lines"])
+    parts.extend(f"{link['label']}: {link['url']}" for link in policies["links"])
+    return "\n".join(parts)
+
+
+_POLICY_SHOW_TEXT = (
+    "Show the user every line of data.policy_lines and every data.policy_links URL as a raw "
+    "URL (never hide, shorten, or paraphrase them), and ask whether they accept the "
+    "business's policies. Only after they say yes, run next_command, which carries "
+    "--policies-accepted. If they decline, do not book."
+)
+
+
+def _policies_settled(session: Session, policies: Dict[str, Any], *, accepted: bool) -> bool:
+    """True when the business sent no policies or the user accepted exactly these."""
+    current = policies["digest"]
+    if current is None or session.policies_accepted_digest == current:
+        return True
+    if accepted and session.policies_surfaced and session.policies_digest == current:
+        session.policies_accepted_digest = current
+        save_session(session)
+        return True
+    return False
+
+
+def _refuse_unaccepted_policies(
+    session: Session, policies: Dict[str, Any], *, next_command: str, accepted: bool,
+) -> None:
+    """Show the current policies and stop; acceptance counts only on a later call."""
+    premature = accepted and not session.policies_surfaced
+    changed = accepted and session.policies_surfaced and session.policies_digest != policies["digest"]
+    session.policies_surfaced = True
+    session.policies_digest = policies["digest"]
+    save_session(session)
+    if premature:
+        reason = "--policies-accepted was passed before the policies were shown to the user."
+    elif changed:
+        reason = "The business's policies changed since they were shown, so ask again."
+    else:
+        reason = "The user has not accepted the business's policies for this booking."
+    emit_error(
+        session.flow_phase,
+        code="policies_not_accepted",
+        message=f"{reason} {_POLICY_SHOW_TEXT}",
+        next_command=next_command,
+        user_message=_policy_message(policies),
+        data={"awaiting_user": "policy_acceptance", **_policy_view(policies)},
+    )
+    raise typer.Exit(code=1)
+
+
+def _require_recap_confirmed(session: Session, *, user_confirmed: bool) -> None:
+    """``flow book`` needs the user's yes to the exact recap ``buyer resolve`` showed."""
+    _, current = _current_recap(session)
+    if session.recap_confirmed_digest == current:
+        return
+    if user_confirmed and session.recap_surfaced and session.recap_digest == current:
+        session.recap_confirmed_digest = current
+        save_session(session)
+        return
+    if not session.recap_surfaced or session.recap_digest != current:
+        reason = (
+            "The booking summary was never shown to the user"
+            if not session.recap_surfaced
+            else "The booking details changed since the summary was shown"
+        )
+        emit_error(
+            session.flow_phase,
+            code="booking_confirmation_required",
+            message=(
+                f"{reason}. Run `booking-agent flow buyer resolve`, show its recap, and get "
+                "the user's yes before booking."
+            ),
+            next_command="booking-agent flow buyer resolve",
+        )
+        raise typer.Exit(code=1)
+    emit_error(
+        session.flow_phase,
+        code="booking_confirmation_required",
+        message=(
+            "The user has not confirmed the booking summary. Show every line of "
+            "data.booking_recap_lines from `buyer resolve`, and only after the user says yes "
+            "run `booking-agent flow book --user-confirmed`."
+        ),
+        next_command=_book_command(session, user_confirmed=True),
+    )
+    raise typer.Exit(code=1)
+
+
+def _book_command(session: Session, *, user_confirmed: bool = True) -> str:
+    from ..booking_summary import collect_provider_policies
+
+    parts = ["booking-agent flow book"]
+    if user_confirmed:
+        parts.append("--user-confirmed")
+    if collect_provider_policies(session)["digest"]:
+        parts.append("--policies-accepted")
+    return " ".join(parts)
 
 
 def _buyer_recap(
@@ -4636,10 +5211,33 @@ def buyer_resolve(
     if session.buyer_timezone_error and not dual:
         data["buyer_timezone_unresolved"] = session.buyer_timezone_error
 
+    from ..booking_summary import collect_provider_policies
+    from ..gates import digest
+
+    session.recap_surfaced = True
+    session.recap_digest = digest({"recap": data["booking_recap_lines"]})
+    session.recap_confirmed_digest = None
+    policies = collect_provider_policies(session)
+    if policies["digest"]:
+        session.policies_surfaced = True
+        session.policies_digest = policies["digest"]
+        data.update(_policy_view(policies))
+        buyer_prompt += (
+            " The business sent policies, which the user must accept before this "
+            "booking: after the recap, also show every line of data.policy_lines and "
+            "every data.policy_links URL as a raw URL, and make the one question ask "
+            "whether they confirm the booking and accept those policies."
+        )
+    save_session(session)
+    buyer_prompt += (
+        " When they say yes, run next_command exactly; it records their confirmation."
+    )
+
     emit(_agent_out(
         session,
+        awaiting_user="booking_confirmation",
         prompt=buyer_prompt,
-        next_command="booking-agent flow book",
+        next_command=_book_command(session),
         data=data,
     ))
 
@@ -4682,6 +5280,14 @@ def book(
     service_id: Optional[str] = typer.Option(None, "--service-id"),
     dry_run: bool = typer.Option(False, "--dry-run",
                                  help="Skip create_booking; emit the planned payload only."),
+    user_confirmed: bool = typer.Option(
+        False, "--user-confirmed",
+        help="The user said yes to the booking summary `buyer resolve` showed.",
+    ),
+    policies_accepted: bool = typer.Option(
+        False, "--policies-accepted",
+        help="The user accepted the business's policies shown by the previous command.",
+    ),
 ) -> None:
     """Create the booking. Requires calendar gate + user-confirmed slot + link-cli buyer."""
     if ctx.invoked_subcommand is not None:
@@ -4709,6 +5315,7 @@ def book(
     if not dry_run:
         _require_verified_installation(load_store(), "BOOKED")
         _require_verified_skill(load_store(), "BOOKED")
+        _require_recap_confirmed(session, user_confirmed=user_confirmed)
 
     backend = resolve_backend()
 
@@ -4760,6 +5367,16 @@ def book(
         session, refreshed_live_service, resume_command="booking-agent flow book",
     )
     notes = session.booking_notes
+    if not dry_run:
+        from ..booking_summary import collect_provider_policies
+
+        policies = collect_provider_policies(session)
+        if not _policies_settled(session, policies, accepted=policies_accepted):
+            _refuse_unaccepted_policies(
+                session, policies,
+                next_command="booking-agent flow book --user-confirmed --policies-accepted",
+                accepted=policies_accepted,
+            )
 
     if dry_run:
         emit(_agent_out(
@@ -4832,11 +5449,26 @@ def book(
 
     at_service = session.payment_route == "at_service"
     pay_at_service = session.payment_route == "pay_at_service"
+    checkout_policies = None
+    checkout_links: List[Dict[str, str]] = []
+    if checkout_path == "ucp":
+        from ..booking_summary import collect_provider_policies
+
+        checkout_policies = collect_provider_policies(session)
+        if checkout_policies["digest"] and session.policies_accepted_digest != checkout_policies["digest"]:
+            session.policies_surfaced = True
+            session.policies_digest = checkout_policies["digest"]
+            save_session(session)
+        else:
+            checkout_links = checkout_policies["links"]
+            checkout_policies = None
     next_pay = (
-        "booking-agent flow pay ucp-complete --disclosures-confirmed"
+        "booking-agent flow pay ucp-complete"
         if pay_at_service
         else "booking-agent flow pay request --payment-method-id <id>"
     )
+    if checkout_policies is not None:
+        next_pay += " --policies-accepted"
     path_summary = payment_path_summary(
         payment_route=session.payment_route,
         checkout_path=checkout_path,
@@ -4872,27 +5504,21 @@ def book(
         )
     elif pay_at_service:
         prompt_out = (
-            "Checkout created for a booking paid at the appointment. The user already agreed "
-            "at buyer resolve to book it and pay at the appointment. Nothing is charged, so do "
-            "not create a Link payment. Before completing, show the user every item in "
-            "data.payment_disclosures (use content_display) and the amount due at the "
-            "appointment from data.payment_schedules. Never hide, shorten, or skip a "
-            "disclosure. Then run `booking-agent flow pay ucp-complete --disclosures-confirmed`."
+            "Checkout created for a booking paid at the appointment; it is not final yet. "
+            "Nothing is charged, so do not create a Link payment. Before completing, show the "
+            "user the amount due at the appointment from data.payment_schedules."
         )
     elif deposit_route:
         prompt_out = (
-            "Checkout created for a deposit booking. The user approved booking and paying "
-            "only the deposit at buyer resolve. Before any charge, show the deposit due now "
-            "(data.due_now_display), the amount due at the appointment, and every item in "
-            "data.payment_schedules and data.payment_disclosures, and get their agreement. "
-            "Then run `booking-agent flow pay request` with --disclosures-confirmed."
+            "Checkout created for a deposit booking. Before any charge, show the deposit due "
+            "now (data.due_now_display), the amount due at the appointment, and every item in "
+            "data.payment_schedules and data.payment_disclosures, and get their agreement."
         )
     else:
         prompt_out = (
-            "UCP checkout session created. User already approved booking and charge at "
-            "buyer resolve. If data.price_display matches what you quoted, proceed directly "
-            "to `booking-agent flow pay request` without another confirmation STOP. If the price "
-            "changed, tell the user and get fresh approval first."
+            "UCP checkout session created; nothing is charged yet. If data.price_display "
+            "matches what you quoted, the user's yes at buyer resolve covers the charge. If "
+            "the price changed, tell the user and get fresh approval first."
         )
     data_out: Dict[str, Any] = {}
     if booking_narration:
@@ -4928,8 +5554,31 @@ def book(
             else change_note
         )
         next_pay = f"{next_pay} --total-confirmed"
+    user_message = None
+    if checkout_policies is not None:
+        data_out.update(_policy_view(checkout_policies))
+        user_message = _policy_message(checkout_policies)
+        prompt_out += (
+            " **STOP.** The business's checkout added policies the user has not accepted, and "
+            "the booking is not final until they do. user_message holds them; post it "
+            "verbatim. " + _POLICY_SHOW_TEXT
+        )
+    elif not direct:
+        if checkout_links:
+            data_out["policy_links"] = list(checkout_links)
+            user_message = "\n".join(
+                ["The business's checkout links these terms for this booking:"]
+                + [f"{link['label']}: {link['url']}" for link in checkout_links]
+            )
+            prompt_out += (
+                " Post user_message verbatim (every link raw); the user's yes to the booking "
+                "summary covers them, so do not ask again."
+            )
+        prompt_out += " Then run next_command."
     emit(_agent_out(
         session,
+        awaiting_user="policy_acceptance" if checkout_policies is not None else None,
+        user_message=user_message,
         prompt=prompt_out,
         next_command="booking-agent flow book poll --wait" if direct else next_pay,
         data={
@@ -5020,10 +5669,18 @@ def pay_request(
             "once so agents can show it before polling."
         ),
     ),
+    policies_accepted: bool = typer.Option(
+        False,
+        "--policies-accepted",
+        help=(
+            "The user accepted the business's policies, terms, and disclosures that "
+            "`flow book` showed. Required whenever the business sent any."
+        ),
+    ),
     disclosures_confirmed: bool = typer.Option(
         False,
         "--disclosures-confirmed/--no-disclosures-confirmed",
-        help="Required when the checkout returned payment-term disclosures the user must acknowledge.",
+        help="Deprecated alias for --policies-accepted.",
     ),
     total_confirmed: bool = typer.Option(
         False,
@@ -5069,9 +5726,10 @@ def pay_request(
             code="pay_not_required",
             message=(
                 "This booking is paid at the appointment, so nothing is charged and no "
-                "Link payment is created. Show the disclosures, then complete the booking."
+                "Link payment is created. Show the business's policies and disclosures, "
+                "and once the user accepts them, complete the booking."
             ),
-            next_command="booking-agent flow pay ucp-complete --disclosures-confirmed",
+            next_command=_PAY_AT_SERVICE_COMPLETE,
         )
         raise typer.Exit(code=1)
     if session.payment_route in ("free", "at_service"):
@@ -5088,7 +5746,6 @@ def pay_request(
         )
         raise typer.Exit(code=1)
     disclosures = list(session.payment_disclosures or [])
-    schedules = list(session.payment_schedules or [])
     unrenderable = [
         d for d in disclosures
         if not (
@@ -5114,29 +5771,17 @@ def pay_request(
             data={"continue_url": continue_url, "disclosures": disclosures},
         )
         raise typer.Exit(code=1)
-    if (disclosures or session.payment_route == "deposit_required") and not (
-        disclosures_confirmed or session.disclosures_user_confirmed
-    ):
-        emit_error(
-            session.flow_phase,
-            code="disclosures_unconfirmed",
-            message=(
-                "Show the due-now amount, the amount due at the appointment, and every "
-                "disclosure, then re-run pay request with --disclosures-confirmed."
-            ),
-            data={
-                "due_now_amount_minor": session.due_now_amount_minor,
-                "checkout_total_minor": session.ucp_checkout_amount_minor,
-                "schedules": schedules,
-                "disclosures": disclosures,
-            },
-            next_command=(
-                "booking-agent flow pay request --payment-method-id <id> "
-                "--disclosures-confirmed"
-            ),
+    from ..booking_summary import collect_provider_policies
+
+    policies = collect_provider_policies(session)
+    accepted = policies_accepted or disclosures_confirmed
+    if not _policies_settled(session, policies, accepted=accepted):
+        _refuse_unaccepted_policies(
+            session, policies,
+            next_command="booking-agent flow pay request --payment-method-id <id> --policies-accepted",
+            accepted=accepted,
         )
-        raise typer.Exit(code=1)
-    if disclosures_confirmed:
+    if policies["digest"] and not session.disclosures_user_confirmed:
         session.disclosures_user_confirmed = True
         save_session(session)
     from ..catalog import checkout_total_changed, merchant_quote_for_session
@@ -5346,6 +5991,32 @@ def _skill_compliance_failures(session: Session) -> list[str]:
         failures.append(
             "timezone_difference_shown=False (buyer and business timezones differ)"
         )
+    committed = session.flow_phase in ("BOOKED", "CONFIRMED")
+    if (
+        committed
+        and session.policies_digest
+        and session.policies_accepted_digest != session.policies_digest
+    ):
+        failures.append("policies_accepted=False (the business sent policies the user did not accept)")
+    if not session.recap_digest or session.recap_confirmed_digest != session.recap_digest:
+        failures.append("recap_confirmed=False (the booking summary was not confirmed)")
+    if session.selection_mismatch and not (session.mismatch_surfaced and session.mismatch_digest):
+        failures.append("mismatch_confirmed=False (a less-direct result was never shown)")
+    if session.calendar_gate_completed and not (
+        session.calendar_ask_surfaced
+        or session.calendar_remembered_applied
+        or session.calendar_technical_fallback
+    ):
+        failures.append("calendar_offer_shown=False (the Google Calendar offer was skipped)")
+    if session.time_preference_mode == "any":
+        from ..gates import named_time
+
+        spoken = named_time(session.user_request or "")
+        if spoken:
+            failures.append(
+                f"time_preference_structured=False (the request names {spoken!r} "
+                "but discover searched any time)"
+            )
     return failures
 
 
@@ -5623,13 +6294,18 @@ def pay_ucp_complete(
     ),
     approval_timeout: int = typer.Option(600, "--approval-timeout"),
     poll_interval: float = typer.Option(2.0, "--poll-interval"),
+    policies_accepted: bool = typer.Option(
+        False,
+        "--policies-accepted",
+        help=(
+            "Pay-at-appointment bookings only: the user accepted the business's policies, "
+            "terms, and disclosures that `flow book` showed."
+        ),
+    ),
     disclosures_confirmed: bool = typer.Option(
         False,
         "--disclosures-confirmed/--no-disclosures-confirmed",
-        help=(
-            "Pay-at-appointment bookings only: the user has been shown every disclosure "
-            "and the amount due at the appointment."
-        ),
+        help="Deprecated alias for --policies-accepted.",
     ),
     total_confirmed: bool = typer.Option(
         False,
@@ -5643,7 +6319,7 @@ def pay_ucp_complete(
     """Complete UCP checkout using SPT from link-cli spend-request retrieve after user approval.
 
     A booking paid at the appointment has nothing to approve or charge: it completes with no
-    payment instrument once its disclosures have been shown (``--disclosures-confirmed``).
+    payment instrument once the user accepted its policies (``--policies-accepted``).
 
     Handler id is taken from ``--handler-id`` when set; otherwise resolved from the checkout
     session (``payment.instruments``) or a single ``payment_handlers`` entry on the business
@@ -5669,7 +6345,7 @@ def pay_ucp_complete(
     if session.payment_route == "pay_at_service":
         _complete_pay_at_service(
             session,
-            disclosures_confirmed=disclosures_confirmed,
+            policies_accepted=policies_accepted or disclosures_confirmed,
             total_confirmed=total_confirmed,
         )
         return
@@ -5682,21 +6358,22 @@ def pay_ucp_complete(
     )
 
 
-_PAY_AT_SERVICE_COMPLETE = "booking-agent flow pay ucp-complete --disclosures-confirmed"
+_PAY_AT_SERVICE_COMPLETE = "booking-agent flow pay ucp-complete --policies-accepted"
 
 
 def _complete_pay_at_service(
     session: Session,
     *,
-    disclosures_confirmed: bool,
+    policies_accepted: bool,
     total_confirmed: bool = False,
     emit_result: bool = True,
 ) -> None:
     """Complete a pay-at-appointment checkout with no payment instrument (USP 11.3.5).
 
-    Nothing is charged, so there is no spend request, token, or Link approval. The user
-    must have been shown every disclosure first (S8), and the total they agreed to must
-    still be the total the business is completing.
+    Nothing is charged, so there is no spend request, token, or Link approval. ``flow
+    book`` only created the checkout; completing it here is what makes the booking final,
+    so the user must first accept the policies and disclosures it showed (S8), and the
+    total they agreed to must still be the total the business is completing.
     """
     from ..engine import transition
 
@@ -5729,26 +6406,14 @@ def _complete_pay_at_service(
             data={"continue_url": continue_url, "disclosures": disclosures},
         )
         raise typer.Exit(code=1)
-    if disclosures and not (disclosures_confirmed or session.disclosures_user_confirmed):
-        emit_error(
-            session.flow_phase,
-            code="disclosures_unconfirmed",
-            message=(
-                "Show the user every disclosure and the amount due at the appointment "
-                "(use content_display and due_at_display), then re-run with "
-                "--disclosures-confirmed. Nothing is charged."
-            ),
-            data={
-                "checkout_total_minor": session.ucp_checkout_amount_minor,
-                "schedules": _localized_schedules(
-                    session, list(session.payment_schedules or []), None,
-                ),
-                "disclosures": _localized_messages(session, disclosures),
-            },
-            next_command=_PAY_AT_SERVICE_COMPLETE,
+    from ..booking_summary import collect_provider_policies
+
+    policies = collect_provider_policies(session)
+    if not _policies_settled(session, policies, accepted=policies_accepted):
+        _refuse_unaccepted_policies(
+            session, policies, next_command=_PAY_AT_SERVICE_COMPLETE, accepted=policies_accepted,
         )
-        raise typer.Exit(code=1)
-    if disclosures_confirmed:
+    if policies["digest"] and not session.disclosures_user_confirmed:
         session.disclosures_user_confirmed = True
         save_session(session)
     from ..catalog import checkout_total_changed, merchant_quote_for_session
@@ -6450,8 +7115,9 @@ def book_cancel(
         emit_error(
             session.flow_phase,
             code=e.code,
-            message=e.message,
+            message=e.message + " Post user_message verbatim (raw URLs); do not improvise.",
             next_command=None,
+            user_message=_cancel_needs_human_message(session, bid, e),
             data={"booking_id": bid, "booking_url": e.booking_url, **e.handoff},
         )
         raise typer.Exit(code=1)
@@ -6762,6 +7428,34 @@ def _cancel_user_message(session: Session, settlement: Dict[str, Any]) -> str:
     elif settlement.get("captured_display"):
         refunded = settlement.get("refund_display") or settlement["captured_display"]
         lines.append(f"{business} is refunding the {refunded} you paid.")
+    return "\n".join(lines)
+
+
+def _cancel_needs_human_message(session: Session, booking_id: Optional[str], err: Any) -> str:
+    """What the buyer reads when the agent cannot cancel: where to go, what to quote, the terms."""
+    from ..booking_summary import extract_policy_links, service_policy_lines
+
+    business = _business_label(session)
+    handoff = getattr(err, "handoff", None) or {}
+    urls = [u["url"] for u in handoff.get("cancel_urls") or [] if u.get("type") != "checkout"]
+    url = getattr(err, "booking_url", None) or (urls[0] if urls else None)
+    lines = [f"I couldn't cancel your booking with {business} for you."]
+    lines.append(
+        f"To cancel it, use {business}'s page: {url}" if url
+        else f"To cancel it, contact {business} directly."
+    )
+    if booking_id:
+        lines.append(f"Booking ID: {booking_id}")
+    if handoff.get("order_id"):
+        lines.append(f"Order reference: {handoff['order_id']}")
+    lines.extend(service_policy_lines(session.live_service))
+    for link in extract_policy_links(handoff.get("merchant_links") or session.ucp_checkout_links):
+        lines.append(f"{link['label']}: {link['url']}")
+    if _payment_captured(session) or session.payment.order_id:
+        lines.append(
+            f"If you paid, ask {business} for a refund when you cancel, and give them the "
+            "references above so they can find your payment."
+        )
     return "\n".join(lines)
 
 

@@ -173,6 +173,12 @@ def emit_error(
         ))
     except Exception:
         offered = False
+    try:
+        from .fault_reports import note_error
+
+        note_error(code)
+    except Exception:
+        pass
     payload: Dict[str, Any] = {"error": {"code": code, "message": message}}
     if data:
         payload.update(data)

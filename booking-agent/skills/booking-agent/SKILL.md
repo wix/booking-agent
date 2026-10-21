@@ -1,5 +1,5 @@
 ---
-version: 0.56.0
+version: 0.57.0
 name: booking-agent
 description: |
   Books time-based services via USP from a Link wallet. Use when the user wants to book, schedule, reserve, or pay for a service from a business (haircut, lesson, repair, class, appointment, consult). The `booking-agent` CLI owns the booking state machine and refuses to proceed when human gates are skipped. Sign the user in to Link on your own, right after install and at the start of every booking (`booking-agent flow link-auth connect`, then start `booking-agent flow link-auth poll` in the background and post the sign-in URL in the same turn, exactly like `pay poll`); never wait for the user to ask to sign in or to say they approved. After `booking-agent flow business use`, follow `next_command` through `use-ucp-checkout-mode`; businesses without native checkout fail closed. Payment uses `booking-agent flow pay request` (default returns immediately with the approval URL), then start `booking-agent flow pay poll` in the background and post the approval URL to the user in the same turn; the poll finishes checkout once they approve. Confirm through `booking-agent flow book poll --wait`; never start an inbound webhook. Surface the approval URL exactly once. Personal identification (name, phone, email, address) must always come from the user's Link account via `link-cli`, never from chat or placeholders. Before any location-based search, the CLI proposes the Link shipping address and the user confirms it or gives another; online services skip this. Talk to the user in plain everyday language only; never expose CLI, UCP, auth, session, or other implementation details unless they explicitly ask.
@@ -19,7 +19,7 @@ metadata:
         - link-cli
     install:
       - kind: uv
-        package: "booking-agent-cli==0.8.0"
+        package: "booking-agent-cli==0.9.0"
         bins: [booking-agent]
 user-invocable: true
 ---
@@ -220,7 +220,7 @@ To take a fixed, published version instead of the latest, fetch it at the releas
 workflow signs it under, and check the signature before you follow it:
 
 ```bash
-curl -fsSLO https://raw.githubusercontent.com/wix/booking-agent/skill-v0.56.0/booking-agent/skills/booking-agent/SKILL.md
+curl -fsSLO https://raw.githubusercontent.com/wix/booking-agent/skill-v0.57.0/booking-agent/skills/booking-agent/SKILL.md
 gh attestation verify SKILL.md \
   --repo wix/booking-agent \
   --signer-workflow wix/booking-agent/.github/workflows/release.yml
@@ -245,17 +245,17 @@ before installing:
 
 ```bash
 dir="$HOME/.booking-agent/verified-wheels"
-uvx pip download "booking-agent-cli==0.8.0" --no-deps --only-binary :all: -d "$dir"
+uvx pip download "booking-agent-cli==0.9.0" --no-deps --only-binary :all: -d "$dir"
 uvx pypi-attestations==0.0.30 verify pypi --repository https://github.com/wix/booking-agent \
-  "$dir/booking_agent_cli-0.8.0-py3-none-any.whl"
-uv tool install --force "$dir/booking_agent_cli-0.8.0-py3-none-any.whl"
+  "$dir/booking_agent_cli-0.9.0-py3-none-any.whl"
+uv tool install --force "$dir/booking_agent_cli-0.9.0-py3-none-any.whl"
 
 booking-agent --help
 ```
 
 Install only the wheel whose verify step passed, never one that failed it. If `uvx` is not
-available, install the same pinned release with `uv tool install booking-agent-cli==0.8.0` or
-`pipx install booking-agent-cli==0.8.0`; the CLI checks its own files against the signed release
+available, install the same pinned release with `uv tool install booking-agent-cli==0.9.0` or
+`pipx install booking-agent-cli==0.9.0`; the CLI checks its own files against the signed release
 on the first `booking-agent flow init` and refuses to book or pay if they do not match.
 
 Harnesses that read the `install` block in this skill's metadata do this for you. Do not go on
@@ -308,7 +308,7 @@ prints each effective setting and where it came from; `booking-agent config init
 
 The CLI decides whether a newer version is worth mentioning; you never decide from version
 numbers or release pages. Pass this skill's version on every `flow init` (`--skill-version
-0.56.0`, from the frontmatter above), so the CLI can tell when these instructions and the
+0.57.0`, from the frontmatter above), so the CLI can tell when these instructions and the
 installed CLI no longer match.
 
 - When a command returns `awaiting_user: update_consent`, ask the question in `prompt` in plain
@@ -470,7 +470,7 @@ confirmation email or on the business's page (`booking_url`). Do not invent a lo
 **Step 1b — Create a new session:**
 
 ```bash
-booking-agent flow init --user-request "<user's exact request>" --skill-version 0.56.0 \
+booking-agent flow init --user-request "<user's exact request>" --skill-version 0.57.0 \
   --skill-path "<absolute path of the SKILL.md you loaded>"
 ```
 
@@ -509,11 +509,9 @@ to Step 3 after the business is selected. It does not require a browser.
 booking-agent flow discover
 ```
 
-**Time-preference gate, required before every discover:** Determine whether the user has
-already said when they want the service in the current request or an earlier turn of this
-booking. If not, **STOP** and ask in plain language when they want it. Offer examples such as
-as soon as possible, a day or time window, a deadline, several alternatives, or that any time
-is fine. Do not run discover and do not invent a range before they answer.
+**Time preference, before every discover:** if the user has not said when they want it in this
+booking, **STOP** and ask in plain language (for example soonest, a day or window, a deadline,
+several alternatives, or any time). Do not run discover or invent a range before they answer.
 
 Pass time flags on every discover for this booking only when the user has a real time constraint:
 
@@ -531,6 +529,9 @@ For date-only preferences, use that date's bounds in the service timezone when k
 Otherwise use the search-area or buyer-local date. Ask if the timezone or wording is
 ambiguous. If the user later changes their time policy, run a new discover with new flags.
 Do not reshuffle an existing page.
+
+`time_preference_not_structured`: the request names a time but you passed no flag. Encode
+`data.named_time` yourself and rerun; do not ask again.
 
 Uses the exact `user_request` stored at `flow init` for the search query. **Do not pass
 `--query` with a paraphrased or shortened version** — the registry ranks results for the
@@ -557,14 +558,13 @@ says `live_catalog`; with `discovery_mismatches` the live value is what will be 
 present the search-index value as current.
 
 When the user picks a result you labeled less-direct, pass the label on `business use
---less-direct '<label shown>'`. The CLI answers `awaiting_user: intent_mismatch_confirmation`: say
-the mismatch plainly, **STOP**, and run `next_command` (it adds `--mismatch-confirmed`) only after
-they agree.
+--less-direct '<label shown>'` (the CLI also detects some mismatches itself). It answers
+`awaiting_user: intent_mismatch_confirmation`: say the mismatch plainly, **STOP**, and run
+`next_command` (it adds `--mismatch-confirmed`) only after they agree.
 
-Availability hints are advisory and never replace a live availability query. Never infer
-availability from result order, never collapse a null hint into zero, and keep `hint_usable: false`
-results (unknown is not unavailable). Even a coverage of zero only means no overlap in the snapshot:
-check live availability before telling the user their time cannot be booked.
+Availability hints are advisory: never infer availability from result order or a hint (null or
+zero included), keep `hint_usable: false` results, and check live availability before telling the
+user their time cannot be booked.
 
 ### Step 3: Select business and resolve calendar gate
 
@@ -604,6 +604,8 @@ booking-agent flow calendar ask
 
 Follow `next_command` from the JSON. **Do not ask the user calendar options yourself.**
 
+`calendar connect`/`skip` fail with `calendar_offer_not_shown` until `calendar ask` ran.
+
 **Pick the calendar route from what you observe at runtime.** The CLI cannot see how this
 runtime reaches Google Calendar, so you tell it on `calendar connect`. Decide before you ask
 the user anything:
@@ -623,8 +625,7 @@ and `--route connector` without a valid `--token-env` fails with `calendar_token
 
 `calendar ask` outcomes (each carries its own `prompt`; ask only what it says):
 
-- **Connected, or a saved preference:** the CLI applies it and advances to availability. Say
-  briefly that you are using their calendar when conflict checking is on.
+- **A saved preference:** the CLI applies it and advances to availability. Say briefly that you are using their calendar when conflict checking is on.
 - **`awaiting_user: calendar_reconnect`:** the saved access expired. Do **not** ask the three
   calendar questions again. Ask only the two choices in `data.calendar_reconnect_choices`
   (reconnect for the same use, or continue without calendar checking) and run the matching
@@ -753,8 +754,10 @@ charge now, or deposit) and quote `data.price_display`, never raw `amount_minor_
 pay-at-appointment service never mention charging or the Link wallet. When `data.quote_caveat` is
 set the amount is an estimate until the business's checkout total.
 
-Do not run `flow book` until they approve. Do not send a separate price-only or timezone
-confirmation after booking.
+With `data.policy_lines` / `data.policy_links`, show them after the recap (links raw) and ask
+for acceptance in the same question. Do not run `flow book` until they approve, then run
+`next_command` as printed. Do not send a separate price-only or timezone confirmation after
+booking.
 
 This step applies [Personal identification (always from Link)](#personal-identification-always-from-link).
 Never hand-enter buyer details. If `buyer resolve` fails with `link_cli_failed` or
@@ -766,7 +769,7 @@ retry.
 **Step 6a — Book**
 
 ```bash
-booking-agent flow book --service-id <id>
+booking-agent flow book --user-confirmed [--policies-accepted]
 ```
 
 For home visits (`channel.type: at_buyer_location`), `flow book` sends the confirmed street
@@ -781,12 +784,11 @@ when `merchant_quote` includes a tax line from the merchant; never assume zero t
 tax might be extra when no tax line was returned. The spend request uses the merchant-advertised
 total only.
 
-If `flow book` fails with `mandatory_acceptance_pending`, show the user any policy links or
-`continue_url` from the error JSON, wait while they complete the merchant step, then retry
-`flow book`. **Never** accept policies or tick boxes on their behalf.
-
-If `data.checkout_links` or `data.checkout_policies` are present after a successful book, show
-those links before payment. If none were sent, say nothing about policies.
+**Business policies.** On `awaiting_user: policy_acceptance` or `policies_not_accepted`, post
+`user_message` (every policy line and raw link), ask whether they accept, and **STOP**. Run
+`next_command` (it adds `--policies-accepted`) only after a yes; on a no, do not book. No policies
+sent: say nothing about them. Links `flow book` shows with no `awaiting_user`: post them, ask
+nothing.
 
 **Free and pay-at-appointment bookings (`free`, `at_service`).** `flow book` places the booking
 directly and `next_command` is `booking-agent flow book poll --wait`. Before running it, tell the user
@@ -795,19 +797,20 @@ charged (or the price is paid at the appointment), and you are now waiting for t
 confirm. Then run `book poll --wait` and report the result. Never create a payment and skip
 Steps 6b to 6d.
 
-**Pay-at-appointment with a checkout (`pay_at_service`).** Nothing is charged; skip `pay request`. Show every `data.payment_disclosures` item (`content_display`) and the amount
-due at the appointment, then run `pay ucp-complete --disclosures-confirmed`. If `merchant_quote.total_changed`, get approval and add `--total-confirmed`.
+**Pay-at-appointment with a checkout (`pay_at_service`).** Nothing is charged; skip `pay request`.
+Show the amount due at the appointment and any policies, then run `next_command` (`pay
+ucp-complete`). If `merchant_quote.total_changed`, get approval and add `--total-confirmed`.
 
 **Deposit bookings (`deposit_required`).** Before any charge, show `data.due_now_display` (the
 deposit charged now), the amount due at the appointment, and every item in
-`data.payment_schedules` and `data.payment_disclosures`, and get the user's agreement. Then run
-`pay request` with `--disclosures-confirmed`. Quote schedule times from `due_at_display` and
+`data.payment_schedules` and `data.payment_disclosures`, get the user's agreement, then run
+`next_command`. Quote schedule times from `due_at_display` and
 disclosure text from `content_display`; never quote raw `due_at` or timestamps inside
 `content`.
 
 The user already approved booking and charge at buyer resolve when the checkout total matches
-what you quoted. **Proceed directly to Step 6b** unless `data.merchant_quote.total_changed` is
-true. The CLI has already checked that the checkout line item matches the quoted service
+what you quoted. Continue to Step 6b once any policies are accepted, unless
+`data.merchant_quote.total_changed` is true. The CLI has already checked that the checkout line item matches the quoted service
 price, so a changed total means the business added tax or fees (or a discount). Then **STOP**:
 tell the user the service price (`merchant_quote.line_item_display` or `subtotal_display`),
 the tax (`tax_display`, only when present), and the new total (`total_display`), and get their
@@ -929,13 +932,8 @@ UCP `complete_checkout` (CLI builds this internally): `handler_id: "stripe_payme
 
 **Payment notes (error recovery only):**
 
-- A live catalog with `payment_timing: at_service` is booked directly or, when `data.payment_route`
-  is `pay_at_service`, through a checkout. Tell the user the quoted price is paid at the
-  appointment. Never run `pay request` for it.
-- A live catalog with `payment_timing: deposit_required` goes through checkout. Charge only the
-  due-now (immediate) amount from the payment term. Show every disclosure and the amount due at
-  the appointment, then pass `--disclosures-confirmed` on `pay request` after the user agrees.
-  Do not compute a percentage deposit yourself.
+- `at_service`: tell the user the price is paid at the appointment; never run `pay request`.
+- `deposit_required`: charge only the due-now amount; never compute a deposit yourself.
 - Unknown or changed payment timing is not bookable. Get a new quote if timing changed.
 - Businesses and the client fetch the document at `USP_AGENT_PROFILE_URL`; the
   canonical URL is used by default.
@@ -993,14 +991,14 @@ Nothing to run; Step 7's command already added the calendar event.
   During booking, use `booking-agent flow buyer resolve`. Addresses come only from `flow
   search-area` after the user confirms them; `flow book` sends the confirmed address for
   `at_buyer_location` services. Never put it in `--notes`.
-- **Never** auto-pick a slot. `booking-agent flow slots select` requires `--user-confirmed` and
-  refuses otherwise.
-- **Never** pass `--mismatch-confirmed`, `--details-confirmed`, `--timezone-confirmed`, or
-  `--allow-duplicate` before the user has answered that exact question.
+- **Never** auto-pick a slot.
+- **Never** pass `--mismatch-confirmed`, `--details-confirmed`, `--timezone-confirmed`,
+  `--user-confirmed`, `--policies-accepted`, or `--allow-duplicate` before the user has answered
+  that exact question. Never paraphrase or hide a policy line or link.
+- **Never** read or delete the CLI's state files or `link-cli` config; use `flow purge`.
 - **Never** run `sleep` or a fixed wait alongside a `booking-agent` command; wait for the command to
   exit.
-- **Never** skip the calendar gate. `booking-agent flow availability` fails until the user has
-  connected a calendar or declined, or you skipped it because this runtime has no calendar route.
+- **Never** skip the calendar gate.
 - **Never** guess a calendar route or token variable name, and never pass a token value on the
   command line. Observe the runtime, then pass `--route` (and `--token-env <NAME>` for a
   connector).
@@ -1008,10 +1006,6 @@ Nothing to run; Step 7's command already added the calendar event.
   for registry discovery.
 
 ## Errors
-
-All errors exit with code 1 and a JSON body containing `data.error.code` and
-`data.error.message`. Always read `next_command` in the error body — the CLI tells you how to
-recover.
 
 Every error exits 1 with `data.error.code`, `data.error.message`, and a `next_command`; a code not
 listed here recovers by following `next_command`. These gate errors need nothing more: `approval_not_surfaced_to_user`, `booking_canceled_after_payment`, `buyer_email_invalid`, `buyer_not_from_link_cli`, `calendar_gate_not_completed`, `checkout_prereq_not_completed`, `context_required`, `discover_radius_required`, `link_address_not_found`, `missing_network_id_for_spt`, `payment_already_captured`, `reschedule_at_business`, `reschedule_booking_not_active`, `reschedule_failed`, `reschedule_fee_unsupported`, `reschedule_price_changed`, `reschedule_price_unknown`, `reschedule_same_slot`, `reschedule_unauthorized`, `search_area_input_invalid`, `search_area_not_user_confirmed`, `search_area_unconfirmed`, `service_address_unconfirmed`, `service_details_changed`, `slot_not_selected`, `spend_request_replacement_required`, `timezone_confirmation_required`.
@@ -1027,7 +1021,9 @@ business's own page (`reschedule_price_changed` and `reschedule_same_slot`: ask 
 | `link_auth_timeout` | User did not approve the Link sign-in in time | Run `next_command`: `link-auth poll` again in the background (same link, do not re-post it) or `link-auth connect` (new link, post it once, then poll in the background) |
 | `link_auth_not_started` | `link-auth poll` with no sign-in waiting | Run `booking-agent flow link-auth connect`, start `link-auth poll` in the background, and post the URL |
 | `ucp_native_required` | Business does not support the native v2 checkout path | Tell the user this business cannot be booked here yet and offer another result |
-| `disclosures_unconfirmed` | Deposit checkout returned terms or disclosures the user has not acknowledged | Show due now, due at the appointment, and every disclosure, then re-run `pay request` with `--disclosures-confirmed` |
+| `policies_not_accepted`, `booking_confirmation_required`, `mismatch_not_surfaced`, `purge_not_surfaced` | A confirmation flag came before its content was shown, or the content changed | Post `user_message`, ask, **STOP**; run `next_command` only after a yes |
+| `calendar_offer_not_shown` | Calendar answer before `calendar ask` | Run `calendar ask` |
+| `no_bookable_results`, `profile_resolve_failed` | No business, or the picked one, can take bookings | Post `user_message`; offer other results |
 | `shared_payment_token_not_issued` | Link approved the spend request but returned no shared payment token, so nothing was charged | Post `user_message`, re-run `pay ucp-complete` once; if it fails again, tell the user this business cannot take a Link payment right now and do not ask them to approve again |
 | `checkout_total_unconfirmed` | Checkout total (tax, fees, discounts) differs from the quoted price and the user has not approved it | Show service price, tax, and total from `data.merchant_quote`, get approval, then re-run `pay request` with `--total-confirmed` |
 | `payment_timing_changed` | Live catalog timing no longer matches the quote | Stop, re-quote, and get a new approval |
@@ -1202,6 +1198,10 @@ history delete at the business):
 booking-agent flow sessions forget --session-id <id>
 ```
 
+To wipe all of this assistant's data on this device, only when asked, run `booking-agent flow
+purge`. It deletes nothing yet: post `user_message`, **STOP**, and run `next_command` only after a
+yes.
+
 Use `booking-agent flow sessions list` only to find unfinished flows or upcoming bookings
 (`actionable: true`, `booking_id`, slot times). Do not use it as a past-booking list.
 
@@ -1210,7 +1210,8 @@ Use `booking-agent flow sessions list` only to find unfinished flows or upcoming
 Nothing needs configuring. `booking-agent config show` lists every setting and where it came from.
 Two matter to a hosting surface: `BOOKING_AGENT_BUYER_DEVICE_IP` (the buyer's device IP when it
 observed one) and `BOOKING_AGENT_USP_AUTH_SCOPED_CREDENTIAL` (`required` by default; see [Booking
-authorization](#booking-authorization)).
+authorization](#booking-authorization)). Faults the user never sees are reported automatically,
+with no user data; `BOOKING_AGENT_FAULT_REPORTS=0` turns that off.
 
 ## Further docs
 

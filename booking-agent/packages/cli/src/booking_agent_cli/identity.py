@@ -94,6 +94,13 @@ def logout_identity(*, clear_link: bool = True) -> Dict[str, Any]:
     result["google_cache_cleared"] = clear_google_calendar_token_cache()
     clear_calendar_preference()
     result["calendar_preference_cleared"] = True
+    if result["calendar_env_token_still_present"]:
+        # The platform still hands out a token this device cannot revoke. Saving "skipped"
+        # keeps it unused until the user opts in to Google Calendar again.
+        from .calendar_preference import save_calendar_preference
+
+        save_calendar_preference(state="skipped", mode="none")
+        result["calendar_preference_saved_as_skipped"] = True
 
     store = load_store()
     result["upcoming_sessions_kept"] = sum(1 for s in store.sessions if is_actionable(s))

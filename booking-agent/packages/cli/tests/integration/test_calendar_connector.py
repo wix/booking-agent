@@ -43,6 +43,7 @@ def _seed(*, phase="BUSINESS_SELECTED", calendar_state="unset") -> Session:
         checkout_prereq_completed=True,
         calendar_gate_completed=calendar_state != "unset",
         calendar_state=calendar_state,
+        calendar_ask_surfaced=True,
         service_id="svc-1",
     )
     add_session(store, session)

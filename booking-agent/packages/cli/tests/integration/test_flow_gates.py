@@ -86,6 +86,19 @@ def _complete_checkout_mode_setup(runner) -> dict:
     return body
 
 
+# The user's yes to the buyer resolve recap, which on a direct booking also accepts the
+# business's policies shown with it.
+_BOOK = (
+    "flow", "book", "--service-id", _SERVICE_ID, "--user-confirmed", "--policies-accepted",
+)
+
+
+def _skip_calendar(runner, *flags):
+    """Show the calendar offer, then decline it, as a compliant agent does."""
+    _invoke(runner, "flow", "calendar", "ask")
+    return _invoke(runner, "flow", "calendar", "skip", *flags)
+
+
 def _satisfy_link_auth_gate() -> None:
     """Mark Link auth gate complete for tests that skip link-auth connect."""
     from booking_agent_cli.session import load_store, save_store
@@ -319,7 +332,7 @@ def test_availability_fetches_live_catalog_before_query(runner, isolated_session
 
     _init(runner)
     _complete_checkout_mode_setup(runner)
-    _invoke(runner, "flow", "calendar", "skip")
+    _skip_calendar(runner)
 
     backend = flow.resolve_backend()
     order: list[str] = []
@@ -357,7 +370,7 @@ def test_availability_refuses_session_with_invalid_business_timezone(
 
     _init(runner)
     _complete_checkout_mode_setup(runner)
-    _invoke(runner, "flow", "calendar", "skip")
+    _skip_calendar(runner)
     store = load_store()
     store.sessions[0].business.timezone = "Mars/Olympus"
     save_store(store)
@@ -382,7 +395,7 @@ def _availability_without_stored_zone(runner, monkeypatch, response_tz, *args):
 
     _init(runner)
     _complete_checkout_mode_setup(runner)
-    _invoke(runner, "flow", "calendar", "skip")
+    _skip_calendar(runner)
     store = load_store()
     store.sessions[0].business.timezone = None
     save_store(store)
@@ -468,7 +481,7 @@ def test_availability_response_zone_replaces_a_different_stored_zone(
 
     _init(runner)
     _complete_checkout_mode_setup(runner)
-    _invoke(runner, "flow", "calendar", "skip")
+    _skip_calendar(runner)
     backend = flow.resolve_backend()
     original = backend.query_availability
     sent = []
@@ -500,7 +513,7 @@ def test_availability_missing_response_zone_keeps_valid_stored_zone(
 
     _init(runner)
     _complete_checkout_mode_setup(runner)
-    _invoke(runner, "flow", "calendar", "skip")
+    _skip_calendar(runner)
     backend = flow.resolve_backend()
     original = backend.query_availability
 
@@ -572,7 +585,7 @@ def test_book_refetches_and_rejects_unsupported_payment_timing(
 
     _init(runner)
     _complete_checkout_mode_setup(runner)
-    _invoke(runner, "flow", "calendar", "skip")
+    _skip_calendar(runner)
     _invoke(runner, "flow", "availability", "--service-id", _SERVICE_ID)
     slots = _stdout_json(_invoke(runner, "flow", "slots", "list"))
     slot_id = slots["data"]["slots"][0]["slot_id"]
@@ -590,7 +603,7 @@ def test_book_refetches_and_rejects_unsupported_payment_timing(
         return await original_create_booking(*args, **kwargs)
 
     monkeypatch.setattr(backend, "create_booking", tracked_create_booking)
-    result = _invoke(runner, "flow", "book", "--service-id", _SERVICE_ID)
+    result = _invoke(runner, *_BOOK)
 
     assert result.exit_code == 1, result.stdout + result.stderr
     assert _stdout_json(result)["data"]["error"]["code"] == error_code
@@ -918,7 +931,7 @@ def test_book_at_service_uses_direct_usp_booking(runner, isolated_session, monke
         _SERVICE_ID,
     )
     assert r.exit_code == 0, r.stdout + r.stderr
-    _invoke(runner, "flow", "calendar", "skip")
+    _skip_calendar(runner)
     _invoke(runner, "flow", "availability", "--service-id", _SERVICE_ID)
     slots = _stdout_json(_invoke(runner, "flow", "slots", "list"))
     slot_id = slots["data"]["slots"][0]["slot_id"]
@@ -936,7 +949,7 @@ def test_book_at_service_uses_direct_usp_booking(runner, isolated_session, monke
         return await original_ucp(*args, **kwargs)
 
     monkeypatch.setattr(payment_helpers, "_create_booking_via_ucp_checkout", tracked_ucp)
-    result = _invoke(runner, "flow", "book", "--service-id", _SERVICE_ID)
+    result = _invoke(runner, *_BOOK)
     assert result.exit_code == 0, result.stdout + result.stderr
     body = _stdout_json(result)
     assert body["data"]["payment_due"] == "at_service"
@@ -963,7 +976,7 @@ def test_book_rejects_changed_payment_timing(runner, isolated_session, monkeypat
         _SERVICE_ID,
     )
     assert r.exit_code == 0, r.stdout + r.stderr
-    _invoke(runner, "flow", "calendar", "skip")
+    _skip_calendar(runner)
     _invoke(runner, "flow", "availability", "--service-id", _SERVICE_ID)
     slots = _stdout_json(_invoke(runner, "flow", "slots", "list"))
     slot_id = slots["data"]["slots"][0]["slot_id"]
@@ -971,7 +984,7 @@ def test_book_rejects_changed_payment_timing(runner, isolated_session, monkeypat
     _satisfy_link_auth_gate()
     _invoke(runner, "flow", "buyer", "resolve")
     _set_mock_payment_timing(monkeypatch, "at_booking")
-    result = _invoke(runner, "flow", "book", "--service-id", _SERVICE_ID)
+    result = _invoke(runner, *_BOOK)
     assert result.exit_code == 1, result.stdout + result.stderr
     assert _stdout_json(result)["data"]["error"]["code"] == "payment_timing_changed"
 
@@ -979,8 +992,8 @@ def test_book_rejects_changed_payment_timing(runner, isolated_session, monkeypat
 def test_book_without_slot_fails(runner, isolated_session):
     _init(runner)
     _complete_checkout_mode_setup(runner)
-    _invoke(runner, "flow", "calendar", "skip")
-    r = _invoke(runner, "flow", "book", "--service-id", _SERVICE_ID)
+    _skip_calendar(runner)
+    r = _invoke(runner, *_BOOK)
     assert r.exit_code == 1
     assert _stdout_json(r)["data"]["error"]["code"] == "slot_not_selected"
 
@@ -988,7 +1001,7 @@ def test_book_without_slot_fails(runner, isolated_session):
 def test_buyer_resolve_rejects_placeholder_email(runner, isolated_session, monkeypatch):
     _init(runner)
     _complete_checkout_mode_setup(runner)
-    _invoke(runner, "flow", "calendar", "skip")
+    _skip_calendar(runner)
     _invoke(runner, "flow", "availability", "--service-id", _SERVICE_ID)
     body = _stdout_json(_invoke(runner, "flow", "slots", "list"))
     slot_id = body["data"]["slots"][0]["slot_id"]
@@ -1003,7 +1016,7 @@ def test_buyer_resolve_rejects_placeholder_email(runner, isolated_session, monke
 def test_buyer_resolve_emits_price_and_booking_recap(runner, isolated_session, monkeypatch):
     _init(runner)
     _complete_checkout_mode_setup(runner)
-    _invoke(runner, "flow", "calendar", "skip")
+    _skip_calendar(runner)
     _invoke(runner, "flow", "availability", "--service-id", _SERVICE_ID)
     slots = _stdout_json(_invoke(runner, "flow", "slots", "list"))
     slot_id = slots["data"]["slots"][0]["slot_id"]
@@ -1025,7 +1038,7 @@ def test_buyer_resolve_emits_price_and_booking_recap(runner, isolated_session, m
 def test_full_mock_flow_through_payment_pending(runner, isolated_session, monkeypatch):
     _init(runner)
     _complete_checkout_mode_setup(runner)
-    _invoke(runner, "flow", "calendar", "skip")
+    _skip_calendar(runner)
     _invoke(runner, "flow", "availability", "--service-id", _SERVICE_ID)
     body = _stdout_json(_invoke(runner, "flow", "slots", "list"))
     slot_id = body["data"]["slots"][0]["slot_id"]
@@ -1038,7 +1051,7 @@ def test_full_mock_flow_through_payment_pending(runner, isolated_session, monkey
     r = _invoke(runner, "flow", "buyer", "resolve")
     assert r.exit_code == 0, r.stdout
 
-    r = _invoke(runner, "flow", "book", "--service-id", _SERVICE_ID)
+    r = _invoke(runner, *_BOOK)
     assert r.exit_code == 0, r.stdout
     body = _stdout_json(r)
     assert body["phase"] == "PAYMENT_PENDING"
@@ -1054,7 +1067,7 @@ def test_availability_with_connected_calendar_filters_conflicting_slots(
 ):
     _init(runner)
     _complete_checkout_mode_setup(runner)
-    _invoke(runner, "flow", "calendar", "skip")
+    _skip_calendar(runner)
     skipped = _stdout_json(
         _invoke(runner, "flow", "availability", "--service-id", _SERVICE_ID)
     )
@@ -1068,6 +1081,7 @@ def test_availability_with_connected_calendar_filters_conflicting_slots(
         "GOOGLE_CALENDAR_CLIENT_ID",
         "test-client-id.apps.googleusercontent.com",
     )
+    _invoke(runner, "flow", "calendar", "ask")
     connect = _invoke(runner, "flow", "calendar", "connect", "--route", "local-oauth")
     assert connect.exit_code == 0, connect.stdout + connect.stderr
     connected = _stdout_json(
@@ -1295,7 +1309,7 @@ def _advance_to_payment_pending(runner, isolated_session, monkeypatch):
 
     _init(runner)
     _complete_checkout_mode_setup(runner)
-    _invoke(runner, "flow", "calendar", "skip")
+    _skip_calendar(runner)
 
     # Manually put session into PAYMENT_PENDING with a booking
     store = load_store()
@@ -1867,6 +1881,7 @@ def test_pay_request_uses_live_catalog_on_ucp_native_when_registry_differs(
         "request",
         "--payment-method-id",
         "pm_test",
+        "--policies-accepted",
         "--context",
         "x" * 100,
         "--no-then-complete",
@@ -1899,6 +1914,7 @@ def test_pay_request_routes_next_command(runner, isolated_session, monkeypatch):
         "request",
         "--payment-method-id",
         "pm_test",
+        "--policies-accepted",
         "--context",
         context,
         "--no-then-complete",
@@ -1941,6 +1957,7 @@ def test_pay_request_ucp_native_uses_session_network_id(runner, isolated_session
         "request",
         "--payment-method-id",
         "pm_test",
+        "--policies-accepted",
         "--context",
         context,
         "--no-then-complete",
@@ -1979,6 +1996,7 @@ def test_pay_request_then_complete_emits_approval_url_before_blocking(
         "request",
         "--payment-method-id",
         "pm_test",
+        "--policies-accepted",
         "--context",
         context,
         "--then-complete",
@@ -2026,6 +2044,7 @@ def test_pay_request_then_complete_polls(
         "request",
         "--payment-method-id",
         "pm_test",
+        "--policies-accepted",
         "--context",
         context,
         "--then-complete",
@@ -2066,6 +2085,7 @@ def test_pay_request_default_returns_without_blocking(
         "request",
         "--payment-method-id",
         "pm_test",
+        "--policies-accepted",
         "--context",
         context,
     )
@@ -2111,6 +2131,7 @@ def test_pay_request_no_then_complete_emits_stderr_approval_url(
         "request",
         "--payment-method-id",
         "pm_test",
+        "--policies-accepted",
         "--context",
         context,
         "--no-then-complete",
@@ -2164,6 +2185,7 @@ def test_pay_ucp_complete_blocked_without_ack_surface(
         "request",
         "--payment-method-id",
         "pm_test",
+        "--policies-accepted",
         "--context",
         context,
     )
@@ -2222,6 +2244,7 @@ def test_pay_poll_completes_ucp_checkout(
         "request",
         "--payment-method-id",
         "pm_test",
+        "--policies-accepted",
         "--context",
         context,
     )
@@ -2294,6 +2317,7 @@ def test_pay_ack_surface_enables_ucp_complete(
         "request",
         "--payment-method-id",
         "pm_test",
+        "--policies-accepted",
         "--context",
         context,
     )
@@ -2442,7 +2466,7 @@ def _pay_request(runner, monkeypatch, created):
     monkeypatch.setattr(flow, "create_spend_request", fake_create)
     r = _invoke(
         runner, "flow", "pay", "request",
-        "--payment-method-id", "pm_test", "--context", "x" * 100,
+        "--payment-method-id", "pm_test", "--policies-accepted", "--context", "x" * 100,
     )
     return r, calls
 
@@ -2463,7 +2487,7 @@ def test_pay_request_reads_context_from_stdin_without_shell_expansion(
     text = "Pay the $1.00 deposit for AC repair at HVAC-Koby on Tue Oct 6, 4:00 PM IDT. " * 2
     r = runner.invoke(
         app,
-        ["flow", "pay", "request", "--payment-method-id", "pm_test", "--context-file", "-"],
+        ["flow", "pay", "request", "--payment-method-id", "pm_test", "--policies-accepted", "--context-file", "-"],
         input=text,
     )
     assert r.exit_code == 0, r.stdout
@@ -2480,7 +2504,7 @@ def test_pay_request_writes_the_link_note_from_the_session(runner, isolated_sess
         flow, "create_spend_request",
         lambda **kw: calls.append(kw) or _approval_created("lsrq_auto"),
     )
-    r = _invoke(runner, "flow", "pay", "request", "--payment-method-id", "pm_test")
+    r = _invoke(runner, "flow", "pay", "request", "--payment-method-id", "pm_test", "--policies-accepted")
     assert r.exit_code == 0, r.stdout
     note = calls[0]["context"]
     assert len(note) >= 100
@@ -2492,7 +2516,7 @@ def test_pay_request_refuses_two_context_sources(runner, isolated_session):
     _ucp_payment_pending(runner)
     r = runner.invoke(
         app,
-        ["flow", "pay", "request", "--payment-method-id", "pm_test",
+        ["flow", "pay", "request", "--payment-method-id", "pm_test", "--policies-accepted",
          "--context", "x" * 120, "--context-file", "-"],
         input="y" * 120,
     )
@@ -2766,6 +2790,7 @@ def test_pay_request_ucp_native_missing_network_id(runner, isolated_session):
         "request",
         "--payment-method-id",
         "pm_test",
+        "--policies-accepted",
         "--context",
         context,
         "--no-then-complete",
@@ -2814,29 +2839,26 @@ def test_pay_request_surfaces_deposit_disclosures_before_spend(
         "description": {"plain": "The remaining balance is due at the appointment."},
     }
     _set_deposit_disclosures(disclosures=[disclosure])
+    pay = ("flow", "pay", "request", "--payment-method-id", "pm_test", "--context", "x" * 100)
 
-    r = _invoke(
-        runner,
-        "flow",
-        "pay",
-        "request",
-        "--payment-method-id",
-        "pm_test",
-        "--context",
-        "x" * 100,
-    )
-
+    # Accepting before anything was shown is refused, and that call shows the policies.
+    r = _invoke(runner, *pay, "--policies-accepted")
     assert r.exit_code == 1, r.stdout + r.stderr
     body = _stdout_json(r)
-    assert body["data"]["error"]["code"] == "disclosures_unconfirmed"
-    assert body["data"]["due_now_amount_minor"] == 1000
-    assert body["data"]["checkout_total_minor"] == 10000
-    assert body["data"]["schedules"] == [
-        {"id": "now", "type": "immediate", "amount": 1000},
-        {"id": "later", "type": "at_service", "amount": 9000},
-    ]
-    assert body["data"]["disclosures"] == [disclosure]
-    assert "--disclosures-confirmed" in body["next_command"]
+    assert body["data"]["error"]["code"] == "policies_not_accepted"
+    assert "before the policies were shown" in body["data"]["error"]["message"]
+    assert body["data"]["awaiting_user"] == "policy_acceptance"
+    assert "The remaining balance is due at the appointment." in body["data"]["policy_lines"]
+    assert "The remaining balance is due at the appointment." in r.stdout.splitlines()[0:20]
+    assert body["next_command"].endswith("--policies-accepted")
+    from booking_agent_cli.session import load_session
+
+    assert load_session().policies_accepted_digest is None
+
+    r = _invoke(runner, *pay, "--policies-accepted")
+    assert _stdout_json(r)["data"]["error"]["code"] == "missing_network_id_for_spt"
+    session = load_session()
+    assert session.policies_accepted_digest == session.policies_digest is not None
 
 
 def test_pay_request_fails_closed_for_unrenderable_disclosure(
@@ -2859,6 +2881,7 @@ def test_pay_request_fails_closed_for_unrenderable_disclosure(
         "request",
         "--payment-method-id",
         "pm_test",
+        "--policies-accepted",
         "--context",
         "x" * 100,
         "--disclosures-confirmed",
@@ -2875,25 +2898,28 @@ def test_pay_request_persists_disclosure_confirmation_before_retry(
     runner, isolated_session, monkeypatch,
 ):
     _advance_to_payment_pending(runner, isolated_session, monkeypatch)
-    _set_deposit_disclosures(disclosures=[])
+    _set_deposit_disclosures(disclosures=[{
+        "presentation": "disclosure",
+        "code": "balance_due_at_service",
+        "description": {"plain": "The remaining balance is due at the appointment."},
+    }])
+    pay = ("flow", "pay", "request", "--payment-method-id", "pm_test", "--context", "x" * 100)
 
-    r = _invoke(
-        runner,
-        "flow",
-        "pay",
-        "request",
-        "--payment-method-id",
-        "pm_test",
-        "--context",
-        "x" * 100,
-        "--disclosures-confirmed",
-    )
+    first = _invoke(runner, *pay)
+    assert _stdout_json(first)["data"]["error"]["code"] == "policies_not_accepted"
+    # The deprecated flag still counts as acceptance once the policies were shown.
+    r = _invoke(runner, *pay, "--disclosures-confirmed")
 
     assert r.exit_code == 1, r.stdout + r.stderr
     assert _stdout_json(r)["data"]["error"]["code"] == "missing_network_id_for_spt"
     from booking_agent_cli.session import load_session
 
-    assert load_session().disclosures_user_confirmed is True
+    session = load_session()
+    assert session.disclosures_user_confirmed is True
+    assert session.policies_accepted_digest == session.policies_digest
+
+    retry = _invoke(runner, *pay)
+    assert _stdout_json(retry)["data"]["error"]["code"] == "missing_network_id_for_spt"
 
 
 def _set_taxed_quote(*, total=110, line_item=100, confirmed=None):
@@ -2948,7 +2974,7 @@ def test_pay_request_charges_the_taxed_total_after_confirmation(
 
     r = _invoke(
         runner, "flow", "pay", "request",
-        "--payment-method-id", "pm_test", "--context", "x" * 100, "--total-confirmed",
+        "--payment-method-id", "pm_test", "--policies-accepted", "--context", "x" * 100, "--total-confirmed",
     )
 
     assert r.exit_code == 0, r.stdout
@@ -2988,14 +3014,14 @@ def _drive_to_payment_pending(runner):
     _init(runner)
     _invoke(runner, "flow", "prereq", "check")
     _complete_checkout_mode_setup(runner)
-    _invoke(runner, "flow", "calendar", "skip")
+    _skip_calendar(runner)
     _invoke(runner, "flow", "availability", "--service-id", _SERVICE_ID)
     slots = _stdout_json(_invoke(runner, "flow", "slots", "list"))
     slot_id = slots["data"]["slots"][0]["slot_id"]
     _invoke(runner, "flow", "slots", "select", "--slot-id", slot_id, "--user-confirmed")
     _satisfy_link_auth_gate()
     _invoke(runner, "flow", "buyer", "resolve")
-    r = _invoke(runner, "flow", "book", "--service-id", _SERVICE_ID)
+    r = _invoke(runner, *_BOOK)
     assert r.exit_code == 0, r.stdout
     return _stdout_json(r)
 
@@ -3033,7 +3059,7 @@ def test_book_blocks_mandatory_acceptance_pending(
     _init(runner)
     _invoke(runner, "flow", "prereq", "check")
     _complete_checkout_mode_setup(runner)
-    _invoke(runner, "flow", "calendar", "skip")
+    _skip_calendar(runner)
     _invoke(runner, "flow", "availability", "--service-id", _SERVICE_ID)
     slots = _stdout_json(_invoke(runner, "flow", "slots", "list"))
     slot_id = slots["data"]["slots"][0]["slot_id"]
@@ -3041,7 +3067,7 @@ def test_book_blocks_mandatory_acceptance_pending(
     _satisfy_link_auth_gate()
     _invoke(runner, "flow", "buyer", "resolve")
 
-    r = _invoke(runner, "flow", "book", "--service-id", _SERVICE_ID)
+    r = _invoke(runner, *_BOOK)
     assert r.exit_code == 1, r.stdout
     body = _stdout_json(r)
     assert body["data"]["error"]["code"] == "mandatory_acceptance_pending"
@@ -3055,6 +3081,7 @@ def test_book_blocks_mandatory_acceptance_pending(
         "request",
         "--payment-method-id",
         "pm_test",
+        "--policies-accepted",
         "--context",
         "x" * 100,
     )
@@ -3123,6 +3150,7 @@ def test_pay_request_second_call_does_not_reemit_url(
         "request",
         "--payment-method-id",
         "pm_test",
+        "--policies-accepted",
         "--context",
         context,
     )
@@ -3136,6 +3164,7 @@ def test_pay_request_second_call_does_not_reemit_url(
         "request",
         "--payment-method-id",
         "pm_test",
+        "--policies-accepted",
         "--context",
         context,
     )
@@ -3181,7 +3210,7 @@ def _link_address(monkeypatch, *, with_address=True):
 def _to_slots_list(runner, *args):
     _init(runner)
     _complete_checkout_mode_setup(runner)
-    _invoke(runner, "flow", "calendar", "skip")
+    _skip_calendar(runner)
     avail = _invoke(runner, "flow", "availability", "--service-id", _SERVICE_ID, *args)
     assert avail.exit_code == 0, avail.stdout + avail.stderr
     return _stdout_json(avail), _stdout_json(_invoke(runner, "flow", "slots", "list"))
@@ -3227,7 +3256,7 @@ def test_default_window_starts_tomorrow_in_business_zone(runner, isolated_sessio
     _init(runner)
     assert _business_use(runner).exit_code == 0
     _invoke(runner, "flow", "use-ucp-checkout-mode")
-    _invoke(runner, "flow", "calendar", "skip")
+    _skip_calendar(runner)
     _invoke(runner, "flow", "availability", "--service-id", _SERVICE_ID)
     window = must_load().availability_window
     assert window.from_.endswith(("+02:00", "+03:00"))
@@ -3292,7 +3321,7 @@ def test_dual_list_pick_carries_both_times_into_the_single_confirmation(
     assert selected["buyer_display"].endswith("(Asia/Jerusalem)")
     assert "timezone_notice" not in recap["data"]
     assert "buyer_display in parentheses" in recap["prompt"]
-    assert recap["next_command"] == "booking-agent flow book"
+    assert recap["next_command"] == "booking-agent flow book --user-confirmed"
     assert not any("timezone" in f for f in _skill_compliance_failures(session))
 
 
@@ -3354,7 +3383,7 @@ def _to_slots_list_in_zone(runner, monkeypatch, zone):
     }]
     save_store(store)
     _invoke(runner, "flow", "use-ucp-checkout-mode")
-    _invoke(runner, "flow", "calendar", "skip")
+    _skip_calendar(runner)
     assert _invoke(runner, "flow", "availability", "--service-id", _SERVICE_ID).exit_code == 0
     return _stdout_json(_invoke(runner, "flow", "slots", "list"))
 
@@ -3483,7 +3512,7 @@ def test_incident_replay_needs_each_user_confirmation_before_a_slot_is_held(
     r = _invoke(runner, *use, "--mismatch-confirmed")
     assert r.exit_code == 0, r.stdout
     _invoke(runner, "flow", "use-ucp-checkout-mode")
-    _invoke(runner, "flow", "calendar", "skip")
+    _skip_calendar(runner)
     assert _invoke(runner, "flow", "availability", "--service-id", _SERVICE_ID).exit_code == 0
 
     body = _stdout_json(_invoke(runner, "flow", "slots", "list"))
@@ -3629,7 +3658,7 @@ def test_direct_booking_recap_and_narration_skip_wallet_language(
     r = _business_use(runner)
     assert r.exit_code == 0, r.stdout + r.stderr
     assert _stdout_json(r)["data"]["payment_route"] == route
-    _invoke(runner, "flow", "calendar", "skip")
+    _skip_calendar(runner)
     _invoke(runner, "flow", "availability", "--service-id", _SERVICE_ID)
     body = _stdout_json(_invoke(runner, "flow", "slots", "list"))
     mock_link_cli_user_info(monkeypatch, _BUYER)
@@ -3638,7 +3667,7 @@ def test_direct_booking_recap_and_narration_skip_wallet_language(
     assert "wallet" not in recap["prompt"].lower()
     assert "charge" not in recap["prompt"].lower()
 
-    booked = _invoke(runner, "flow", "book", "--service-id", _SERVICE_ID)
+    booked = _invoke(runner, *_BOOK)
     assert booked.exit_code == 0, booked.stdout + booked.stderr
     out = _stdout_json(booked)
     assert out["next_command"] == "booking-agent flow book poll --wait"
@@ -3700,7 +3729,7 @@ def _pay_poll_to_confirmed(runner, monkeypatch, *, calendar_result):
         id="lsrq_poll", approval_url="https://link.test/approve",
         raw={"id": "lsrq_poll"}, command_summary="link-cli spend-request create ...",
     ))
-    r = _invoke(runner, "flow", "pay", "request", "--payment-method-id", "pm_test", "--context", "x" * 100)
+    r = _invoke(runner, "flow", "pay", "request", "--payment-method-id", "pm_test", "--policies-accepted", "--context", "x" * 100)
     assert r.exit_code == 0, r.stdout + r.stderr
     monkeypatch.setattr(flow, "_poll_spend_approval_or_exit", lambda *_a, **_k: None)
 

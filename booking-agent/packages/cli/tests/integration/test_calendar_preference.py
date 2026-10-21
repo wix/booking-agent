@@ -57,7 +57,7 @@ def test_try_apply_skipped_preference_when_connected(tmp_path, monkeypatch):
     assert session.calendar_gate_completed is True
 
 
-def test_try_apply_infers_events_mode_when_connected_without_saved_preference(
+def test_try_apply_never_infers_consent_from_a_connected_token(
     tmp_path, monkeypatch,
 ):
     session = _seed(tmp_path, monkeypatch)
@@ -77,10 +77,10 @@ def test_try_apply_infers_events_mode_when_connected_without_saved_preference(
             "supports_events": True,
         },
     )
-    assert result is not None
-    assert result.mode == CALENDAR_MODE_EVENTS
-    assert session.calendar_gate_completed is True
-    assert get_calendar_preference() == ("connected", CALENDAR_MODE_EVENTS)
+    assert result is None
+    assert session.calendar_gate_completed is False
+    assert session.calendar_remembered_applied is False
+    assert get_calendar_preference() == (None, None)
 
 
 def test_stale_remembered_mode_when_connected_pref_lost_connection(tmp_path, monkeypatch):
