@@ -777,8 +777,7 @@ address and the note from `buyer resolve` automatically. Never map or pass an ad
 If it fails with `service_address_unconfirmed`, run its `next_command` and confirm the address
 with the user.
 
-`flow book` returns `data.merchant_quote` and `data.price_display` (always use these for the
-dollar total shown to the user). **Never** quote `amount_minor_units`, `price_minor_units`, or
+`flow book` returns `data.merchant_quote` and `data.price_display`. **Never** quote `amount_minor_units`, `price_minor_units`, or
 raw `amount` as dollars, only `price_display` or `merchant_quote.total_display`. Quote tax only
 when `merchant_quote` includes a tax line from the merchant; never assume zero tax or warn that
 tax might be extra when no tax line was returned. The spend request uses the merchant-advertised
@@ -794,12 +793,14 @@ nothing.
 directly and `next_command` is `booking-agent flow book poll --wait`. Before running it, tell the user
 in one short plain message what `data.booking_narration` says: the request is in, nothing was
 charged (or the price is paid at the appointment), and you are now waiting for the business to
-confirm. Then run `book poll --wait` and report the result. Never create a payment and skip
+confirm. Then run it and report the result. Never create a payment and skip
 Steps 6b to 6d.
 
 **Pay-at-appointment with a checkout (`pay_at_service`).** Nothing is charged; skip `pay request`.
-Show the amount due at the appointment and any policies, then run `next_command` (`pay
-ucp-complete`). If `merchant_quote.total_changed`, get approval and add `--total-confirmed`.
+Show the amount due at the appointment and any policies, then run `next_command`. If
+`merchant_quote.total_changed`, get approval and add `--total-confirmed`. On
+`booking_confirmation_pending` or `booking_not_confirmed`, post `user_message` and run any
+`next_command`.
 
 **Deposit bookings (`deposit_required`).** Before any charge, show `data.due_now_display` (the
 deposit charged now), the amount due at the appointment, and every item in

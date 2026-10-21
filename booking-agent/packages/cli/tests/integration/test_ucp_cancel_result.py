@@ -59,43 +59,83 @@ async def test_ucp_cancel_result_finishes_without_second_direct_cancel(monkeypat
     assert direct_cancel_calls == 0
 
 
-@pytest.mark.asyncio
-async def test_ucp_cancel_without_booking_echo_falls_through_to_usp(monkeypatch):
-    session = Session(
-        business=Business(profile_url="https://biz.example/.well-known/ucp"),
-        booking=BookingRef(id="b1"),
-        ucp_checkout_session_id="cs_1",
-        ucp_checkout_rest_base="https://biz.example/ucp",
-    )
-    direct_cancel_calls = 0
+def _install_abandoning_checkout(monkeypatch, *, cancel_statuses):
+    """A business that cancels the checkout and leaves its pending booking (USP 7.5)."""
+    calls = {"checkout": 0, "usp": 0}
 
     class Backend:
         async def resolve_profile(self, _profile_url):
             return SimpleNamespace(rest_endpoint="https://biz.example/usp")
 
+        async def get_booking(self, *_args, **_kwargs):
+            return SimpleNamespace(id="b1", status=SimpleNamespace(value="pending"))
+
         async def cancel_booking(self, *_args, **_kwargs):
-            nonlocal direct_cancel_calls
-            direct_cancel_calls += 1
-            return SimpleNamespace(id="b1", status=SimpleNamespace(value="canceled"))
+            calls["usp"] += 1
+            raise AssertionError("an abandoned checkout's booking must not be canceled")
 
     async def cancel_checkout(_session, *, credential):
+        status = cancel_statuses[min(calls["checkout"], len(cancel_statuses) - 1)]
+        calls["checkout"] += 1
+        if status == 404:
+            raise UcpCheckoutHttpError(404, '{"code":"not_found"}')
         return {"status": "canceled"}
 
-    monkeypatch.setattr(
-        "booking_agent_cli.commands.flow.resolve_backend",
-        lambda: Backend(),
-    )
-    monkeypatch.setattr(
-        "booking_agent_cli.commands.flow.cancel_ucp_checkout_async",
-        cancel_checkout,
+    monkeypatch.setattr("booking_agent_cli.commands.flow.resolve_backend", lambda: Backend())
+    monkeypatch.setattr("booking_agent_cli.commands.flow.cancel_ucp_checkout_async", cancel_checkout)
+    return calls
+
+
+def _open_checkout_session(**extra) -> Session:
+    return Session(
+        flow_phase="PAYMENT_PENDING",
+        business=Business(name="HVAC Koby", profile_url="https://biz.example/.well-known/ucp"),
+        booking=BookingRef(id="b1", status="pending"),
+        ucp_checkout_session_id="cs_1",
+        ucp_checkout_rest_base="https://biz.example/ucp",
+        payment_route="pay_at_service",
+        **extra,
     )
 
-    booking, fee = await _cancel_booking_async(session, "b1", None)
 
-    assert booking.id == "b1"
-    assert booking.status.value == "canceled"
-    assert fee["refund_follow_up"] is None
-    assert direct_cancel_calls == 1
+def test_canceled_checkout_without_booking_leaves_the_pending_booking(
+    runner: CliRunner, isolated_session, monkeypatch,
+):
+    """Production body: ``{"status": "canceled"}``. Nothing to cancel behind it."""
+    store = load_store()
+    session = _open_checkout_session()
+    session.booking.booking_url = "https://biz.example/bookings/b1"
+    add_session(store, session)
+    save_store(store)
+    calls = _install_abandoning_checkout(monkeypatch, cancel_statuses=[200])
+
+    obj = _invoke_cancel(runner, exit_code=0)
+
+    assert calls == {"checkout": 1, "usp": 0}
+    assert obj["data"]["status"] == "checkout_abandoned"
+    assert obj["data"]["refund_follow_up"] is None
+    assert "Nothing was booked and nothing was charged" in obj["user_message"]
+    assert "refund" not in obj["user_message"].lower()
+    assert "support_report_offered" not in obj
+    row = next(s for s in load_store().sessions if s.id == session.id)
+    assert row.flow_phase == "FAILED"
+    assert row.booking.status == "pending"
+    assert row.ucp_checkout_abandoned is True
+
+
+def test_repeat_cancel_after_abandonment_never_reaches_usp(
+    runner: CliRunner, isolated_session, monkeypatch,
+):
+    store = load_store()
+    add_session(store, _open_checkout_session())
+    save_store(store)
+    calls = _install_abandoning_checkout(monkeypatch, cancel_statuses=[200, 404])
+
+    _invoke_cancel(runner, exit_code=0)
+    second = _invoke_cancel(runner, exit_code=0)
+
+    assert second["data"]["status"] == "checkout_abandoned"
+    assert calls == {"checkout": 1, "usp": 0}
 
 
 @pytest.mark.asyncio
@@ -669,6 +709,25 @@ def test_routes_that_collected_nothing_have_no_refund_steps(
 ):
     obj = _cancel_paid_session(
         runner, monkeypatch, _paid_at_booking_session(payment_route=route),
+        _canceled_without_payment_echo(),
+    )
+
+    assert obj["data"]["refund_follow_up"] is None
+    assert "refund" not in obj["user_message"].lower()
+
+
+def test_confirmed_pay_at_service_cancel_asks_for_no_refund(
+    runner: CliRunner, isolated_session, home, monkeypatch,
+):
+    """The order id of an offline checkout references the booking; nothing was charged."""
+    from booking_agent_cli.session import PaymentRef
+
+    obj = _cancel_paid_session(
+        runner, monkeypatch,
+        _paid_at_booking_session(
+            payment_route="pay_at_service",
+            payment=PaymentRef(status="not_required", order_id="o_1"),
+        ),
         _canceled_without_payment_echo(),
     )
 

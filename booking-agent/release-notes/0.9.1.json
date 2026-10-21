@@ -6,13 +6,15 @@
   "readiness_evidence": [
     "Not ready to offer: no hosted session has run this version yet, and 0.9.0 is deferred, so installing this one brings 0.9.0's changes with it.",
     "Hosted replay: 0.9.0 failed on 21/10/26 in two hosted sessions (a new conversation did not resume a booking waiting for the user's yes: the user's reply was taken as consent to a support note, and times were listed again, dropping the chosen slot and summary; the calendar was skipped without asking, so no event link could be shown). This release fixes those in the CLI and has not been replayed yet.",
-    "Offline: the full test suite passes, including new tests for a booking waiting at the summary with a stale support note, listing times again after a time is chosen, a new runtime that must read the booking state first, and the calendar skip reason shown in the booked message.",
+    "Hosted replay: a live pay-at-appointment business answers checkout completion with an order and a booking that is still pending, then confirms it about 20 seconds later; canceling an open checkout returns no booking and leaves the booking pending. This release waits for that confirmation without reporting a charge, and stops after a booking-less checkout cancellation instead of canceling the booking through USP. Neither path has been replayed against the live business yet.",
+    "Offline: the full test suite passes, including new tests for a booking waiting at the summary with a stale support note, listing times again after a time is chosen, a new runtime that must read the booking state first, the calendar skip reason shown in the booked message, a pay-at-appointment booking confirmed after checkout completion (and the timeout and decline paths), and a canceled checkout that returns no booking.",
     "Existing businesses and the registry stay compatible: no USP, UCP, or platform profile version changed and no request shape changed.",
-    "The saved booking file keeps its format version and gains one optional field (calendar skipped without asking); a session saved by 0.9.0 resumes unchanged."
+    "The saved booking file keeps its format version and gains two optional fields (calendar skipped without asking, and ucp_checkout_abandoned for a canceled checkout); a session saved by 0.9.0 resumes unchanged."
   ],
   "relevant_capabilities": [
     "booking",
-    "calendar"
+    "calendar",
+    "payment"
   ],
   "schema_version": 1,
   "skill_version": "0.57.1",

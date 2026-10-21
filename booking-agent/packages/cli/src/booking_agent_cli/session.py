@@ -288,6 +288,9 @@ class Session:
     time_preference_mode: Optional[str] = None  # range | at | from | asap | any
     desired_time_ranges: Optional[List[Dict[str, Any]]] = None  # discover's time flags, wire form
     link_auth_url_surfaced: bool = False
+    # cancel_checkout succeeded and the business left the booking pending (USP 7.5), so a
+    # repeat cancel must not cancel the booking itself.
+    ucp_checkout_abandoned: bool = False
 
 
 # Fields of the confirmation gates that describe one selection (business, service, slot).
@@ -970,6 +973,7 @@ def _session_from_dict(raw: Dict[str, Any]) -> Session:
         time_preference_mode=raw.get("time_preference_mode"),
         desired_time_ranges=list(raw.get("desired_time_ranges") or []) or None,
         link_auth_url_surfaced=bool(raw.get("link_auth_url_surfaced", False)),
+        ucp_checkout_abandoned=bool(raw.get("ucp_checkout_abandoned", False)),
     )
     return _remember_unknown(session, raw, _SESSION_KEYS)
 

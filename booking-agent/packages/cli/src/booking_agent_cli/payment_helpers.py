@@ -610,6 +610,7 @@ async def complete_ucp_checkout_async(
         extract_order_id_from_checkout,
         immediate_schedule_amount,
         resolve_handler_id_for_ucp_complete,
+        validate_checkout_totals_and_links,
         validate_completed_checkout_selected_term,
         validate_payment_terms,
         validate_ucp_checkout_completed,
@@ -783,8 +784,18 @@ async def complete_ucp_checkout_async(
                 raise _outcome_error(classification, checkout) from exc
             raise
 
+    def _offline_awaiting_confirmation(checkout: Any) -> bool:
+        # Nothing was charged, so a completed offline checkout whose booking is not
+        # confirmed yet is an accepted order waiting for the business, never a capture.
+        if not without_instrument or not isinstance(checkout, dict):
+            return False
+        if checkout.get("status") != "completed":
+            return False
+        booking = checkout.get("booking")
+        return not (isinstance(booking, dict) and booking.get("booking_status") == "confirmed")
+
     def _raise_if_classified(checkout: Any) -> None:
-        if not isinstance(checkout, dict):
+        if not isinstance(checkout, dict) or _offline_awaiting_confirmation(checkout):
             return
         classification = classify_complete_checkout(checkout)
         if classification.outcome in (CompleteOutcome.UNCLASSIFIED, CompleteOutcome.COMPLETED):
@@ -814,11 +825,22 @@ async def complete_ucp_checkout_async(
                 result = await _post()
                 _raise_if_classified(result)
                 break
+    awaiting_confirmation = _offline_awaiting_confirmation(result)
     try:
-        order_id = validate_ucp_checkout_completed(result) if isinstance(result, dict) else ""
+        if awaiting_confirmation:
+            validate_checkout_totals_and_links(result)
+            order_id = extract_order_id_from_checkout(result)
+            if not order_id:
+                raise UcpProfileValidationError(
+                    "UCP complete_checkout response missing order_id (or order.id)"
+                )
+        else:
+            order_id = validate_ucp_checkout_completed(result) if isinstance(result, dict) else ""
         if term is not None and isinstance(result, dict):
             validate_completed_checkout_selected_term(result, term)
     except UcpProfileValidationError:
+        if awaiting_confirmation:
+            raise
         if isinstance(result, dict) and result.get("status") == "completed":
             booking_block = result.get("booking")
             booking_status = (
@@ -852,6 +874,7 @@ async def complete_ucp_checkout_async(
         "checkout_id": cid,
         "order_id": order_id,
         "handler_id_resolved": resolved_handler,
+        "booking_confirmation_pending": awaiting_confirmation,
     }
 
 

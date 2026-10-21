@@ -104,6 +104,7 @@ SKILL_TABLE_CODES = frozenset({
 })
 SKILL_PROSE_CODES = frozenset({
     "approval_not_surfaced_to_user", "approval_timeout", "booking_canceled_after_payment",
+    "booking_confirmation_pending", "booking_not_confirmed",
     "buyer_email_invalid", "buyer_not_from_link_cli", "calendar_callback_port_busy",
     "calendar_gate_not_completed", "calendar_insufficient_scope", "calendar_oauth_failed",
     "calendar_oauth_not_configured", "calendar_oauth_not_started", "calendar_oauth_timeout",
@@ -552,6 +553,7 @@ SESSION_RULES: Dict[str, FieldRule] = {
     "time_preference_mode": EXCLUDE,
     "desired_time_ranges": EXCLUDE,
     "link_auth_url_surfaced": EXCLUDE,
+    "ucp_checkout_abandoned": EXCLUDE,
 }
 
 # Dataclass -> its rules table, for the classification test.

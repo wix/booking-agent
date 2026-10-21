@@ -1,5 +1,16 @@
 # Change Log
 
+## 21/10/26 at 16:21:41 by [Ran Yahalom](mailto:ranya@wix.com)
+
+- Part of the unreleased 0.9.1 (skill 0.57.1, no further version bump), still deferred with `ecosystem_ready: false`: these fixes ship together with the resume-after-restart work in one PyPI version
+- Accepted the live pay-at-appointment wire: a completed offline checkout whose booking is still pending is an accepted order, never a charge. `pay ucp-complete` now waits for the business to confirm and finishes with payment `not_required`, instead of reporting a captured payment with an unconfirmed booking. A timeout stops with `booking_confirmation_pending` (nothing charged, resume with `book poll --wait`) and a decline stops with `booking_not_confirmed`
+- Stopped treating a pay-at-appointment order id as money collected, so confirmation, reschedule (unknown price is no longer refused) and cancellation (no refund steps or refund wording) all reflect that nothing was charged
+- Stopped after a checkout cancellation that returns no booking: USP 7.5 places no requirement on a booking that was never confirmed, so the agent no longer falls through to a USP cancel. It tells the user nothing was booked or charged, saves the optional `ucp_checkout_abandoned` flag so a repeat cancel never reaches USP, and leaves the pending booking untouched
+- Added a test-only switch to the loopback checkout store that keeps the booking pending at completion, plus tests for delayed confirmation, timeout, decline, booking-less cancellation, pay-at-appointment cancel without refund, and reschedule with an unknown price
+- Updated the skill (same 0.57.1) so the pay-at-appointment checkout paragraph covers the two new codes, listed them as expected codes so they never offer a support note, trimmed two redundant phrases to stay inside the size budget, and refreshed the 0.9.1 release notes with the evidence and the new optional session field
+
+---
+
 ## 21/10/26 at 12:40:46 by [Ran Yahalom](mailto:ranya@wix.com)
 
 - Released as 0.9.1 (skill 0.57.1), deferred with `ecosystem_ready: false` until a hosted replay passes: the hosted replay of 0.9.0 failed, and 0.9.0 stays deferred, so this release carries both

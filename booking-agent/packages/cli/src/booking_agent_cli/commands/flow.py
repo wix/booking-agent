@@ -1272,6 +1272,15 @@ def _bulk_cancel_one(session: Session, reason: Optional[str]) -> Dict[str, Any]:
         }
     finally:
         bind_session_observability(None)
+    if status_val == _CHECKOUT_ABANDONED:
+        return {
+            "outcome": "canceled",
+            "status": status_val,
+            "cancellation": None,
+            "refund_follow_up": None,
+            "calendar": None,
+            "user_message": _checkout_abandoned_message(session),
+        }
     row: Dict[str, Any] = {
         "outcome": "canceled" if status_val == "canceled" else "inactive",
         "status": status_val,
@@ -6555,6 +6564,9 @@ def _complete_pay_at_service(
 
     session.payment.order_id = str(result.get("order_id") or "") or None
     session.payment.status = "not_required"
+    save_session(session)
+    if result.get("booking_confirmation_pending"):
+        _await_pay_at_service_confirmation(session)
     from ..flow_timings import apply_pending_timings
 
     apply_pending_timings(session)
@@ -6563,6 +6575,64 @@ def _complete_pay_at_service(
     if not emit_result:
         return
     _finish_post_payment_steps(session)
+
+
+_PAY_AT_SERVICE_CONFIRM_TIMEOUT_S = 120.0
+
+
+def _await_pay_at_service_confirmation(session: Session) -> None:
+    """Wait for the order to confirm a pay-at-service booking (USP 11.3.5 S6).
+
+    The business accepted the order and charged nothing; the booking confirms
+    shortly after. Returns once it is confirmed and raises ``typer.Exit`` otherwise.
+    """
+    business = _business_label(session)
+    try:
+        from booking_agent.step_timing import timed_step_sync
+
+        with timed_step_sync("confirm"):
+            booking = wait_for_booking_terminal(
+                session,
+                deadline_ts=time.time() + _PAY_AT_SERVICE_CONFIRM_TIMEOUT_S,
+                poll_interval=_CAPTURED_POLL_INTERVAL_S,
+            )
+    except Exception as e:  # noqa: BLE001 - the order exists whatever the read failure was
+        save_session(session)
+        emit_error(
+            session.flow_phase,
+            code="booking_confirmation_pending",
+            message=(
+                f"{e} The business accepted the order and nothing was charged; the booking "
+                "is not confirmed yet. Post user_message, then run next_command. Do not "
+                "complete the checkout again and do not describe a payment."
+            ),
+            user_message=(
+                f"{business} accepted your booking request and nothing was charged. They "
+                "haven't confirmed the appointment yet, so I'm still checking with them."
+            ),
+            next_command="booking-agent flow book poll --wait",
+            forbidden=["booking-agent flow pay ucp-complete", "booking-agent flow pay request"],
+            data={"booking_id": session.booking.id, "order_id": session.payment.order_id},
+        )
+        raise typer.Exit(code=1)
+    status_val = apply_booking_status(session, booking)
+    save_session(session)
+    if status_val in ("confirmed", "completed"):
+        return
+    emit_error(
+        session.flow_phase,
+        code="booking_not_confirmed",
+        message=(
+            f"The business marked the booking {status_val} instead of confirming it. Nothing "
+            "was charged. Post user_message, then stop."
+        ),
+        user_message=(
+            f"{business} didn't confirm this appointment, so you're not booked. Nothing was "
+            "charged."
+        ),
+        data={"booking_id": session.booking.id, "status": status_val},
+    )
+    raise typer.Exit(code=1)
 
 
 def _pay_ucp_complete_impl(
@@ -7109,12 +7179,17 @@ def book_poll(
         raise typer.Exit(code=1)
 
     was_captured_unconfirmed = session.payment.captured_unconfirmed
+    offline_order_waiting = (
+        session.payment_route == "pay_at_service"
+        and bool(session.payment.order_id)
+        and session.flow_phase != "CONFIRMED"
+    )
     status_val = apply_booking_status(session, b)
     if was_captured_unconfirmed and session.flow_phase == "CONFIRMED":
         session.payment.captured_unconfirmed = False
     save_session(session)
 
-    if was_captured_unconfirmed and session.flow_phase == "CONFIRMED":
+    if (was_captured_unconfirmed or offline_order_waiting) and session.flow_phase == "CONFIRMED":
         _finish_post_payment_steps(session)
         return
     if was_captured_unconfirmed and status_val in ("canceled", "no_show"):
@@ -7204,6 +7279,21 @@ def book_cancel(
         )
         raise typer.Exit(code=1)
 
+    if status_val == _CHECKOUT_ABANDONED:
+        emit(_agent_out(
+            session,
+            user_message=_checkout_abandoned_message(session),
+            prompt="The checkout was canceled before booking. Post user_message to the user as is.",
+            data={
+                "booking_id": bid,
+                "status": _CHECKOUT_ABANDONED,
+                "cancellation": None,
+                "refund_follow_up": None,
+                "calendar": None,
+            },
+        ))
+        return
+
     follow_up = settlement.get("refund_follow_up")
     calendar = _remove_calendar_event_after_cancel(session) if status_val == "canceled" else None
     user_message = (
@@ -7258,6 +7348,20 @@ class _CancelNeedsHuman(Exception):
         self.handoff = handoff or {}
 
 
+class _CheckoutAbandoned(Exception):
+    """The open checkout was canceled; its never-confirmed booking stays pending."""
+
+
+_CHECKOUT_ABANDONED = "checkout_abandoned"
+
+
+def _checkout_abandoned_message(session: Session) -> str:
+    return (
+        f"I canceled your checkout with {_business_label(session)}. Nothing was booked "
+        "and nothing was charged."
+    )
+
+
 class _CancelFailed(Exception):
     """The cancel did not go through; ``data`` still carries the buyer's way out."""
 
@@ -7278,6 +7382,12 @@ def _cancel_and_record(
     http_status: Optional[int] = None
     try:
         booking, fee = asyncio.run(_cancel_booking_async(session, booking_id, reason))
+    except _CheckoutAbandoned:
+        from ..engine import transition
+
+        transition(session, to="FAILED")
+        save_session(session)
+        return _CHECKOUT_ABANDONED, {}
     except _CancelNeedsHuman:
         save_session(session)
         raise
@@ -7417,7 +7527,7 @@ def _captured_amount_minor(session: Session, booking: Any) -> Optional[int]:
     """
     from ..calendar_event import _payment_route
 
-    if _payment_route(session) in ("free", "at_service"):
+    if _payment_route(session) in ("free", "at_service", "pay_at_service"):
         return None
     payment = _record_field(booking, "payment")
     booking_paid = str(_record_field(payment, "status") or "") in _CAPTURED_PAYMENT_STATUSES
@@ -7525,7 +7635,9 @@ def _cancel_needs_human_message(session: Session, booking_id: Optional[str], err
     lines.extend(service_policy_lines(session.live_service))
     for link in extract_policy_links(handoff.get("merchant_links") or session.ucp_checkout_links):
         lines.append(f"{link['label']}: {link['url']}")
-    if _payment_captured(session) or session.payment.order_id:
+    if session.payment_route != "pay_at_service" and (
+        _payment_captured(session) or session.payment.order_id
+    ):
         lines.append(
             f"If you paid, ask {business} for a refund when you cancel, and give them the "
             "references above so they can find your payment."
@@ -7625,6 +7737,8 @@ async def _manage_url_for_cancel(
 
 
 async def _cancel_booking_async(session: Session, booking_id: str, reason: Optional[str]):
+    if session.ucp_checkout_abandoned:
+        raise _CheckoutAbandoned()
     backend = resolve_backend()
     profile = await backend.resolve_profile(session.business.profile_url)
     endpoint = profile.rest_endpoint
@@ -7683,14 +7797,18 @@ async def _cancel_booking_async(session: Session, booking_id: str, reason: Optio
                 checkout,
                 expected_booking_id=booking_id,
             )
-            if booking_context is not None:
-                return (
-                    SimpleNamespace(
-                        id=booking_context["booking_id"],
-                        status=BookingStatus(booking_context["booking_status"]),
-                    ),
-                    None,
-                )
+            if booking_context is None:
+                # USP 7.5 lets the business leave a never-confirmed booking pending:
+                # it holds no slot and cannot be charged, so there is nothing to cancel.
+                session.ucp_checkout_abandoned = True
+                raise _CheckoutAbandoned()
+            return (
+                SimpleNamespace(
+                    id=booking_context["booking_id"],
+                    status=BookingStatus(booking_context["booking_status"]),
+                ),
+                None,
+            )
 
     manage_url = await _manage_url_for_cancel(
         session,

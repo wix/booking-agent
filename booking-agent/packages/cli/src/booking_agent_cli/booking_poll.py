@@ -60,6 +60,14 @@ def apply_booking_status(session: Session, booking: Any) -> str:
         session.booking.revision = revision
     status_val = booking_status_value(booking)
     session.booking.status = status_val
+    if getattr(session, "payment_route", None) == "pay_at_service":
+        # Settled offline at the appointment: no booking status means money was collected.
+        session.payment.status = "not_required"
+        if status_val in _SUCCESS_STATUSES:
+            transition(session, to="CONFIRMED")
+        elif status_val in _FAILURE_STATUSES:
+            transition(session, to="FAILED")
+        return status_val
     if status_val in _SUCCESS_STATUSES:
         session.payment.status = "paid"
         transition(session, to="CONFIRMED")
