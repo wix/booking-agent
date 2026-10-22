@@ -726,6 +726,19 @@ def _resolve_persistence(persistent_root: Optional[str], no_persistent_root: boo
             )
             raise typer.Exit(code=1)
         return
+    if persistence_resolution() in (None, "acknowledged"):
+        from ..runtime_prepare import find_unlinked_state, saved_state_not_linked_message
+
+        unlinked = find_unlinked_state()
+        if unlinked is not None:
+            emit_error(
+                "INIT",
+                code="saved_state_not_linked",
+                message=saved_state_not_linked_message(unlinked),
+                next_command=f"booking-agent runtime prepare --persistent-root {unlinked}",
+                data={"saved_state_folder": str(unlinked)},
+            )
+            raise typer.Exit(code=1)
     if no_persistent_root:
         acknowledge_no_persistence()
         return
@@ -768,6 +781,18 @@ def _unfinished_similar_sessions(store: Any, user_request: str) -> List[Dict[str
 def status() -> None:
     session = load_session()
     if session is None:
+        from ..runtime_prepare import find_unlinked_state, saved_state_not_linked_message
+
+        unlinked = find_unlinked_state()
+        if unlinked is not None:
+            emit_error(
+                "INIT",
+                code="saved_state_not_linked",
+                message=saved_state_not_linked_message(unlinked),
+                next_command=f"booking-agent runtime prepare --persistent-root {unlinked}",
+                data={"saved_state_folder": str(unlinked)},
+            )
+            raise typer.Exit(code=1)
         emit_error(
             "INIT",
             code="no_session",
@@ -3483,6 +3508,19 @@ def _require_calendar_offer(session: Session) -> None:
     raise typer.Exit(code=1)
 
 
+def _after_calendar(session: Session, prompt: str) -> tuple:
+    """Prompt and next command after a calendar step: a late reconnect resumes the booking."""
+    from ..calendar_preference import CALENDAR_RECONNECTED_LATE_PHASES
+
+    if session.flow_phase in CALENDAR_RECONNECTED_LATE_PHASES:
+        return (
+            f"{prompt} The time is already chosen: do not list times again. Continue the "
+            "booking without asking the user again.",
+            "booking-agent flow buyer resolve",
+        )
+    return f"{prompt} Ready to query availability.", "booking-agent flow availability"
+
+
 def _emit_calendar_unavailable(session: Session, status: dict, mode: str, *, data: Optional[dict]) -> None:
     session.calendar_technical_fallback = True
     skip_calendar_gate_session_only(session, unasked=True)
@@ -3492,17 +3530,12 @@ def _emit_calendar_unavailable(session: Session, status: dict, mode: str, *, dat
     out["calendar_mode"] = CALENDAR_MODE_NONE
     out["calendar_checking_unavailable"] = True
     out["stale_calendar_mode"] = mode
-    emit(_agent_out(
-        session,
-        prompt=(
-            "The saved Google Calendar access is no longer valid and reconnecting is not "
-            "available on this device, so calendar checking is unavailable for this "
-            "booking. Tell the user that in one plain sentence, then continue. Ready to "
-            "query availability."
-        ),
-        next_command="booking-agent flow availability",
-        data=out,
+    prompt, next_command = _after_calendar(session, (
+        "The saved Google Calendar access is no longer valid and reconnecting is not "
+        "available on this device, so calendar checking is unavailable for this "
+        "booking. Tell the user that in one plain sentence, then continue."
     ))
+    emit(_agent_out(session, prompt=prompt, next_command=next_command, data=out))
 
 
 def _emit_calendar_reconnect_if_stale(
@@ -3717,13 +3750,14 @@ def calendar_skip(
     _stop_pending_sign_in()
     if session_only:
         skip_calendar_gate_session_only(session, unasked=no_route)
+        prompt, next_command = _after_calendar(session, (
+            "Continuing this booking without calendar checking; the saved calendar "
+            "preference is unchanged."
+        ))
         emit(_agent_out(
             session,
-            prompt=(
-                "Continuing this booking without calendar checking; the saved calendar "
-                "preference is unchanged. Ready to query availability."
-            ),
-            next_command="booking-agent flow availability",
+            prompt=prompt,
+            next_command=next_command,
             data={"calendar_state": "skipped", "calendar_mode": CALENDAR_MODE_NONE},
         ))
         return
@@ -3732,11 +3766,8 @@ def calendar_skip(
         state="skipped",
         mode=CALENDAR_MODE_NONE,
     )
-    emit(_agent_out(
-        session,
-        prompt="Calendar gate satisfied (user opted out). Ready to query availability.",
-        next_command="booking-agent flow availability",
-    ))
+    prompt, next_command = _after_calendar(session, "Calendar gate satisfied (user opted out).")
+    emit(_agent_out(session, prompt=prompt, next_command=next_command))
 
 
 @calendar_app.command("connect")
@@ -3810,20 +3841,9 @@ def _emit_calendar_connected(session: Session, *, mode: str, data: dict) -> None
         if mode == CALENDAR_MODE_EVENTS
         else "Calendar connected for conflict checking (free/busy only)."
     )
-    if session.flow_phase == "SLOT_SELECTED":
-        # Reconnected late (after the slot was chosen): pick the booking up where it stopped.
-        emit(_agent_out(
-            session,
-            prompt=f"{prompt} Continue the booking without asking the user again.",
-            next_command="booking-agent flow buyer resolve",
-            data={**data, "mode": mode},
-        ))
-        return
+    prompt, next_command = _after_calendar(session, prompt)
     emit(_agent_out(
-        session,
-        prompt=f"{prompt} Ready to query availability.",
-        next_command="booking-agent flow availability",
-        data={**data, "mode": mode},
+        session, prompt=prompt, next_command=next_command, data={**data, "mode": mode},
     ))
 
 

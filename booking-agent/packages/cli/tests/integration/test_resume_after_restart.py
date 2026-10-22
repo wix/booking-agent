@@ -238,3 +238,161 @@ def test_doctor_says_why_a_restart_is_not_shown(isolated_session, monkeypatch, t
     persistence = rp.diagnose()["persistence"]
     assert persistence["survived_restart"] is True
     assert persistence["survived_restart_basis"] == "second_runtime_read_the_saved_booking"
+
+
+# ---------------------------------------------------------------------------
+# A restart cleared the links to the saved state: the booking is still there
+# ---------------------------------------------------------------------------
+
+def _restart_that_clears_the_links(tmp_path, monkeypatch, *, marker=True):
+    """Move the saved booking into a persistent root, then start a runtime with empty folders.
+
+    Hosted replay of 0.10.0 on Base44 Superagent: the sandbox was wiped except the saved
+    folder, the new runtime saw "no session", and the assistant started over.
+    """
+    import shutil
+
+    root = tmp_path / "app" / ".agents" / "state"
+    (root / "booking-agent").mkdir(parents=True)
+    shutil.move(str(tmp_path / ".usp-session.json"), str(root / "booking-agent" / ".usp-session.json"))
+    if marker:
+        (root / ".booking-agent-boot").write_text("{}")
+    conversation = tmp_path / "app" / "conversations" / "c1"
+    conversation.mkdir(parents=True)
+    runtime_home = tmp_path / "rt" / ".booking-agent"
+    monkeypatch.setenv("BOOKING_AGENT_SESSION_DIR", str(runtime_home))
+    monkeypatch.setenv("HOME", str(tmp_path / "rt"))
+    monkeypatch.setattr(
+        "booking_agent_cli.runtime_prepare.link_cli_config_dir", lambda: tmp_path / "rt" / "link",
+    )
+    monkeypatch.chdir(conversation)
+    return root
+
+
+def test_status_points_at_saved_state_this_runtime_is_not_linked_to(
+    runner, isolated_session, monkeypatch, tmp_path,
+):
+    _at_summary(runner, monkeypatch)
+    root = _restart_that_clears_the_links(tmp_path, monkeypatch)
+
+    out = _stdout_json(_invoke(runner, "flow", "status"))
+
+    assert out["data"]["error"]["code"] == "saved_state_not_linked"
+    assert out["next_command"] == f"booking-agent runtime prepare --persistent-root {root}"
+
+
+def test_init_will_not_start_over_beside_saved_state(
+    runner, isolated_session, monkeypatch, tmp_path,
+):
+    _at_summary(runner, monkeypatch)
+    root = _restart_that_clears_the_links(tmp_path, monkeypatch)
+    monkeypatch.delenv("BOOKING_AGENT_PERSISTENCE")  # the test default declares "none"
+
+    for flag in ("--no-persistent-root", None):
+        args = ["flow", "init", "--user-request", "AC repair", "--skill-version", "0.0.0"]
+        if flag:
+            args.append(flag)
+        r = _invoke(runner, *args)
+        assert r.exit_code == 1, r.stdout
+        out = _stdout_json(r)
+        assert out["data"]["error"]["code"] == "saved_state_not_linked"
+        assert out["next_command"].endswith(str(root))
+
+
+def test_linking_the_folder_brings_the_waiting_booking_back(
+    runner, isolated_session, monkeypatch, tmp_path,
+):
+    _at_summary(runner, monkeypatch)
+    root = _restart_that_clears_the_links(tmp_path, monkeypatch)
+    from booking_agent_cli.main import app
+
+    r = runner.invoke(app, ["runtime", "prepare", "--persistent-root", str(root)])
+    assert r.exit_code == 0, r.stdout
+
+    out = _stdout_json(_invoke(runner, "flow", "status"))
+
+    assert out["phase"] == "BUYER_RESOLVED"
+    assert out["awaiting_user"] == "booking_confirmation"
+    assert out["next_command"] == "booking-agent flow buyer resolve"
+
+
+def test_doctor_reports_saved_state_that_is_not_linked(
+    runner, isolated_session, monkeypatch, tmp_path,
+):
+    _at_summary(runner, monkeypatch)
+    root = _restart_that_clears_the_links(tmp_path, monkeypatch)
+    from booking_agent_cli.main import app
+
+    r = runner.invoke(app, ["runtime", "doctor"])
+    out = _stdout_json(r)
+
+    kinds = {f["kind"]: f for f in out["data"]["findings"]}
+    assert kinds["saved_state_not_linked"]["path"] == str(root)
+    assert out["data"]["healthy"] is False
+    assert out["next_command"] == f"booking-agent runtime prepare --persistent-root {root}"
+
+
+def test_a_folder_this_cli_never_prepared_is_not_mistaken_for_saved_state(
+    runner, isolated_session, monkeypatch, tmp_path,
+):
+    _at_summary(runner, monkeypatch)
+    _restart_that_clears_the_links(tmp_path, monkeypatch, marker=False)
+
+    out = _stdout_json(_invoke(runner, "flow", "status"))
+
+    assert out["data"]["error"]["code"] == "no_session"
+
+
+# ---------------------------------------------------------------------------
+# Reconnecting the calendar after a restart must not drop the chosen time
+# ---------------------------------------------------------------------------
+
+def test_a_calendar_step_after_the_summary_keeps_the_chosen_time(
+    runner, isolated_session, monkeypatch,
+):
+    """Hosted replay of 0.10.1: `calendar connect` at the summary sent the booking back to
+    CALENDAR_GATE, so the slot and summary were lost and times were listed again."""
+    slot_id = _at_summary(runner, monkeypatch)
+
+    r = _invoke(runner, "flow", "calendar", "skip", "--session-only")
+
+    assert r.exit_code == 0, r.stdout + r.stderr
+    out = _stdout_json(r)
+    assert out["phase"] == "BUYER_RESOLVED"
+    assert out["next_command"] == "booking-agent flow buyer resolve"
+    assert "do not list times again" in out["prompt"]
+    from booking_agent_cli.session import load_session
+
+    assert load_session().slot_id == slot_id
+    again = _invoke(runner, "flow", "buyer", "resolve")
+    assert again.exit_code == 0, again.stdout + again.stderr
+    assert _stdout_json(again)["awaiting_user"] == "booking_confirmation"
+
+
+def test_the_calendar_gate_still_leads_to_availability_early_in_the_booking(
+    runner, isolated_session,
+):
+    _init(runner)
+    _complete_checkout_mode_setup(runner)
+
+    out = _stdout_json(_skip_calendar(runner, "--session-only"))
+
+    assert out["phase"] == "CALENDAR_GATE"
+    assert out["next_command"] == "booking-agent flow availability"
+
+
+def test_looking_for_saved_state_survives_a_folder_it_cannot_read(
+    runner, isolated_session, monkeypatch, tmp_path,
+):
+    """CI runners have folders the user cannot read; `Path.is_file` raises on those."""
+    from pathlib import Path
+
+    import booking_agent_cli.runtime_prepare as rp
+
+    def _denied(self, *args, **kwargs):
+        raise PermissionError(13, "Permission denied", str(self))
+
+    monkeypatch.setattr(Path, "is_file", _denied)
+    monkeypatch.setattr(Path, "is_dir", _denied)
+
+    assert rp.find_unlinked_state() is None

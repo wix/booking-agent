@@ -1,5 +1,24 @@
 # Change Log
 
+## 22/10/26 at 16:25:08 by [Ran Yahalom](mailto:ranya@wix.com)
+
+- Made the search for unlinked saved state tolerate folders it cannot read: on CI runners `Path.is_file` raised `PermissionError` for a home-folder path, which crashed `flow init`, `flow status`, and the persistence tests; an unreadable path now counts as absent, and a test covers it
+
+---
+
+## 22/10/26 at 16:05:35 by [Ran Yahalom](mailto:ranya@wix.com)
+
+- Fixed a second Base44 Superagent rehearsal failure for the unreleased 0.10.2: reconnecting an expired Google Calendar token at the booking summary sent the booking back to the calendar step, so the chosen time and summary were dropped and times were listed again. Calendar connect, skip, and the unavailable fallback now keep a booking that already has a time where it is and point at `buyer resolve`; early in a booking they still lead to availability
+
+---
+
+## 22/10/26 at 15:54:49 by [Ran Yahalom](mailto:ranya@wix.com)
+
+- Fixed the Base44 Superagent replay failure where, after a sandbox wipe that kept the saved folder, a new conversation found no linked state, started a new booking with `--no-persistent-root`, and asked for a second Link sign-in even though the saved booking and sign-in were intact: `flow status`, `flow init`, and `runtime doctor` now find an unfinished booking in a folder this CLI prepared earlier and point at `runtime prepare --persistent-root <folder>` instead of letting the assistant start over
+- Told the skill what to do with that answer (run `next_command` once, then `flow status`; never `--no-persistent-root` or a new booking) and trimmed other install wording to stay inside the skill's size budget; released as 0.10.2 with skill 0.57.4, left deferred with `ecosystem_ready: false` until its hosted replay passes. 0.10.1 is already published and unchanged
+
+---
+
 ## 22/10/26 at 15:30:31 by [Ran Yahalom](mailto:ranya@wix.com)
 
 - Raised the skill version to 0.57.3 for the 0.10.1 release, because the CLI version bump changes the skill's install pins and the `version` CI check requires every changed skill to carry a new version; the release notes, the bundled copy, and the version the skill passes on every command now agree
