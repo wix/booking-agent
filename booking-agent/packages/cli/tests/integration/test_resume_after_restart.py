@@ -379,3 +379,20 @@ def test_the_calendar_gate_still_leads_to_availability_early_in_the_booking(
 
     assert out["phase"] == "CALENDAR_GATE"
     assert out["next_command"] == "booking-agent flow availability"
+
+
+def test_looking_for_saved_state_survives_a_folder_it_cannot_read(
+    runner, isolated_session, monkeypatch, tmp_path,
+):
+    """CI runners have folders the user cannot read; `Path.is_file` raises on those."""
+    from pathlib import Path
+
+    import booking_agent_cli.runtime_prepare as rp
+
+    def _denied(self, *args, **kwargs):
+        raise PermissionError(13, "Permission denied", str(self))
+
+    monkeypatch.setattr(Path, "is_file", _denied)
+    monkeypatch.setattr(Path, "is_dir", _denied)
+
+    assert rp.find_unlinked_state() is None

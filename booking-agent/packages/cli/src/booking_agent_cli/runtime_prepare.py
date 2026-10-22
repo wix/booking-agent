@@ -17,7 +17,7 @@ import sys
 import tempfile
 import time
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Callable, Dict, List, Optional, Tuple
 
 from booking_agent import settings
 from booking_agent.secure_file import ensure_private_dir, write_private_text
@@ -466,6 +466,14 @@ _TERMINAL_PHASES = frozenset({"CONFIRMED", "FAILED"})
 _SCAN_DEPTH_NAMES = 2
 
 
+def _safe(check: Callable[[], bool]) -> bool:
+    """A filesystem test that treats an unreadable path as absent (``Path.is_file`` raises on EACCES)."""
+    try:
+        return bool(check())
+    except OSError:
+        return False
+
+
 def _holds_unfinished_booking(session_file: Path) -> bool:
     try:
         raw = json.loads(session_file.read_text())
@@ -488,11 +496,11 @@ def find_unlinked_state() -> Optional[Path]:
     ``booking-agent/.usp-session.json`` and a boot marker or the sign-in folder).
     """
     home = settings.booking_agent_home()
-    if home.is_symlink() or (home / _SESSION_FILE).is_file():
+    if _safe(home.is_symlink) or _safe((home / _SESSION_FILE).is_file):
         return None
     try:
         bases = [Path.cwd(), *Path.cwd().parents, Path.home()]
-    except OSError:
+    except (OSError, RuntimeError):
         return None
     seen = set()
     for base in bases:
@@ -506,15 +514,15 @@ def find_unlinked_state() -> Optional[Path]:
                 state = folder / STATE_SUBDIR
                 session_file = state / _SESSION_FILE
                 if (
-                    session_file.is_file()
-                    and ((folder / _BOOT_FILE).is_file() or (folder / LINK_SUBDIR).is_dir())
+                    _safe(session_file.is_file)
+                    and (_safe((folder / _BOOT_FILE).is_file) or _safe((folder / LINK_SUBDIR).is_dir))
                     and _holds_unfinished_booking(session_file)
                 ):
                     return folder
                 try:
                     nxt.extend(
                         child for child in sorted(folder.iterdir())
-                        if child.is_dir() and not child.is_symlink()
+                        if _safe(child.is_dir) and not _safe(child.is_symlink)
                         and child.name not in ("node_modules", ".git", ".venv", "proc", "sys")
                     )
                 except OSError:
