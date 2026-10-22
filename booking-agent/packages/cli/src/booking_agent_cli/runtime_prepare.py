@@ -353,6 +353,11 @@ def diagnose() -> Dict[str, object]:
                 findings.append({"kind": kind, "path": str(target / sub), "severity": "problem"})
     else:
         findings.append({"kind": "not_persistent", "path": str(state), "severity": "info"})
+        unlinked = find_unlinked_state()
+        if unlinked is not None:
+            problems = True
+            root_hint = str(unlinked)
+            findings.append({"kind": "saved_state_not_linked", "path": root_hint, "severity": "problem"})
     if state_info["linked_to"] and link_info["linked_to"]:
         if Path(str(state_info["linked_to"])).parent != Path(str(link_info["linked_to"])).parent:
             problems = True
@@ -455,6 +460,76 @@ def persistence_resolution() -> Optional[str]:
     if (home / _ACK_FILE).is_file():
         return "acknowledged"
     return None
+
+
+_TERMINAL_PHASES = frozenset({"CONFIRMED", "FAILED"})
+_SCAN_DEPTH_NAMES = 2
+
+
+def _holds_unfinished_booking(session_file: Path) -> bool:
+    try:
+        raw = json.loads(session_file.read_text())
+    except (OSError, ValueError):
+        return False
+    sessions = raw.get("sessions") if isinstance(raw, dict) else None
+    return any(
+        isinstance(s, dict) and s.get("flow_phase") not in _TERMINAL_PHASES
+        for s in sessions or []
+    )
+
+
+def find_unlinked_state() -> Optional[Path]:
+    """A persistent root that holds an unfinished booking this runtime has not linked.
+
+    A restart can wipe the runtime's own folders (and the symlinks into the persistent one),
+    leaving the saved booking and Link sign-in intact but invisible: the CLI then sees "no
+    session" and an agent starts over. Looks beside the working folder, its parents, and the
+    home folder, at most two levels down, for a folder this CLI prepared earlier (it holds
+    ``booking-agent/.usp-session.json`` and a boot marker or the sign-in folder).
+    """
+    home = settings.booking_agent_home()
+    if home.is_symlink() or (home / _SESSION_FILE).is_file():
+        return None
+    try:
+        bases = [Path.cwd(), *Path.cwd().parents, Path.home()]
+    except OSError:
+        return None
+    seen = set()
+    for base in bases:
+        if base in seen:
+            continue
+        seen.add(base)
+        level = [base]
+        for _ in range(_SCAN_DEPTH_NAMES + 1):
+            nxt = []
+            for folder in level:
+                state = folder / STATE_SUBDIR
+                session_file = state / _SESSION_FILE
+                if (
+                    session_file.is_file()
+                    and ((folder / _BOOT_FILE).is_file() or (folder / LINK_SUBDIR).is_dir())
+                    and _holds_unfinished_booking(session_file)
+                ):
+                    return folder
+                try:
+                    nxt.extend(
+                        child for child in sorted(folder.iterdir())
+                        if child.is_dir() and not child.is_symlink()
+                        and child.name not in ("node_modules", ".git", ".venv", "proc", "sys")
+                    )
+                except OSError:
+                    continue
+            level = nxt if len(nxt) <= 200 else []
+    return None
+
+
+def saved_state_not_linked_message(root: Path) -> str:
+    return (
+        f"A saved booking and Link sign-in exist in {root}, but this runtime is not linked to "
+        "them (a restart cleared the links). Do not start over and do not use "
+        "--no-persistent-root: run next_command once, then continue with `booking-agent flow "
+        "status`."
+    )
 
 
 def acknowledge_no_persistence() -> None:

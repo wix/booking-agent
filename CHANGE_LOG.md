@@ -1,5 +1,12 @@
 # Change Log
 
+## 22/10/26 at 15:54:49 by [Ran Yahalom](mailto:ranya@wix.com)
+
+- Fixed the Base44 Superagent replay failure where, after a sandbox wipe that kept the saved folder, a new conversation found no linked state, started a new booking with `--no-persistent-root`, and asked for a second Link sign-in even though the saved booking and sign-in were intact: `flow status`, `flow init`, and `runtime doctor` now find an unfinished booking in a folder this CLI prepared earlier and point at `runtime prepare --persistent-root <folder>` instead of letting the assistant start over
+- Told the skill what to do with that answer (run `next_command` once, then `flow status`; never `--no-persistent-root` or a new booking) and trimmed other install wording to stay inside the skill's size budget; released as 0.10.2 with skill 0.57.4, left deferred with `ecosystem_ready: false` until its hosted replay passes. 0.10.1 is already published and unchanged
+
+---
+
 ## 22/10/26 at 15:30:31 by [Ran Yahalom](mailto:ranya@wix.com)
 
 - Raised the skill version to 0.57.3 for the 0.10.1 release, because the CLI version bump changes the skill's install pins and the `version` CI check requires every changed skill to carry a new version; the release notes, the bundled copy, and the version the skill passes on every command now agree

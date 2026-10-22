@@ -726,6 +726,19 @@ def _resolve_persistence(persistent_root: Optional[str], no_persistent_root: boo
             )
             raise typer.Exit(code=1)
         return
+    if persistence_resolution() in (None, "acknowledged"):
+        from ..runtime_prepare import find_unlinked_state, saved_state_not_linked_message
+
+        unlinked = find_unlinked_state()
+        if unlinked is not None:
+            emit_error(
+                "INIT",
+                code="saved_state_not_linked",
+                message=saved_state_not_linked_message(unlinked),
+                next_command=f"booking-agent runtime prepare --persistent-root {unlinked}",
+                data={"saved_state_folder": str(unlinked)},
+            )
+            raise typer.Exit(code=1)
     if no_persistent_root:
         acknowledge_no_persistence()
         return
@@ -768,6 +781,18 @@ def _unfinished_similar_sessions(store: Any, user_request: str) -> List[Dict[str
 def status() -> None:
     session = load_session()
     if session is None:
+        from ..runtime_prepare import find_unlinked_state, saved_state_not_linked_message
+
+        unlinked = find_unlinked_state()
+        if unlinked is not None:
+            emit_error(
+                "INIT",
+                code="saved_state_not_linked",
+                message=saved_state_not_linked_message(unlinked),
+                next_command=f"booking-agent runtime prepare --persistent-root {unlinked}",
+                data={"saved_state_folder": str(unlinked)},
+            )
+            raise typer.Exit(code=1)
         emit_error(
             "INIT",
             code="no_session",
