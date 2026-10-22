@@ -218,6 +218,17 @@
         "booking",
         "payment"
       ],
+      "replay_rollouts": {
+        "grok-bot": {
+          "ecosystem_ready": true,
+          "readiness_evidence": [
+            "Hosted replay (grok-bot): on 22/10/26 Grok Bot ran 0.9.1, which carries all 0.9.0 changes, and completed a $1 HVAC-Koby booking after showing the saved recap and checkout policies, waiting for the user's yes, and using a Link approval shown once.",
+            "Hosted replay (grok-bot): Update Bot's Computer changed the boot id while preserving the selected booking and Link sign-in; the resumed booking confirmed, stated that no calendar event was added because this harness cannot pass its connector token, answered status from the saved booking, and runtime doctor reported healthy true with no findings.",
+            "The support ingest was redeployed and smoke-tested on 21/10/26: malformed JSON was rejected and a schema-valid support note was delivered."
+          ],
+          "update_status": "recommended"
+        }
+      },
       "schema_version": 1,
       "skill_version": "0.57.0",
       "update_status": "deferred",
@@ -241,10 +252,50 @@
         "calendar",
         "payment"
       ],
+      "replay_rollouts": {
+        "grok-bot": {
+          "ecosystem_ready": true,
+          "readiness_evidence": [
+            "Hosted replay (grok-bot): on 22/10/26 Grok Bot ran CLI 0.9.1 with skill 0.57.1, resumed a selected booking after Update Bot's Computer changed the boot id while preserving the saved session and Link sign-in, completed the booking, stated that no calendar event was added, answered status from the confirmed booking, and runtime doctor reported survived_restart true, healthy true, and no findings.",
+            "Hosted replay (grok-bot): the $2 HVAC-Koby AC Diagnostic & Inspection checkout disclosed that the full amount was due at the appointment, created no Link spend request, charged nothing, and confirmed the booking after checkout completion. A second checkout was abandoned before policy acceptance with no order, charge, refund, or confirmed booking and no second USP cancellation; the confirmed throwaway was then canceled with no fee or refund.",
+            "The live HVAC-Koby business and current registry returned the paid and pay-at-appointment services used by the replay. The saved 0.9.1 session survived a fresh Grok computer byte for byte."
+          ],
+          "update_status": "recommended"
+        }
+      },
       "schema_version": 1,
       "skill_version": "0.57.1",
       "update_status": "deferred",
       "user_summary": "A booking that is waiting for your yes now picks up where it stopped after a restart, and you are told when no calendar event could be added."
+    },
+    {
+      "change_type": "feature",
+      "cli_version": "0.10.0",
+      "details_url": "https://github.com/wix/booking-agent/releases/tag/v0.10.0",
+      "ecosystem_ready": false,
+      "readiness_evidence": [
+        "Not offered yet: this release teaches the assistant which harness replay a rollout belongs to. No booking, payment, or calendar behavior changed.",
+        "Verified harnesses stay deferred on every version until an internal change records their own replay. The general status is for every harness without one.",
+        "Offline: update decision tests cover a general recommendation staying deferred for a verified harness, a verified recommendation staying deferred for everyone else, and one replay promoting two harnesses that share it.",
+        "Existing businesses, the registry, and saved session files are unchanged: no USP, UCP, or platform profile version changed and no request shape changed."
+      ],
+      "relevant_capabilities": [],
+      "replay_rollouts": {
+        "grok-bot": {
+          "ecosystem_ready": true,
+          "readiness_evidence": [
+            "Hosted replay (grok-bot): on 22/10/26 Grok Bot ran CLI 0.9.1 with skill 0.57.1, resumed a selected $1 booking after Update Bot's Computer changed the boot id while preserving the saved session and Link sign-in, completed the charge, stated that no calendar event was added because the harness cannot pass its connector token, answered status from the confirmed booking, and runtime doctor reported survived_restart true, healthy true, and no findings.",
+            "Hosted replay (grok-bot): the $2 HVAC-Koby AC Diagnostic & Inspection checkout disclosed that the full amount was due at the appointment, created no Link spend request, charged nothing, and confirmed the booking after checkout completion. A second checkout was abandoned before policy acceptance with no order, charge, refund, or confirmed booking and no second USP cancellation; the confirmed throwaway was then canceled with no fee or refund.",
+            "The live HVAC-Koby business and current registry returned the paid and pay-at-appointment services used by the replay. The saved 0.9.1 session survived a fresh Grok computer byte for byte.",
+            "Offline: update decision tests cover a general recommendation staying deferred for Grok Bot, a Grok recommendation staying deferred for every other replay, and one replay promoting two harnesses that share it."
+          ],
+          "update_status": "recommended"
+        }
+      },
+      "schema_version": 1,
+      "skill_version": "0.57.2",
+      "update_status": "deferred",
+      "user_summary": "A verified booking harness is offered an update only after its own replay passes."
     }
   ],
   "schema_version": 1

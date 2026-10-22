@@ -188,6 +188,7 @@ def current_decision(
         after_booking=after_booking,
         check_local=check_local,
         store_too_new=too_new,
+        replay_id=updates.configured_replay(),
     )
 
 
@@ -289,8 +290,11 @@ def update(
         ))
         return
 
-    releases = updates.load_releases(refresh=True) if updates.checks_enabled() else None
-    target, _ = updates.select_target(CLI_VERSION, releases or [])
+    releases = updates.releases_for_replay(
+        updates.load_releases(refresh=True) if updates.checks_enabled() else [],
+        updates.configured_replay(),
+    )
+    target, _ = updates.select_target(CLI_VERSION, releases)
     if target is None:
         emit(AgentOutput(
             phase="UPDATE",

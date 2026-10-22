@@ -11,6 +11,17 @@
     "Existing businesses and the registry stay compatible: no USP, UCP, or platform profile version changed and no request shape changed; results whose profile cannot be resolved are now dropped client-side.",
     "The saved booking file keeps its format version and gains only optional fields; a session saved by 0.8.0 resumes, and the new confirmations are asked again where needed."
   ],
+  "replay_rollouts": {
+    "grok-bot": {
+      "ecosystem_ready": true,
+      "readiness_evidence": [
+        "Hosted replay (grok-bot): on 22/10/26 Grok Bot ran 0.9.1, which carries all 0.9.0 changes, and completed a $1 HVAC-Koby booking after showing the saved recap and checkout policies, waiting for the user's yes, and using a Link approval shown once.",
+        "Hosted replay (grok-bot): Update Bot's Computer changed the boot id while preserving the selected booking and Link sign-in; the resumed booking confirmed, stated that no calendar event was added because this harness cannot pass its connector token, answered status from the saved booking, and runtime doctor reported healthy true with no findings.",
+        "The support ingest was redeployed and smoke-tested on 21/10/26: malformed JSON was rejected and a schema-valid support note was delivered."
+      ],
+      "update_status": "recommended"
+    }
+  },
   "relevant_capabilities": [
     "search",
     "sign_in",

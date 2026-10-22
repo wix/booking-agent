@@ -11,6 +11,17 @@
     "Existing businesses and the registry stay compatible: no USP, UCP, or platform profile version changed and no request shape changed.",
     "The saved booking file keeps its format version and gains two optional fields (calendar skipped without asking, and ucp_checkout_abandoned for a canceled checkout); a session saved by 0.9.0 resumes unchanged."
   ],
+  "replay_rollouts": {
+    "grok-bot": {
+      "ecosystem_ready": true,
+      "readiness_evidence": [
+        "Hosted replay (grok-bot): on 22/10/26 Grok Bot ran CLI 0.9.1 with skill 0.57.1, resumed a selected booking after Update Bot's Computer changed the boot id while preserving the saved session and Link sign-in, completed the booking, stated that no calendar event was added, answered status from the confirmed booking, and runtime doctor reported survived_restart true, healthy true, and no findings.",
+        "Hosted replay (grok-bot): the $2 HVAC-Koby AC Diagnostic & Inspection checkout disclosed that the full amount was due at the appointment, created no Link spend request, charged nothing, and confirmed the booking after checkout completion. A second checkout was abandoned before policy acceptance with no order, charge, refund, or confirmed booking and no second USP cancellation; the confirmed throwaway was then canceled with no fee or refund.",
+        "The live HVAC-Koby business and current registry returned the paid and pay-at-appointment services used by the replay. The saved 0.9.1 session survived a fresh Grok computer byte for byte."
+      ],
+      "update_status": "recommended"
+    }
+  },
   "relevant_capabilities": [
     "booking",
     "calendar",

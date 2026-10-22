@@ -1,0 +1,7 @@
+{
+  "schema_version": 1,
+  "harnesses": {
+    "base44-superagent": "base44-superagent",
+    "grok-bot": "grok-bot"
+  }
+}

@@ -1,5 +1,32 @@
 # Change Log
 
+## 22/10/26 at 14:31:48 by [Ran Yahalom](mailto:ranya@wix.com)
+
+- Promoted the cumulative Grok Bot rollout through 0.10.0 to `recommended` after its restart, paid booking, pay-at-appointment, abandoned checkout, cancellation, and runtime health replays passed; the general rollout and Base44 Superagent remain deferred
+- Released as 0.10.0 with skill 0.57.2: the portable CLI now consumes a generic replay id while the external verified-harness registry maps harnesses to replays, so one successful replay can safely promote multiple harnesses without naming hosts in shipped code
+- Documented the one-time manual 0.10.0 bootstrap required by older CLIs that cannot interpret replay-specific rollout metadata, preventing the new policy from being mistaken for an automatic upgrade from 0.9.1
+
+---
+
+## 22/10/26 at 13:40:13 by [Ran Yahalom](mailto:ranya@wix.com)
+
+- Added verified-harness rollouts, released as 0.10.0 (skill 0.57.1) and left deferred: Grok Bot and Base44 Superagent move from deferred to recommended only when their own replay passes, harnesses that share a replay id promote together, and every other harness still uses the general rollout
+- Recorded the Grok Bot computer update and the Base44 Superagent sandbox reset, including which replay expects a calendar link, so a later harness can reuse a replay instead of inventing a second one
+
+---
+
+## 22/10/26 at 12:00:36 by [Ran Yahalom](mailto:ranya@wix.com)
+
+- Made the hosted replay's calendar expectation conditional because some agent harnesses cannot pass a calendar connector token to the CLI. Connected runs must show the raw event link; explicitly skipped or unavailable calendar runs must clearly state that no event was added
+
+---
+
+## 22/10/26 at 11:55:55 by [Ran Yahalom](mailto:ranya@wix.com)
+
+- Dropped "without nudging" from the hosted replay's payment step, because waking the assistant when a background command finishes belongs to the agent harness, which this project does not control. The step still requires the "You're booked" message and the raw calendar event link
+
+---
+
 ## 21/10/26 at 16:21:41 by [Ran Yahalom](mailto:ranya@wix.com)
 
 - Part of the unreleased 0.9.1 (skill 0.57.1, no further version bump), still deferred with `ecosystem_ready: false`: these fixes ship together with the resume-after-restart work in one PyPI version
