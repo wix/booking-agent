@@ -658,3 +658,53 @@ def test_compliance_flags_a_booking_that_skipped_a_confirmation(change, failure)
     failures = _skill_compliance_failures(session)
 
     assert any(f.startswith(failure) for f in failures), failures
+
+
+# ---------------------------------------------------------------------------
+# A new conversation resumes a booking that is waiting for the user's yes
+# ---------------------------------------------------------------------------
+
+def test_status_hands_back_the_summary_step_for_a_booking_waiting_for_the_yes(
+    runner, isolated_session, monkeypatch,
+):
+    _direct_booking_to_recap(runner, monkeypatch)
+
+    body = _stdout_json(_invoke(runner, "flow", "status"))
+
+    assert body["phase"] == "BUYER_RESOLVED"
+    assert body["awaiting_user"] == "booking_confirmation"
+    assert body["next_command"] == "booking-agent flow buyer resolve"
+    assert "start over" in body["prompt"]
+
+
+def test_the_summary_can_be_shown_again_after_a_restart_and_then_confirmed(
+    runner, isolated_session, monkeypatch,
+):
+    first = _direct_booking_to_recap(runner, monkeypatch)
+
+    again = _invoke(runner, "flow", "buyer", "resolve")
+
+    assert again.exit_code == 0, again.stdout + again.stderr
+    body = _stdout_json(again)
+    assert body["awaiting_user"] == "booking_confirmation"
+    assert body["data"]["booking_recap_lines"] == first["data"]["booking_recap_lines"]
+    assert load_session().recap_confirmed_digest is None
+    r = _invoke(runner, *_BOOK_CONFIRMED)
+    assert r.exit_code == 0, r.stdout + r.stderr
+    assert load_session().booking.id
+
+
+def test_the_next_command_after_a_changed_summary_actually_runs(
+    runner, isolated_session, monkeypatch,
+):
+    _direct_booking_to_recap(runner, monkeypatch)
+    session = load_session()
+    session.recap_digest = "0000000000000000"
+    save_session(session)
+    refused = _stdout_json(_invoke(runner, *_BOOK_CONFIRMED))
+    assert refused["next_command"].startswith("booking-agent flow buyer resolve")
+
+    r = _invoke(runner, "flow", "buyer", "resolve")
+
+    assert r.exit_code == 0, r.stdout + r.stderr
+    assert _stdout_json(r)["awaiting_user"] == "booking_confirmation"

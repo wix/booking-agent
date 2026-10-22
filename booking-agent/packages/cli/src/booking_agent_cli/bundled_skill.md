@@ -19,7 +19,7 @@ metadata:
         - link-cli
     install:
       - kind: uv
-        package: "booking-agent-cli==0.10.0"
+        package: "booking-agent-cli==0.10.1"
         bins: [booking-agent]
 user-invocable: true
 ---
@@ -245,17 +245,17 @@ before installing:
 
 ```bash
 dir="$HOME/.booking-agent/verified-wheels"
-uvx pip download "booking-agent-cli==0.10.0" --no-deps --only-binary :all: -d "$dir"
+uvx pip download "booking-agent-cli==0.10.1" --no-deps --only-binary :all: -d "$dir"
 uvx pypi-attestations==0.0.30 verify pypi --repository https://github.com/wix/booking-agent \
-  "$dir/booking_agent_cli-0.10.0-py3-none-any.whl"
-uv tool install --force "$dir/booking_agent_cli-0.10.0-py3-none-any.whl"
+  "$dir/booking_agent_cli-0.10.1-py3-none-any.whl"
+uv tool install --force "$dir/booking_agent_cli-0.10.1-py3-none-any.whl"
 
 booking-agent --help
 ```
 
 Install only the wheel whose verify step passed, never one that failed it. If `uvx` is not
-available, install the same pinned release with `uv tool install booking-agent-cli==0.10.0` or
-`pipx install booking-agent-cli==0.10.0`; the CLI checks its own files against the signed release
+available, install the same pinned release with `uv tool install booking-agent-cli==0.10.1` or
+`pipx install booking-agent-cli==0.10.1`; the CLI checks its own files against the signed release
 on the first `booking-agent flow init` and refuses to book or pay if they do not match.
 
 Harnesses that read the `install` block in this skill's metadata do this for you. Do not go on

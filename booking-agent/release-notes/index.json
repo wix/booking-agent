@@ -296,6 +296,24 @@
       "skill_version": "0.57.2",
       "update_status": "deferred",
       "user_summary": "A verified booking harness is offered an update only after its own replay passes."
+    },
+    {
+      "change_type": "fix",
+      "cli_version": "0.10.1",
+      "details_url": "https://github.com/wix/booking-agent/releases/tag/v0.10.1",
+      "ecosystem_ready": false,
+      "readiness_evidence": [
+        "Not ready to offer: this release has not been replayed in a hosted session. A Base44 Superagent replay of 0.10.0 on 22/10/26 stopped at this defect: after a sandbox wipe that kept the saved folder, a new conversation found the saved booking waiting for the user's yes but could not show the summary again, so it abandoned the booking and started a new request. Nothing was booked or charged.",
+        "Offline: `flow status` returns the summary step for a booking waiting for the yes, `buyer resolve` runs again from that phase and shows the same summary lines, the booking then goes through on the user's yes, and the command offered after a changed summary actually runs. The three new tests fail without the change; the full suite passes.",
+        "Existing businesses and the registry stay compatible: no USP, UCP, or platform profile version changed and no request shape changed. Saved session files are unchanged: no field was added and the format version stays as it is."
+      ],
+      "relevant_capabilities": [
+        "booking"
+      ],
+      "schema_version": 1,
+      "skill_version": "0.57.2",
+      "update_status": "deferred",
+      "user_summary": "A booking that is waiting for your yes can be picked up again in a new conversation, with the same summary shown instead of starting over."
     }
   ],
   "schema_version": 1

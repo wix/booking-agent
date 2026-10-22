@@ -1,5 +1,12 @@
 # Change Log
 
+## 22/10/26 at 15:19:38 by [Ran Yahalom](mailto:ranya@wix.com)
+
+- Fixed the Base44 Superagent replay failure where a new conversation could not pick up a booking waiting for the user's yes: `flow status` now returns the summary step for that booking and `buyer resolve` runs again from that phase and shows the same summary, so the assistant no longer abandons the saved booking and starts a request from scratch. Before this, the command offered after a changed summary (`buyer resolve`) was refused from that phase
+- Released as 0.10.1 (skill 0.57.2, pin updated), left deferred with `ecosystem_ready: false` until its hosted replay passes; added three tests that fail without the change
+
+---
+
 ## 22/10/26 at 14:31:48 by [Ran Yahalom](mailto:ranya@wix.com)
 
 - Promoted the cumulative Grok Bot rollout through 0.10.0 to `recommended` after its restart, paid booking, pay-at-appointment, abandoned checkout, cancellation, and runtime health replays passed; the general rollout and Base44 Superagent remain deferred
