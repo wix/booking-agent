@@ -805,6 +805,17 @@ def status() -> None:
                 "Still waiting for your approval in Link. The booking finishes as soon as "
                 "it goes through."
             )
+    elif session.flow_phase == "BUYER_RESOLVED" and not session.booking.id:
+        # Saved while waiting for the user's yes. A new conversation cannot see the recap the
+        # old one showed, so status hands it back instead of a `flow book` that would be refused.
+        awaiting = "booking_confirmation"
+        next_cmd = "booking-agent flow buyer resolve"
+        prompt = (
+            "A booking is waiting for the user's yes and this conversation has not shown them "
+            "the summary. Do not start over, search again, or list times. Run next_command: "
+            "it shows the same summary again and tells you what to ask. The user's next reply "
+            "answers only that question."
+        )
     elif session.flow_phase == "PREREQ_OK" and session.discover_services:
         # Results were already found (possibly in an earlier conversation): hand them back
         # instead of making the agent search again and risk a reordered list.
@@ -5202,12 +5213,15 @@ def buyer_resolve(
     """Run `link-cli user-info retrieve` and store the Buyer in session."""
     session = must_load()
     try:
-        require_phase(session, "SLOT_SELECTED", code="no_slot_selected",
+        # BUYER_RESOLVED is allowed again: a new conversation (after a restart) or a corrected
+        # note must be able to show the same recap, since no booking exists yet in that phase.
+        require_phase(session, "SLOT_SELECTED", "BUYER_RESOLVED", code="no_slot_selected",
                       next_command="booking-agent flow slots select --slot-id <id> --user-confirmed")
         _resync_link_auth_gate(session)
         require_link_auth_gate(session)
     except GateError as e:
         raise _handle_gate(session, e)
+    recap_shown_again = session.flow_phase == "BUYER_RESOLVED"
 
     from ..link_cli import (
         LinkCliUserInfoError,
@@ -5252,7 +5266,7 @@ def buyer_resolve(
         session.booking_notes = " ".join(notes.split())[:BOOKING_NOTES_MAX_CHARS] or None
     _ensure_buyer_timezone(session, link_cli_bin=link_cli_bin)
     dual = _selected_slot_zones_differ(session)
-    notice_needed = dual and not session.timezone_difference_shown
+    notice_needed = dual and (recap_shown_again or not session.timezone_difference_shown)
     if notice_needed:
         session.timezone_difference_shown = True
     transition(session, to="BUYER_RESOLVED")
