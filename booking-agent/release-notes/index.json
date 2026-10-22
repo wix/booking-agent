@@ -311,7 +311,7 @@
         "booking"
       ],
       "schema_version": 1,
-      "skill_version": "0.57.2",
+      "skill_version": "0.57.3",
       "update_status": "deferred",
       "user_summary": "A booking that is waiting for your yes can be picked up again in a new conversation, with the same summary shown instead of starting over."
     }

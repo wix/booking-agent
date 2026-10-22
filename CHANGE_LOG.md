@@ -1,5 +1,11 @@
 # Change Log
 
+## 22/10/26 at 15:30:31 by [Ran Yahalom](mailto:ranya@wix.com)
+
+- Raised the skill version to 0.57.3 for the 0.10.1 release, because the CLI version bump changes the skill's install pins and the `version` CI check requires every changed skill to carry a new version; the release notes, the bundled copy, and the version the skill passes on every command now agree
+
+---
+
 ## 22/10/26 at 15:19:38 by [Ran Yahalom](mailto:ranya@wix.com)
 
 - Fixed the Base44 Superagent replay failure where a new conversation could not pick up a booking waiting for the user's yes: `flow status` now returns the summary step for that booking and `buyer resolve` runs again from that phase and shows the same summary, so the assistant no longer abandons the saved booking and starts a request from scratch. Before this, the command offered after a changed summary (`buyer resolve`) was refused from that phase
