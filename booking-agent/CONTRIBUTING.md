@@ -168,9 +168,15 @@ Offline tests cover the CLI; they cannot show how a hosted runtime and its agent
 1. Start a booking, sign in to Link when asked, and confirm the search area.
 2. Force a restart of the runtime (new conversation, fresh filesystem) after choosing the slot. Expect at most **one** message asking to reconnect anything (Link, calendar, or both together), and no second sign-in unless the Link session really expired.
 3. Say yes at the confirmation. Expect a one-line acknowledgment immediately.
-4. Approve the payment in Link. Expect the "You're booked" message without nudging, with the raw calendar event link.
+4. Approve the payment in Link. Expect the "You're booked" message. If calendar was
+   connected, expect the raw calendar event link. If calendar was explicitly skipped or
+   is unavailable in the harness, expect a clear statement that no calendar event was added.
 5. Ask "what's going on?" at any point. Expect an answer from `flow status`, never "I couldn't confirm".
 6. Run `booking-agent runtime doctor`. Expect no findings.
+
+This checklist is the **unverified** replay. It is what Cursor, Claude Code, and any other harness without its own replay uses. Passing it moves `deferred` to `recommended` only for those harnesses.
+
+A **verified** harness never inherits that result. Grok Bot and Base44 Superagent each have a replay in [ops/verified-harnesses.md](ops/verified-harnesses.md), including the restart that harness actually supports and whether calendar is connected. Passing one moves `deferred` to `recommended` only for the harnesses that share that replay. Two harnesses share a replay when both names in the registry point at the same replay id, so one successful run promotes both. The only way to recommend a release on a verified harness is to pass its replay and record that replay's rollout. A release that is `withdrawn` for everyone stays withdrawn for verified harnesses too.
 
 Saved session files have their own rule. Adding an optional field keeps `STORE_SCHEMA_VERSION` and `SCHEMA_VERSION` in `session.py` as they are: older builds keep fields they do not know when they save. Raising either number makes every older build refuse the file and ask its user to update, so that is a breaking change, and its release cannot be `available`.
 

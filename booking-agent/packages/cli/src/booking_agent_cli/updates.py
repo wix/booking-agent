@@ -16,7 +16,7 @@ from __future__ import annotations
 import json
 import re
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
@@ -29,6 +29,9 @@ from .skill_bundle import SKILL_VERSION
 CHANGE_TYPES = ("fix", "feature", "breaking")
 UPDATE_STATUSES = ("available", "recommended", "urgent", "deferred", "withdrawn")
 CAPABILITIES = ("search", "sign_in", "calendar", "booking", "payment", "cancel", "reschedule")
+# A verified harness configures its replay id. The harness registry stays outside the
+# portable CLI; two harnesses promote together by configuring the same replay id.
+REPLAY_ENV = "BOOKING_AGENT_REPLAY"
 
 ACTION_NONE = "none"
 ACTION_INFORM = "inform"
@@ -45,6 +48,7 @@ CACHE_TTL_SECONDS = 24 * 3600
 FETCH_TIMEOUT_SECONDS = 3.0
 
 _VERSION = re.compile(r"^(\d+)\.(\d+)\.(\d+)(?:\.dev(\d+))?$")
+_REPLAY_ID = re.compile(r"^[a-z0-9][a-z0-9-]{0,63}$")
 _URGENCY = {"available": 0, "recommended": 1, "urgent": 2}
 _SEVERITY = {"fix": 0, "feature": 1, "breaking": 2}
 
@@ -69,6 +73,7 @@ class Release:
     user_summary: str
     details_url: str
     replacement_version: Optional[str] = None
+    replay_rollouts: Dict[str, Tuple[str, bool]] = field(default_factory=dict)
 
     @property
     def key(self) -> Tuple[int, int, int, int]:
@@ -117,7 +122,55 @@ def _parse_release(raw: Any) -> Optional[Release]:
         user_summary=summary.strip()[:200],
         details_url=url if url.startswith("https://github.com/wix/booking-agent/") else "",
         replacement_version=replacement if status == "withdrawn" else None,
+        replay_rollouts=_parse_replay_rollouts(raw.get("replay_rollouts")),
     )
+
+
+def configured_replay() -> Optional[str]:
+    raw = settings.get(REPLAY_ENV)
+    replay_id = raw.strip() if isinstance(raw, str) else ""
+    return replay_id if _REPLAY_ID.fullmatch(replay_id) else None
+
+
+def _parse_replay_rollouts(raw: Any) -> Dict[str, Tuple[str, bool]]:
+    """Well-formed replay rollouts; malformed records are safely ignored."""
+    if not isinstance(raw, dict):
+        return {}
+    out: Dict[str, Tuple[str, bool]] = {}
+    for replay_id, item in raw.items():
+        if (
+            not isinstance(replay_id, str)
+            or not _REPLAY_ID.fullmatch(replay_id)
+            or not isinstance(item, dict)
+        ):
+            continue
+        status, ready = item.get("update_status"), item.get("ecosystem_ready")
+        if status not in UPDATE_STATUSES or not isinstance(ready, bool):
+            continue
+        if status not in ("deferred", "withdrawn") and not ready:
+            status = "deferred"
+        out[replay_id] = (status, ready)
+    return out
+
+
+def effective_release(release: Release, replay_id: Optional[str]) -> Release:
+    """The rollout this runtime is allowed to act on.
+
+    A configured replay never inherits the general status. A missing record stays deferred.
+    A generally withdrawn release stays withdrawn for every harness.
+    """
+    if replay_id is None or release.update_status == "withdrawn":
+        return release
+    rollout = release.replay_rollouts.get(replay_id)
+    if rollout is None:
+        status, ready = "deferred", False
+    else:
+        status, ready = rollout
+    return replace(release, update_status=status, ecosystem_ready=ready)
+
+
+def releases_for_replay(releases: Sequence[Release], replay_id: Optional[str]) -> List[Release]:
+    return [effective_release(release, replay_id) for release in releases]
 
 
 @dataclass
@@ -132,6 +185,7 @@ class Decision:
     details_url: Optional[str] = None
     relevant_capabilities: List[str] = field(default_factory=list)
     prompt_key: Optional[str] = None
+    replay: Optional[str] = None
 
     def as_data(self) -> Dict[str, Any]:
         return {
@@ -147,6 +201,7 @@ class Decision:
             "details_url": self.details_url,
             "relevant_capabilities": list(self.relevant_capabilities),
             "prompt_key": self.prompt_key,
+            "replay": self.replay,
         }
 
 
@@ -198,11 +253,17 @@ def decide(
     check_local: bool = True,
     store_too_new: bool = False,
     installed: str = CLI_VERSION,
+    replay_id: Optional[str] = None,
 ) -> Decision:
     answered = set(answered)
-    releases = list(releases or [])
+    replay_id = replay_id.strip() if isinstance(replay_id, str) else ""
+    replay_id = replay_id if _REPLAY_ID.fullmatch(replay_id) else None
+    releases = releases_for_replay(list(releases or []), replay_id)
     target, brought = select_target(installed, releases)
     decision = _remote_decision(installed, releases, target, brought, set(capabilities), after_booking)
+    decision.replay = replay_id
+    if replay_id and decision.prompt_key:
+        decision.prompt_key = f"{decision.prompt_key}:{replay_id}"
 
     if store_too_new:
         decision.action, decision.reason = ACTION_URGENT, "saved_state_from_newer_version"

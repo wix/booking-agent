@@ -37,6 +37,7 @@ NOTES_DIR = WORKSPACE / "release-notes"
 INDEX = NOTES_DIR / "index.json"
 PYPROJECT = WORKSPACE / "packages" / "cli" / "pyproject.toml"
 SKILL = WORKSPACE / "skills" / "booking-agent" / "SKILL.md"
+VERIFIED_HARNESSES = WORKSPACE / "ops" / "verified-harnesses.json"
 RELEASES_URL = "https://github.com/wix/booking-agent/releases/tag/v{version}"
 
 SCHEMA_VERSION = 1
@@ -62,7 +63,27 @@ REQUIRED = {
     "details_url": str,
     "readiness_evidence": list,
 }
-OPTIONAL = {"replacement_version": str}
+OPTIONAL = {"replacement_version": str, "replay_rollouts": dict}
+
+
+def _verified_replays() -> tuple[str, ...]:
+    """Load the replay ids owned by the external harness registry."""
+    registry = json.loads(VERIFIED_HARNESSES.read_text(encoding="utf-8"))
+    if registry.get("schema_version") != 1 or not isinstance(registry.get("harnesses"), dict):
+        raise ValueError(f"{VERIFIED_HARNESSES}: invalid verified harness registry")
+    harnesses = registry["harnesses"]
+    if any(not isinstance(key, str) or not isinstance(value, str) for key, value in harnesses.items()):
+        raise ValueError(f"{VERIFIED_HARNESSES}: harness and replay ids must be strings")
+    if any(
+        re.fullmatch(r"[a-z0-9][a-z0-9-]{0,63}", identifier) is None
+        for pair in harnesses.items()
+        for identifier in pair
+    ):
+        raise ValueError(f"{VERIFIED_HARNESSES}: harness and replay ids must be lowercase tokens")
+    return tuple(sorted(set(harnesses.values())))
+
+
+VERIFIED_REPLAYS = _verified_replays()
 
 ROLLOUT_HEADING = "## Release and rollout"
 ROLLOUT_FIELDS = (
@@ -155,6 +176,54 @@ def entry_errors(entry: object, name: str = "entry") -> list[str]:
         errors.append(f"{name}: user_summary must not name commands, flags, links, or issue numbers")
     if entry["details_url"] != RELEASES_URL.format(version=entry["cli_version"]):
         errors.append(f"{name}: details_url must be {RELEASES_URL.format(version=entry['cli_version'])}")
+    errors += _replay_rollout_errors(entry, name)
+    return errors
+
+
+def _replay_rollout_errors(entry: dict, name: str) -> list[str]:
+    """A verified replay carries its own rollout. The general status never fills it in."""
+    rollouts = entry.get("replay_rollouts")
+    if rollouts is None:
+        return []
+    if not isinstance(rollouts, dict):
+        return [f"{name}: replay_rollouts must be an object"]
+    errors = []
+    needs_replay = (
+        Version(entry["cli_version"]) >= Version(HOSTED_REPLAY_FROM)
+        and HOSTED_REPLAY_CAPABILITIES.intersection(entry["relevant_capabilities"])
+    )
+    for replay_id, rollout in rollouts.items():
+        label = f"{name}: replay_rollouts.{replay_id}"
+        if replay_id not in VERIFIED_REPLAYS:
+            errors.append(f"{label} is not a verified replay {list(VERIFIED_REPLAYS)}")
+            continue
+        if not isinstance(rollout, dict):
+            errors.append(f"{label} must be an object")
+            continue
+        unknown = sorted(set(rollout) - {"update_status", "ecosystem_ready", "readiness_evidence"})
+        if unknown:
+            errors.append(f"{label}: unknown keys {unknown}")
+        status, ready = rollout.get("update_status"), rollout.get("ecosystem_ready")
+        evidence = rollout.get("readiness_evidence")
+        if status not in UPDATE_STATUSES:
+            errors.append(f"{label}: update_status must be one of {list(UPDATE_STATUSES)}")
+        if not isinstance(ready, bool):
+            errors.append(f"{label}: ecosystem_ready must be bool")
+        if not isinstance(evidence, list) or any(not isinstance(e, str) or not e.strip() for e in evidence):
+            errors.append(f"{label}: readiness_evidence must be non-empty strings")
+            evidence = []
+        if status in UPDATE_STATUSES and isinstance(ready, bool):
+            if not ready and status not in ("deferred", "withdrawn"):
+                errors.append(f"{label}: ecosystem_ready false allows only update_status deferred (or withdrawn)")
+            if ready and not evidence:
+                errors.append(f"{label}: ecosystem_ready true needs readiness_evidence")
+            prefix = f"Hosted replay ({replay_id}):"
+            if ready and needs_replay and not any(e.lstrip().startswith(prefix) for e in evidence):
+                errors.append(f"{label}: ecosystem_ready true needs a readiness_evidence line starting {prefix!r}")
+            if status in ("recommended", "urgent") and not (ready and evidence):
+                errors.append(f"{label}: {status} needs ecosystem_ready true and readiness_evidence")
+        if status == "withdrawn" or (status != "withdrawn" and "replacement_version" in rollout):
+            errors.append(f"{label}: withdrawn stays on the general rollout, not on one replay")
     return errors
 
 

@@ -46,6 +46,13 @@ def test_enums_match_the_release_policy_script():
     assert updates.CAPABILITIES == release_notes.CAPABILITIES
 
 
+def test_replay_identity_is_generic_runtime_configuration(monkeypatch):
+    monkeypatch.setenv("BOOKING_AGENT_REPLAY", "shared-replay")
+    assert updates.configured_replay() == "shared-replay"
+    monkeypatch.setenv("BOOKING_AGENT_REPLAY", "not valid")
+    assert updates.configured_replay() is None
+
+
 def test_the_committed_index_parses():
     index = Path(__file__).resolve().parents[4] / "release-notes" / "index.json"
     releases = updates.parse_index(json.loads(index.read_text()))
@@ -91,6 +98,67 @@ def test_a_recommended_feature_is_offered_when_the_request_needs_it():
 
 def test_not_ready_is_treated_as_deferred_even_if_marked_recommended():
     assert _decide(_entry("0.2.0", status="urgent", ready=False)).action == "none"
+
+
+def _rollout(status="recommended", ready=True):
+    return {"update_status": status, "ecosystem_ready": ready, "readiness_evidence": ["Shown."]}
+
+
+def test_a_general_recommendation_does_not_promote_a_verified_harness():
+    entry = _entry("0.2.0")
+    assert _decide(entry).action == "inform"
+    held = _decide(entry, replay_id="grok-bot")
+    assert held.action == "none" and held.replay == "grok-bot"
+
+
+def test_a_verified_recommendation_does_not_promote_anyone_else():
+    entry = _entry(
+        "0.2.0", status="deferred", ready=False,
+        replay_rollouts={"grok-bot": _rollout()},
+    )
+    assert _decide(entry).action == "none"
+    assert _decide(entry, replay_id="base44-superagent").action == "none"
+    assert _decide(entry, replay_id="grok-bot").action == "inform"
+
+
+def test_harnesses_that_share_a_replay_promote_together():
+    entry = _entry(
+        "0.2.0", status="deferred", ready=False,
+        replay_rollouts={"shared": _rollout()},
+    )
+    first = _decide(entry, replay_id="shared")
+    second = _decide(entry, replay_id="shared")
+    assert first.action == second.action == "inform"
+    assert first.replay == second.replay == "shared"
+
+
+def test_every_deferred_release_in_a_verified_upgrade_needs_that_replay():
+    old = _entry(
+        "0.2.0", status="deferred", ready=False,
+        replay_rollouts={"grok-bot": _rollout()},
+    )
+    missing = _entry("0.3.0", status="deferred", ready=False)
+    newest = _entry(
+        "0.4.0", status="deferred", ready=False,
+        replay_rollouts={"grok-bot": _rollout()},
+    )
+    blocked = _decide(old, missing, newest, replay_id="grok-bot")
+    assert blocked.target_version == "0.2.0"
+
+    middle = _entry(
+        "0.3.0", status="deferred", ready=False,
+        replay_rollouts={"grok-bot": _rollout()},
+    )
+    promoted = _decide(old, middle, newest, replay_id="grok-bot")
+    assert promoted.target_version == "0.4.0"
+
+
+def test_a_withdrawn_release_stays_withdrawn_for_a_verified_harness():
+    entry = _entry("0.1.0", status="withdrawn", replacement_version="0.2.0")
+    later = _entry("0.2.0", status="urgent", replay_rollouts={"grok-bot": _rollout("urgent")})
+    assert _decide(
+        entry, later, installed="0.1.0", replay_id="grok-bot"
+    ).reason == "installed_version_withdrawn"
 
 
 def test_a_deferred_release_holds_back_every_later_one():

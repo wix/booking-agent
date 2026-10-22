@@ -89,6 +89,26 @@ def test_entry_rules(overrides, fragment):
     assert any(fragment in e for e in errors), errors
 
 
+def test_a_verified_replay_rollout_is_checked_on_its_own():
+    ready = {
+        "update_status": "recommended",
+        "ecosystem_ready": True,
+        "readiness_evidence": ["Hosted replay (grok-bot): booked, no calendar event."],
+    }
+    entry = _entry(
+        version="0.5.0", change_type="fix", relevant_capabilities=["payment"],
+        readiness_evidence=["Hosted replay: general run."],
+        replay_rollouts={"grok-bot": ready},
+    )
+    assert release_notes.entry_errors(entry) == []
+    missing = copy.deepcopy(entry)
+    missing["replay_rollouts"]["grok-bot"]["readiness_evidence"] = ["Offline tests passed."]
+    assert any("Hosted replay (grok-bot):" in e for e in release_notes.entry_errors(missing))
+    unknown = copy.deepcopy(entry)
+    unknown["replay_rollouts"] = {"cursor": ready}
+    assert any("not a verified replay" in e for e in release_notes.entry_errors(unknown))
+
+
 def test_a_deferred_release_may_be_not_ready():
     assert release_notes.entry_errors(
         _entry(update_status="deferred", ecosystem_ready=False, readiness_evidence=[])
