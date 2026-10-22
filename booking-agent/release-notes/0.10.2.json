@@ -4,8 +4,8 @@
   "details_url": "https://github.com/wix/booking-agent/releases/tag/v0.10.2",
   "ecosystem_ready": false,
   "readiness_evidence": [
-    "Not ready to offer: this release has not been replayed in a hosted session. A Base44 Superagent replay of 0.10.1 on 22/10/26 stopped at this defect: after a sandbox wipe that kept the saved folder, the new conversation found no linked state, ran `flow init --no-persistent-root`, and started a new booking that asked for a second Link sign-in, although the saved booking (waiting for the user's yes) and the sign-in were intact. Nothing was booked or charged.",
-    "Offline: `flow status`, `flow init` (with or without `--no-persistent-root`), and `runtime doctor` now find an unfinished booking in a persistent folder this CLI prepared earlier and point at `runtime prepare --persistent-root <folder>`; linking that folder brings the waiting booking back at the summary step; a folder this CLI never prepared is not treated as saved state. The tests fail without the change; the full suite passes.",
+    "Not ready to offer: this release has not been replayed in a hosted session. Base44 Superagent replays of 0.10.1 on 22/10/26 stopped at two defects after a sandbox wipe that kept the saved folder: (1) the new conversation found no linked state, ran `flow init --no-persistent-root`, and started a new booking that asked for a second Link sign-in although the saved booking (waiting for the user's yes) and the sign-in were intact; (2) a rehearsal of the fix then reached the summary, and reconnecting the expired Google Calendar token sent the booking back to the calendar step, dropping the chosen time and listing times again. Nothing was booked or charged.",
+    "Offline: `flow status`, `flow init` (with or without `--no-persistent-root`), and `runtime doctor` find an unfinished booking in a persistent folder this CLI prepared earlier and point at `runtime prepare --persistent-root <folder>`; linking that folder brings the waiting booking back at the summary step; a folder this CLI never prepared is not treated as saved state; a calendar connect or skip after the time is chosen keeps the booking where it is and points at `buyer resolve`, while the same step early in a booking still leads to availability. The tests fail without the change; the full suite passes.",
     "Existing businesses and the registry stay compatible: no USP, UCP, or platform profile version changed and no request shape changed. Saved session files are unchanged: no field was added and the format version stays as it is."
   ],
   "relevant_capabilities": [
@@ -14,5 +14,5 @@
   "schema_version": 1,
   "skill_version": "0.57.4",
   "update_status": "deferred",
-  "user_summary": "After a restart, the assistant finds your saved booking and Link sign-in again instead of starting a new booking."
+  "user_summary": "After a restart, the assistant finds your saved booking and Link sign-in again, and reconnecting Google Calendar no longer makes you pick the time again."
 }

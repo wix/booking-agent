@@ -1,5 +1,11 @@
 # Change Log
 
+## 22/10/26 at 16:05:35 by [Ran Yahalom](mailto:ranya@wix.com)
+
+- Fixed a second Base44 Superagent rehearsal failure for the unreleased 0.10.2: reconnecting an expired Google Calendar token at the booking summary sent the booking back to the calendar step, so the chosen time and summary were dropped and times were listed again. Calendar connect, skip, and the unavailable fallback now keep a booking that already has a time where it is and point at `buyer resolve`; early in a booking they still lead to availability
+
+---
+
 ## 22/10/26 at 15:54:49 by [Ran Yahalom](mailto:ranya@wix.com)
 
 - Fixed the Base44 Superagent replay failure where, after a sandbox wipe that kept the saved folder, a new conversation found no linked state, started a new booking with `--no-persistent-root`, and asked for a second Link sign-in even though the saved booking and sign-in were intact: `flow status`, `flow init`, and `runtime doctor` now find an unfinished booking in a folder this CLI prepared earlier and point at `runtime prepare --persistent-root <folder>` instead of letting the assistant start over

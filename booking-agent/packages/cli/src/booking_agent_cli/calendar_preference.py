@@ -85,6 +85,18 @@ def _pref_applicable(
     return False
 
 
+_AT_OR_BEFORE_CALENDAR_GATE = frozenset({"INIT", "PREREQ_OK", "BUSINESS_SELECTED", "CALENDAR_GATE"})
+# Phases where the user has already chosen a time: a calendar reconnect then changes nothing
+# about the booking, and must never send it back to choose a time again.
+CALENDAR_RECONNECTED_LATE_PHASES = frozenset({"SLOT_SELECTED", "BUYER_RESOLVED"})
+
+
+def _reach_calendar_gate(session: Session) -> None:
+    """Move to the calendar gate only from before it; a later phase keeps its place."""
+    if session.flow_phase in _AT_OR_BEFORE_CALENDAR_GATE:
+        transition(session, to="CALENDAR_GATE")
+
+
 def try_apply_remembered_calendar_gate(
     session: Session,
     connection: Dict[str, Any],
@@ -101,7 +113,7 @@ def try_apply_remembered_calendar_gate(
         session.calendar_remembered_applied = True
         session.calendar_state = "skipped"
         session.calendar_mode = CALENDAR_MODE_NONE
-        transition(session, to="CALENDAR_GATE")
+        _reach_calendar_gate(session)
         save_session(session)
         return RememberedCalendarResult(
             applied=True,
@@ -118,7 +130,7 @@ def try_apply_remembered_calendar_gate(
     session.calendar_remembered_applied = True
     session.calendar_state = "connected"
     session.calendar_mode = mode
-    transition(session, to="CALENDAR_GATE")
+    _reach_calendar_gate(session)
     save_session(session)
     if mode == CALENDAR_MODE_EVENTS:
         prompt = (
@@ -148,7 +160,7 @@ def complete_calendar_gate_with_preference(
     session.calendar_gate_completed = True
     session.calendar_state = state
     session.calendar_mode = mode
-    transition(session, to="CALENDAR_GATE")
+    _reach_calendar_gate(session)
     save_session(session)
     save_calendar_preference(state=state, mode=mode)
 
@@ -163,5 +175,5 @@ def skip_calendar_gate_session_only(session: Session, *, unasked: bool = False) 
     session.calendar_state = "skipped"
     session.calendar_mode = CALENDAR_MODE_NONE
     session.calendar_skipped_unasked = unasked
-    transition(session, to="CALENDAR_GATE")
+    _reach_calendar_gate(session)
     save_session(session)

@@ -341,3 +341,41 @@ def test_a_folder_this_cli_never_prepared_is_not_mistaken_for_saved_state(
     out = _stdout_json(_invoke(runner, "flow", "status"))
 
     assert out["data"]["error"]["code"] == "no_session"
+
+
+# ---------------------------------------------------------------------------
+# Reconnecting the calendar after a restart must not drop the chosen time
+# ---------------------------------------------------------------------------
+
+def test_a_calendar_step_after_the_summary_keeps_the_chosen_time(
+    runner, isolated_session, monkeypatch,
+):
+    """Hosted replay of 0.10.1: `calendar connect` at the summary sent the booking back to
+    CALENDAR_GATE, so the slot and summary were lost and times were listed again."""
+    slot_id = _at_summary(runner, monkeypatch)
+
+    r = _invoke(runner, "flow", "calendar", "skip", "--session-only")
+
+    assert r.exit_code == 0, r.stdout + r.stderr
+    out = _stdout_json(r)
+    assert out["phase"] == "BUYER_RESOLVED"
+    assert out["next_command"] == "booking-agent flow buyer resolve"
+    assert "do not list times again" in out["prompt"]
+    from booking_agent_cli.session import load_session
+
+    assert load_session().slot_id == slot_id
+    again = _invoke(runner, "flow", "buyer", "resolve")
+    assert again.exit_code == 0, again.stdout + again.stderr
+    assert _stdout_json(again)["awaiting_user"] == "booking_confirmation"
+
+
+def test_the_calendar_gate_still_leads_to_availability_early_in_the_booking(
+    runner, isolated_session,
+):
+    _init(runner)
+    _complete_checkout_mode_setup(runner)
+
+    out = _stdout_json(_skip_calendar(runner, "--session-only"))
+
+    assert out["phase"] == "CALENDAR_GATE"
+    assert out["next_command"] == "booking-agent flow availability"
