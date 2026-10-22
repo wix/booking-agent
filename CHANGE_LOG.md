@@ -1,5 +1,11 @@
 # Change Log
 
+## 22/10/26 at 16:50:02 by [Ran Yahalom](mailto:ranya@wix.com)
+
+- Recorded the Base44 Superagent replay of the published 0.10.2 as `recommended` for that replay only: a signed install, a booking resumed after a sandbox wipe with the same summary and slot, a calendar reconnect that kept the chosen time, a $1 payment, the booked message with the raw calendar link, and a healthy `runtime doctor`. The evidence also states what it does not show: the harness first omitted the calendar link from its own message, the restart was an agent-run wipe because the host has no reset control, and the pay-at-appointment path was not run. Earlier releases stay deferred for this harness and the general rollout is unchanged
+
+---
+
 ## 22/10/26 at 16:25:08 by [Ran Yahalom](mailto:ranya@wix.com)
 
 - Made the search for unlinked saved state tolerate folders it cannot read: on CI runners `Path.is_file` raised `PermissionError` for a home-folder path, which crashed `flow init`, `flow status`, and the persistence tests; an unreadable path now counts as absent, and a test covers it

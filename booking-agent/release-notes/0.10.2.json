@@ -11,6 +11,20 @@
   "relevant_capabilities": [
     "booking"
   ],
+  "replay_rollouts": {
+    "base44-superagent": {
+      "ecosystem_ready": true,
+      "readiness_evidence": [
+        "Hosted replay (base44-superagent): on 22/10/26 Base44 Superagent installed the published CLI 0.10.2 from PyPI with the wheel's signature check passing (skill 0.57.4 matched its release-tag file; `gh` is not installed there, so the skill file's own attestation was not checked), then booked a $1 HVAC-Koby AC Repair. After the summary was shown, the sandbox was wiped except the saved folder `/app/.agents` (the session file's sha256 was identical before and after), and a fresh conversation reinstalled the CLI, found the saved booking, re-showed the same summary with the chosen 11:45 AM slot, and needed no second Link sign-in, new search, or list of times. The user said yes, accepted the business's terms, and approved the payment in Link; the $1.00 was charged once.",
+        "Hosted replay (base44-superagent): Google Calendar was connected. The saved calendar token dropped at the summary and was reconnected without losing the chosen time. `flow status` returned \"You're booked: AC Repair with HVAC-Koby, Thu, Oct 22, 11:45 AM - 12:45 PM MST (9:45 - 10:45 PM IDT on your Google Calendar). At your address, 3194 West Rome Street, Yuma AZ 85364. Added to your Google Calendar:\" followed by the raw calendar event link. `runtime doctor` reported survived_restart true (basis boot_id_changed), healthy true, and no findings.",
+        "Hosted replay (base44-superagent) caveat: Superagent's first closing message paraphrased the booking and left out the raw calendar event link; it posted the CLI's exact booked message only when asked. The CLI returned the message correctly, so this is the harness's wording, not the release.",
+        "Hosted replay (base44-superagent) caveat: this host has no control to reset its sandbox, so the restart was an agent-run wipe of everything under /app except /app/.agents, plus /tmp and /root (symlinks into the saved folder removed first), together with a natural boot-id change; it is not the platform reset the replay describes.",
+        "Hosted replay (base44-superagent) caveat: the pay-at-appointment path that the 0.9.1 notes list as unreplayed was not run on this harness. HVAC-Koby's current services (a $1 repair, a free diagnostic, and a $10 deposit) do not offer it. Only this release's rollout for this replay is recorded; earlier releases stay deferred for Base44 Superagent, so an installed older version is not offered this one until their entries are updated.",
+        "Earlier replays of 0.10.0 and 0.10.1 on this harness stopped at the defects 0.10.2 fixes (the saved booking could not be shown again after a restart; a calendar reconnect at the summary dropped the chosen time); nothing was booked or charged in them."
+      ],
+      "update_status": "recommended"
+    }
+  },
   "schema_version": 1,
   "skill_version": "0.57.4",
   "update_status": "deferred",
