@@ -11,6 +11,17 @@
   "relevant_capabilities": [
     "booking"
   ],
+  "replay_rollouts": {
+    "base44-superagent": {
+      "ecosystem_ready": true,
+      "readiness_evidence": [
+        "Hosted replay (base44-superagent): on 22/10/26 Base44 Superagent ran CLI 0.10.2 with skill 0.57.4, which carries every change in this release, and passed its replay: after a sandbox wipe that kept /app/.agents, a fresh conversation re-showed the same summary and chosen 11:45 AM slot for a $1 HVAC-Koby AC Repair, needed no second Link sign-in, charged $1.00 once, returned the raw calendar event link in the booked message, and runtime doctor reported survived_restart true, healthy true, and no findings. The 0.10.2 notes hold the full evidence and caveats.",
+        "The replay of this release alone on this harness stopped at defects that 0.10.2 fixes. This record keeps the Base44 Superagent rollout cumulative: an installed 0.10.0 or 0.10.1 is offered 0.10.2, because an update targets the newest release this replay recommends, not this one, while 0.10.2 stays recommended.",
+        "The pay-at-appointment path that the 0.9.1 notes list as unreplayed was not run on this harness, so 0.9.1 and earlier stay deferred for Base44 Superagent."
+      ],
+      "update_status": "recommended"
+    }
+  },
   "schema_version": 1,
   "skill_version": "0.57.3",
   "update_status": "deferred",

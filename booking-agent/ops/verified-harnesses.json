@@ -1,7 +1,35 @@
 {
-  "schema_version": 1,
   "harnesses": {
-    "base44-superagent": "base44-superagent",
-    "grok-bot": "grok-bot"
-  }
+    "base44-superagent": {
+      "guide": "docs/harnesses/base44-superagent.md",
+      "name": "Base44 Superagent",
+      "recommended": {
+        "cli": "0.10.2",
+        "skill": "0.57.4"
+      },
+      "replay": "base44-superagent",
+      "replayed": {
+        "cli": "0.10.2",
+        "date": "2026-10-22",
+        "skill": "0.57.4"
+      },
+      "status": "verified"
+    },
+    "grok-bot": {
+      "guide": "docs/harnesses/grok-bot.md",
+      "name": "Grok Bot",
+      "recommended": {
+        "cli": "0.10.0",
+        "skill": "0.57.2"
+      },
+      "replay": "grok-bot",
+      "replayed": {
+        "cli": "0.9.1",
+        "date": "2026-10-22",
+        "skill": "0.57.1"
+      },
+      "status": "verified"
+    }
+  },
+  "schema_version": 2
 }

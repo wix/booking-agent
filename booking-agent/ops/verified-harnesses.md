@@ -14,16 +14,28 @@ stays `deferred`, even when the general status is `recommended`. A release that 
 `withdrawn` for everyone stays withdrawn here too.
 
 CLI versions before 0.10.0 do not understand replay-specific rollouts. A verified
-harness must install 0.10.0 manually after its replay approves that bootstrap release.
-From 0.10.0 onward, the installed CLI enforces the harness rollout for later updates.
-The completed Grok Bot replay is recorded as `recommended` for 0.9.0, 0.9.1, and
-0.10.0, so its cumulative rollout has no deferred gap through 0.10.0.
+harness installs its approved release manually, from its guide in
+[docs/harnesses](../docs/harnesses/README.md). From 0.10.0 onward, the installed CLI
+enforces the harness rollout for later updates. The completed Grok Bot replay is
+recorded as `recommended` for 0.9.0, 0.9.1, and 0.10.0, so its cumulative rollout has no
+deferred gap through 0.10.0. The completed Base44 Superagent replay of 0.10.2 is
+recorded as `recommended` for 0.10.0, 0.10.1, and 0.10.2, so an installed 0.10.0 or
+0.10.1 is offered 0.10.2.
 
 ## Registry
 
 Harness-to-replay assignments live in `ops/verified-harnesses.json`, outside the
 portable CLI. The replay id is what `BOOKING_AGENT_REPLAY` and `replay_rollouts` use.
 Two harnesses assigned the same replay id promote together from one successful replay.
+
+Each harness entry also holds its display name, its install guide under
+`docs/harnesses/`, and its status (`verified` or `pending`). A verified entry records
+`replayed`, the CLI and skill pair the replay ran and its date, and `recommended`, the
+pair its guide installs. `python scripts/release_notes.py --check` fails unless
+`recommended` is the newest release whose `replay_rollouts` recommends that replay, with
+that release's skill. After recording a replay rollout, update the entry and run
+`python scripts/harness_docs.py` to regenerate the README table and the guides' pinned
+values.
 
 | Harness | Id | Replay id | Calendar during the replay |
 |---|---|---|---|
@@ -96,7 +108,10 @@ restart that counts is the platform sandbox reset that wipes the sandbox root an
 restores the saved-agent folder (`/app/.agents` on the replays run so far), then a
 fresh conversation. After it, `runtime doctor` must report `survived_restart: true`.
 The exact control is the one the Superagent host shows for resetting the sandbox while
-keeping that saved folder. Do not delete the saved folder.
+keeping that saved folder. Do not delete the saved folder. The host used for the 0.10.2
+replay showed no such control, so that run wiped everything under `/app` except
+`/app/.agents` (plus `/tmp` and `/root`) from inside the sandbox, and the boot id also
+changed. When the host has no reset control, do the same and record it as a caveat.
 
 1. Export `BOOKING_AGENT_REPLAY=base44-superagent`.
 2. Connect Google Calendar when the assistant asks. Start the booking and choose a slot.
