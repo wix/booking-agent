@@ -147,9 +147,16 @@ def try_apply_remembered_calendar_gate(
     if delegated:
         session.calendar_route = ROUTE_DELEGATED
         session.calendar_token_env = None
+        session.calendar_delegated_freebusy = load_store().last_calendar_delegated_freebusy
     _reach_calendar_gate(session)
     save_session(session)
-    if delegated:
+    if delegated and session.calendar_delegated_freebusy:
+        prompt = (
+            "Using your saved preference: read busy times from your platform's own Google "
+            "Calendar when `flow availability` asks, then after the booking is confirmed "
+            "add it there too. Ready to query availability."
+        )
+    elif delegated:
         prompt = (
             "Using your saved preference: after the booking is confirmed, add it to Google "
             "Calendar through your platform. Times are not checked against the user's "

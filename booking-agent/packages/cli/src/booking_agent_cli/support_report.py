@@ -464,6 +464,7 @@ SESSION_RULES: Dict[str, FieldRule] = {
     "calendar_mode": ("calendar_mode", _id),
     "calendar_route": ("calendar_route", _id),
     "calendar_token_env": ("calendar_token_env", _id),  # a variable name; the value is never stored
+    "calendar_delegated_freebusy": EXCLUDE,  # gate bookkeeping; not part of the support bundle schema
     "link_auth_gate_completed": ("link_auth_gate_completed", _bool),
     "availability_window": ("availability_window", _window),
     "slots_presented": ("slots_presented", lambda v: _list(v, _slot, 50)),
@@ -539,6 +540,9 @@ SESSION_RULES: Dict[str, FieldRule] = {
     # The event link opens the user's calendar entry; it never leaves the device.
     "calendar_event_id": EXCLUDE,
     "calendar_event_html_link": EXCLUDE,
+    # The platform's busy intervals reflect the user's own calendar; never leaves the device.
+    "calendar_busy_request": EXCLUDE,
+    "calendar_busy_result": EXCLUDE,
     # Gate bookkeeping; not part of the support bundle schema.
     "policies_surfaced": EXCLUDE,
     "policies_digest": EXCLUDE,

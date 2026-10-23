@@ -97,11 +97,15 @@ from ..calendar_delegated import (
     OP_CREATE,
     OP_DELETE,
     OP_UPDATE,
+    busy_instruction,
+    busy_request,
     delegated_instruction,
     delegated_request,
     is_delegated,
     pending_request,
+    record_busy_result,
     record_delegated_result,
+    take_busy_result,
     report_commands,
 )
 from ..calendar_preference import (
@@ -3846,6 +3850,16 @@ def calendar_connect(
         min=30,
         help="Local OAuth: seconds the sign-in link stays valid.",
     ),
+    delegated_can_read_busy: bool = typer.Option(
+        False,
+        "--delegated-can-read-busy",
+        help=(
+            "Delegated route only: your platform can read Google Calendar busy times "
+            "itself (it just cannot hand the CLI a token). `flow availability` will ask "
+            "you to report them before it shows times, instead of marking the calendar "
+            "unchecked."
+        ),
+    ),
 ) -> None:
     session = must_load()
     try:
@@ -3885,13 +3899,21 @@ def calendar_connect(
         _connect_via_connector(session, mode=mode, token_env=token_env)
         return
     if route == ROUTE_DELEGATED:
-        _connect_via_delegated(session, mode=mode)
+        _connect_via_delegated(session, mode=mode, can_read_busy=delegated_can_read_busy)
         return
     _connect_via_local_oauth(session, mode=mode, timeout=timeout)
 
 
 def _emit_calendar_connected(session: Session, *, mode: str, data: dict) -> None:
-    if data.get("calendar_route") == ROUTE_DELEGATED:
+    if data.get("calendar_route") == ROUTE_DELEGATED and data.get("conflict_checking"):
+        prompt = (
+            "Calendar set up: before showing times, `flow availability` will ask you to "
+            "read busy intervals from your platform's own Google Calendar for the search "
+            "window; once the booking is confirmed it will also tell you which event to "
+            "create there. Tell the user their calendar will be checked and the "
+            "appointment added."
+        )
+    elif data.get("calendar_route") == ROUTE_DELEGATED:
         prompt = (
             "Calendar set up: once the booking is confirmed, the CLI will tell you which "
             "event to create through your platform's own Google Calendar. Times are not "
@@ -3983,15 +4005,16 @@ def _connect_via_connector(session: Session, *, mode: str, token_env: Optional[s
     )
 
 
-def _connect_via_delegated(session: Session, *, mode: str) -> None:
+def _connect_via_delegated(session: Session, *, mode: str, can_read_busy: bool = False) -> None:
     if mode != CALENDAR_MODE_EVENTS:
         emit_error(
             session.flow_phase,
             code="calendar_delegated_events_only",
             message=(
                 f"--route {ROUTE_DELEGATED} only adds the booked event to the calendar: the "
-                "CLI cannot read free/busy times through your platform. Ask the user whether "
-                f"to add the event (`{_connect_command(CALENDAR_MODE_EVENTS, ROUTE_DELEGATED)}`) "
+                "CLI cannot read free/busy times through your platform unless you pass "
+                f"--delegated-can-read-busy. Ask the user whether to add the event "
+                f"(`{_connect_command(CALENDAR_MODE_EVENTS, ROUTE_DELEGATED)}`) "
                 f"or continue without the calendar (`booking-agent flow calendar skip`)."
             ),
             next_command="booking-agent flow calendar skip",
@@ -4000,12 +4023,16 @@ def _connect_via_delegated(session: Session, *, mode: str) -> None:
         raise typer.Exit(code=1)
 
     _stop_pending_sign_in()
-    remember_route(ROUTE_DELEGATED, None, session)
+    remember_route(ROUTE_DELEGATED, None, session, delegated_freebusy=can_read_busy)
     _complete_calendar_gate(session, mode=mode)
     _emit_calendar_connected(
         session,
         mode=mode,
-        data={"connected": True, "calendar_route": ROUTE_DELEGATED, "conflict_checking": False},
+        data={
+            "connected": True,
+            "calendar_route": ROUTE_DELEGATED,
+            "conflict_checking": can_read_busy,
+        },
     )
 
 
@@ -4581,6 +4608,83 @@ def calendar_record_event(
     ))
 
 
+@calendar_app.command("report-busy")
+def calendar_report_busy(
+    request_id: str = typer.Option(
+        ..., "--request-id", help="The request_id from data.delegated_busy_request.",
+    ),
+    busy: List[str] = typer.Option(
+        [],
+        "--busy",
+        help="One busy interval as START,END (ISO8601, repeatable). Omit with --none.",
+    ),
+    none: bool = typer.Option(
+        False, "--none", help="The requested window has no busy intervals.",
+    ),
+) -> None:
+    """Report busy intervals the agent's platform read from its own Google Calendar."""
+    session = must_load()
+    if not busy and not none:
+        emit_error(
+            session.flow_phase,
+            code="calendar_delegated_busy_report_incomplete",
+            message=(
+                "Pass --busy START,END (ISO8601) for each busy interval you found, or "
+                "--none when there are none in the requested window."
+            ),
+            next_command=None,
+        )
+        raise typer.Exit(code=1)
+
+    parsed: List[Dict[str, str]] = []
+    invalid: List[str] = []
+    for item in busy:
+        start, _, end = item.partition(",")
+        start, end = start.strip(), end.strip()
+        if start and end:
+            parsed.append({"start": start, "end": end})
+        else:
+            invalid.append(item)
+    if invalid:
+        emit_error(
+            session.flow_phase,
+            code="calendar_delegated_busy_report_invalid",
+            message="Each --busy value must be START,END (two ISO8601 datetimes).",
+            next_command=None,
+            data={"invalid": invalid},
+        )
+        raise typer.Exit(code=1)
+
+    result = record_busy_result(session, request_id, busy=parsed)
+    if not result["ok"]:
+        emit_error(
+            session.flow_phase,
+            code=result["code"],
+            message=(
+                f"No open busy-time request has id {request_id!r}: it was already "
+                "reported, replaced by a newer query, or never issued. Run "
+                "`booking-agent flow availability` again for the window you need."
+            ),
+            next_command="booking-agent flow availability",
+        )
+        raise typer.Exit(code=1)
+    save_session(session)
+
+    next_command = (
+        f"booking-agent flow availability --service-id {result['service_id']} "
+        f"--from {result['window_from']} --to {result['window_to']}"
+    )
+    emit(_agent_out(
+        session,
+        prompt=(
+            f"Recorded {result['busy_count']} busy interval(s) for this window. Run "
+            f"`{next_command}` to see the filtered times."
+        ),
+        next_command=next_command,
+        data=result,
+    ))
+
+
 # ---------------------------------------------------------------------------
 # availability / slots
 # ---------------------------------------------------------------------------
@@ -4926,8 +5030,17 @@ _CALENDAR_NOT_CHECKED_NOTE = (
 
 
 def _calendar_not_checked(session: Session) -> bool:
-    """Events go to the user's calendar, but busy times were never read."""
-    return session.calendar_state == "connected" and session.calendar_route == ROUTE_DELEGATED
+    """Events go to the user's calendar, but busy times were never read.
+
+    False when the delegated route's platform reads busy times itself
+    (``calendar_delegated_freebusy``): then every returned slot has already
+    been through that check, just not through a token the CLI holds.
+    """
+    return (
+        session.calendar_state == "connected"
+        and session.calendar_route == ROUTE_DELEGATED
+        and not session.calendar_delegated_freebusy
+    )
 
 
 def _calendar_window(window_from: str, window_to: str) -> tuple[str, str]:
@@ -5052,6 +5165,23 @@ def availability(
         )
         raise typer.Exit(code=1)
 
+    delegated_busy: Optional[List[Dict[str, str]]] = None
+    if session.calendar_route == ROUTE_DELEGATED and session.calendar_delegated_freebusy:
+        delegated_busy = take_busy_result(session, window_from=window_from, window_to=window_to)
+        if delegated_busy is None:
+            request = busy_request(
+                session, window_from=window_from, window_to=window_to, service_id=service_id,
+            )
+            save_session(session)
+            emit(_agent_out(
+                session,
+                awaiting_user="calendar_delegated_busy_request",
+                prompt=busy_instruction(request),
+                next_command=request["report_command"],
+                data={"delegated_busy_request": request},
+            ))
+            return
+
     try:
         live_service, slots, calendar_filtered, slots_filtered, response_zones = asyncio.run(
             _query_slots_async(session, service_id, window_from, window_to)
@@ -5059,6 +5189,14 @@ def availability(
     except Exception as e:
         emit_error(session.flow_phase, code="availability_failed", message=str(e))
         raise typer.Exit(code=1)
+
+    if delegated_busy is not None:
+        from booking_agent.calendar.filter import filter_slots_by_busy_times
+
+        before = len(slots)
+        slots = filter_slots_by_busy_times(slots, delegated_busy)
+        calendar_filtered = True
+        slots_filtered = before - len(slots)
 
     from ..flow_timings import apply_pending_timings
 

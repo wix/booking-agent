@@ -364,3 +364,145 @@ def test_an_event_keeps_the_route_it_was_written_on(isolated_session):
 
 def test_an_unknown_request_is_refused(isolated_session):
     assert record_delegated_result("nope", outcome="done")["code"] == "calendar_delegated_request_unknown"
+
+
+# --- free/busy read: a platform that can tell the CLI its busy intervals --------
+
+
+def test_connect_with_can_read_busy_sets_conflict_checking_true(runner, isolated_session):
+    _to_gate(runner)
+
+    r = _invoke(runner, *_CONNECT, "--delegated-can-read-busy")
+
+    assert r.exit_code == 0, r.stdout + r.stderr
+    body = _stdout_json(r)
+    assert body["data"]["conflict_checking"] is True
+    s = load_session()
+    assert s.calendar_delegated_freebusy is True
+    assert load_store().last_calendar_delegated_freebusy is True
+
+
+def test_availability_asks_for_busy_times_before_showing_slots(runner, isolated_session):
+    _to_gate(runner)
+    _invoke(runner, *_CONNECT, "--delegated-can-read-busy")
+
+    r = _invoke(runner, "flow", "availability", "--service-id", _SERVICE_ID)
+
+    assert r.exit_code == 0, r.stdout + r.stderr
+    body = _stdout_json(r)
+    assert body["awaiting_user"] == "calendar_delegated_busy_request"
+    request = body["data"]["delegated_busy_request"]
+    assert request["window_from"] and request["window_to"]
+    assert "report-busy" in request["report_command"]
+    assert body["next_command"] == request["report_command"]
+    # Nothing was queried or shown yet.
+    assert "data" not in body or "slot_count" not in body["data"]
+
+
+def test_reporting_no_busy_marks_the_calendar_checked(runner, isolated_session):
+    _to_gate(runner)
+    _invoke(runner, *_CONNECT, "--delegated-can-read-busy")
+    ask = _stdout_json(_invoke(runner, "flow", "availability", "--service-id", _SERVICE_ID))
+    request = ask["data"]["delegated_busy_request"]
+
+    report = _invoke(
+        runner, "flow", "calendar", "report-busy",
+        "--request-id", request["request_id"], "--none",
+    )
+    assert report.exit_code == 0, report.stdout + report.stderr
+    report_body = _stdout_json(report)
+    assert report_body["data"]["busy_count"] == 0
+    expected_next = (
+        f"booking-agent flow availability --service-id {_SERVICE_ID} "
+        f"--from {request['window_from']} --to {request['window_to']}"
+    )
+    assert report_body["next_command"] == expected_next
+
+    final = _stdout_json(_invoke(
+        runner, "flow", "availability", "--service-id", _SERVICE_ID,
+        "--from", request["window_from"], "--to", request["window_to"],
+    ))
+    assert final["data"]["calendar_filtered"] is True
+    assert final["data"]["slots_filtered"] == 0
+    assert final["data"]["calendar_not_checked"] is False
+    assert "not checked" not in final["prompt"]
+
+
+def test_a_reported_busy_interval_removes_the_overlapping_slot(runner, isolated_session):
+    # Baseline: the exact start/end of the first open slot, with no calendar connected.
+    _init(runner)
+    _complete_checkout_mode_setup(runner)
+    _invoke(runner, "flow", "calendar", "ask")
+    _invoke(runner, "flow", "calendar", "skip")
+    baseline = _stdout_json(_invoke(runner, "flow", "availability", "--service-id", _SERVICE_ID))
+    assert baseline["data"]["slot_count"] == 84
+    first_slot = _stdout_json(_invoke(runner, "flow", "slots", "list"))["data"]["slots"][0]
+
+    _invoke(runner, "flow", "reset")
+    _init(runner, user_request="second run with delegated busy read")
+    _complete_checkout_mode_setup(runner)
+    _invoke(runner, "flow", "calendar", "ask")
+    _invoke(runner, *_CONNECT, "--delegated-can-read-busy")
+
+    ask = _stdout_json(_invoke(runner, "flow", "availability", "--service-id", _SERVICE_ID))
+    assert ask["awaiting_user"] == "calendar_delegated_busy_request"
+    request = ask["data"]["delegated_busy_request"]
+
+    report = _invoke(
+        runner, "flow", "calendar", "report-busy",
+        "--request-id", request["request_id"],
+        "--busy", f"{first_slot['start']},{first_slot['end']}",
+    )
+    assert report.exit_code == 0, report.stdout + report.stderr
+    assert _stdout_json(report)["data"]["busy_count"] == 1
+
+    final = _stdout_json(_invoke(
+        runner, "flow", "availability", "--service-id", _SERVICE_ID,
+        "--from", request["window_from"], "--to", request["window_to"],
+    ))
+    assert final["data"]["calendar_filtered"] is True
+    assert final["data"]["slots_filtered"] == 1
+    assert final["data"]["slot_count"] == 83
+
+
+def test_a_stale_busy_request_id_is_refused(runner, isolated_session):
+    _to_gate(runner)
+    _invoke(runner, *_CONNECT, "--delegated-can-read-busy")
+    _invoke(runner, "flow", "availability", "--service-id", _SERVICE_ID)
+
+    r = _invoke(runner, "flow", "calendar", "report-busy", "--request-id", "nope", "--none")
+
+    assert r.exit_code == 1
+    body = _stdout_json(r)
+    assert body["data"]["error"]["code"] == "calendar_delegated_busy_request_unknown"
+    assert body["next_command"] == "booking-agent flow availability"
+
+
+def test_a_busy_report_needs_busy_or_none(runner, isolated_session):
+    _to_gate(runner)
+    _invoke(runner, *_CONNECT, "--delegated-can-read-busy")
+    ask = _stdout_json(_invoke(runner, "flow", "availability", "--service-id", _SERVICE_ID))
+    request = ask["data"]["delegated_busy_request"]
+
+    r = _invoke(runner, "flow", "calendar", "report-busy", "--request-id", request["request_id"])
+
+    assert r.exit_code == 1
+    body = _stdout_json(r)
+    assert body["data"]["error"]["code"] == "calendar_delegated_busy_report_incomplete"
+
+
+def test_a_saved_can_read_busy_choice_is_reused_and_still_asked_per_window(
+    runner, isolated_session,
+):
+    _to_gate(runner)
+    _invoke(runner, *_CONNECT, "--delegated-can-read-busy")
+
+    _init(runner, force=True)
+    _complete_checkout_mode_setup(runner)
+    ask = _stdout_json(_invoke(runner, "flow", "calendar", "ask"))
+
+    assert ask["data"]["remembered_preference_applied"] is True
+    assert load_session().calendar_delegated_freebusy is True
+
+    availability = _stdout_json(_invoke(runner, "flow", "availability", "--service-id", _SERVICE_ID))
+    assert availability["awaiting_user"] == "calendar_delegated_busy_request"

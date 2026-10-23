@@ -1,6 +1,11 @@
 # Change Log
 
-## 23/10/26 at 16:35:36 by [Ran Yahalom](mailto:ranya@wix.com)
+## 23/10/26 at 17:26:56 by [Ran Yahalom](mailto:ranya@wix.com)
+
+- Let a delegated route that can read its own Google Calendar actually check conflicts, instead of always marking availability as not checked. `calendar connect --route delegated --delegated-can-read-busy` opts in; `flow availability` then asks the agent to report busy intervals for its exact search window before it will show any time, and filters the returned slots once that report lands. Without the new flag, the route behaves exactly as before
+- Added `calendar report-busy --request-id <id> --busy START,END (repeatable) | --none` to record that report. A stale or unknown request id is refused, an incomplete report is refused, and a report is consumed by only the one query whose window it matches, since busy times can change between queries
+- Classified the new session fields for the support bundle: the busy read toggle is excluded like the route's other bookkeeping, and the pending request and its result are excluded outright because they can hold the user's own calendar data and must never leave the device
+- Described the new opt-in in `release-notes/0.11.0.json`'s evidence and user summary; the CLI version was already raised for this unreleased branch, so no further bump was needed
 
 - Made registry and business calls follow the host's HTTP proxy. The traced client was installing its own transport, so httpx ignored HTTP_PROXY, HTTPS_PROXY, and ALL_PROXY, and a host that can only leave through a proxy failed discovery with a TLS version error while the plain prerequisite check succeeded
 - Rewrote bracketed IPv6 entries in NO_PROXY, such as [::1], to the bare address before any client is built. httpx reads the colon as a port and raises InvalidURL, which stopped every command on that host before a request was sent. The bare address still bypasses the proxy

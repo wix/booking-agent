@@ -21,6 +21,7 @@ OP_UPDATE = "update"
 OP_DELETE = "delete"
 
 RECORD_COMMAND = "booking-agent flow calendar record-event"
+REPORT_BUSY_COMMAND = "booking-agent flow calendar report-busy"
 
 
 def _entry(session_id: str) -> Dict[str, Any]:
@@ -269,3 +270,97 @@ def record_delegated_result(
     sidecar[session_id] = {"route": ROUTE_DELEGATED, "event_id": event_id, "html_link": link}
     _save_sidecar(sidecar)
     return {"ok": True, "status": "recorded", "event_id": event_id, "html_link": link, **base}
+
+
+# --- free/busy read, for a platform that can tell the CLI its busy intervals ----
+#
+# This is separate from the event write above: it happens before a time is chosen,
+# is kept on the session (not the event sidecar, which outlives the session's
+# bookings), and is one-shot, because busy times can change between queries.
+
+
+def busy_request(
+    session: Session, *, window_from: str, window_to: str, service_id: Optional[str],
+) -> Dict[str, Any]:
+    """The pending ask for busy intervals over one window, mutating ``session`` in place.
+
+    Idempotent for the exact same window: a request already open for it keeps its
+    id, so retrying `flow availability` before reporting never mints a second one.
+    """
+    pending = session.calendar_busy_request
+    if (
+        isinstance(pending, dict)
+        and pending.get("window_from") == window_from
+        and pending.get("window_to") == window_to
+    ):
+        request_id = pending["request_id"]
+    else:
+        request_id = f"{session.id}.busy.{secrets.token_hex(6)}"
+        session.calendar_busy_request = {
+            "request_id": request_id,
+            "window_from": window_from,
+            "window_to": window_to,
+            "service_id": service_id,
+        }
+    return {
+        "request_id": request_id,
+        "window_from": window_from,
+        "window_to": window_to,
+        "service_id": service_id,
+        "report_command": (
+            f"{REPORT_BUSY_COMMAND} --request-id {request_id} "
+            "--busy <START,END> (repeat per busy interval, or pass --none)"
+        ),
+    }
+
+
+def busy_instruction(request: Dict[str, Any]) -> str:
+    """What the agent tells its platform to do, and what to report back."""
+    return (
+        "Use your platform's own Google Calendar to list the user's busy intervals "
+        f"between {request['window_from']} and {request['window_to']}. Then run "
+        f"`{REPORT_BUSY_COMMAND} --request-id {request['request_id']}` with one "
+        "`--busy START,END` per busy interval (repeatable), or `--none` when there "
+        "are none."
+    )
+
+
+def take_busy_result(
+    session: Session, *, window_from: str, window_to: str,
+) -> Optional[List[Dict[str, str]]]:
+    """The platform's reported busy blocks for exactly this window, consumed once.
+
+    ``None`` means no matching report is on hand, so a fresh request is needed.
+    An empty list means the platform checked and found nothing busy.
+    """
+    result = session.calendar_busy_result
+    if not isinstance(result, dict):
+        return None
+    if result.get("window_from") != window_from or result.get("window_to") != window_to:
+        return None
+    session.calendar_busy_result = None
+    busy = result.get("busy")
+    return list(busy) if isinstance(busy, list) else []
+
+
+def record_busy_result(
+    session: Session, request_id: str, *, busy: List[Dict[str, str]],
+) -> Dict[str, Any]:
+    """Apply the agent's report for the pending busy request, mutating ``session`` in place."""
+    pending = session.calendar_busy_request
+    if not isinstance(pending, dict) or pending.get("request_id") != request_id:
+        return {"ok": False, "code": "calendar_delegated_busy_request_unknown"}
+    session.calendar_busy_request = None
+    session.calendar_busy_result = {
+        "request_id": request_id,
+        "window_from": pending["window_from"],
+        "window_to": pending["window_to"],
+        "busy": busy,
+    }
+    return {
+        "ok": True,
+        "window_from": pending["window_from"],
+        "window_to": pending["window_to"],
+        "service_id": pending.get("service_id"),
+        "busy_count": len(busy),
+    }
