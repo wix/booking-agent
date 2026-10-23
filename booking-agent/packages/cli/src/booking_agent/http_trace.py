@@ -6,6 +6,7 @@ append redacted request/response records to ``~/.booking-agent/http_trace.log``.
 
 from __future__ import annotations
 
+import ipaddress
 import json
 import os
 import re
@@ -388,18 +389,58 @@ class _CircuitTransport(httpx.AsyncBaseTransport):
         await self._inner.aclose()
 
 
+def _unbracket_ipv6(host: str) -> str:
+    """``[::1]`` as ``::1``. httpx accepts only the bare address in ``NO_PROXY``."""
+    if len(host) >= 4 and host.startswith("[") and host.endswith("]") and ":" in host:
+        inner = host[1:-1]
+        try:
+            ipaddress.IPv6Address(inner.split("/")[0])
+        except ValueError:
+            return host
+        return inner
+    return host
+
+
+def tolerate_proxy_env() -> None:
+    """Rewrite ``NO_PROXY`` so an httpx client can be built.
+
+    A bracketed IPv6 entry such as ``[::1]`` is not recognized as an address.
+    httpx then reads the colon as a port and raises ``InvalidURL`` while
+    constructing every client, before any request is sent. The same address
+    without brackets is accepted and still bypasses the proxy. Other entries
+    are kept, in order.
+    """
+    for name in ("NO_PROXY", "no_proxy"):
+        raw = os.environ.get(name)
+        if not raw:
+            continue
+        kept: list[str] = []
+        for part in raw.split(","):
+            host = _unbracket_ipv6(part.strip())
+            if host and host not in kept:
+                kept.append(host)
+        cleaned = ",".join(kept)
+        if cleaned != raw:
+            os.environ[name] = cleaned
+
+
 def traced_async_client(
     **kwargs: Any,
 ) -> httpx.AsyncClient:
-    """``httpx.AsyncClient`` with optional redacted trace logging."""
+    """``httpx.AsyncClient`` with optional redacted trace logging.
+
+    Environment proxies (``HTTP_PROXY``, ``HTTPS_PROXY``, ``ALL_PROXY``) apply
+    when the caller does not pass ``transport``. httpx skips them when
+    ``transport`` is set, so the circuit breaker wraps the transports httpx
+    built, including each proxy mount. A caller-supplied transport is used as
+    given.
+    """
+    tolerate_proxy_env()
     circuit: Optional[HostCircuitBreaker] = kwargs.pop("circuit", None)
     if circuit is None:
         circuit = default_breaker()
     kwargs["timeout"] = coerce_timeout(kwargs.get("timeout"))
-    inner = kwargs.pop("transport", None)
-    if inner is None:
-        inner = httpx.AsyncHTTPTransport()
-    kwargs["transport"] = _CircuitTransport(inner, circuit)
+    explicit = kwargs.pop("transport", None)
 
     hooks = dict(kwargs.pop("event_hooks", {}) or {})
     hooks["request"] = [
@@ -413,7 +454,18 @@ def traced_async_client(
     if tracing_enabled():
         hooks["request"] = [*hooks["request"], _log_request]
         hooks["response"] = [*hooks["response"], _log_response]
-    return httpx.AsyncClient(event_hooks=hooks, **kwargs)
+
+    if explicit is not None:
+        kwargs["transport"] = _CircuitTransport(explicit, circuit)
+        return httpx.AsyncClient(event_hooks=hooks, **kwargs)
+
+    client = httpx.AsyncClient(event_hooks=hooks, **kwargs)
+    client._transport = _CircuitTransport(client._transport, circuit)
+    client._mounts = {
+        pattern: None if transport is None else _CircuitTransport(transport, circuit)
+        for pattern, transport in client._mounts.items()
+    }
+    return client
 
 
 def purge_trace_log() -> bool:

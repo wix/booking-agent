@@ -1,5 +1,12 @@
 # Change Log
 
+## 23/10/26 at 16:35:36 by [Ran Yahalom](mailto:ranya@wix.com)
+
+- Made registry and business calls follow the host's HTTP proxy. The traced client was installing its own transport, so httpx ignored HTTP_PROXY, HTTPS_PROXY, and ALL_PROXY, and a host that can only leave through a proxy failed discovery with a TLS version error while the plain prerequisite check succeeded
+- Rewrote bracketed IPv6 entries in NO_PROXY, such as [::1], to the bare address before any client is built. httpx reads the colon as a port and raises InvalidURL, which stopped every command on that host before a request was sent. The bare address still bypasses the proxy
+
+---
+
 ## 23/10/26 at 15:40:15 by [Ran Yahalom](mailto:ranya@wix.com)
 
 - Clarified in `CONTRIBUTING.md`'s Hosted replay checklist that reacting to Link sign-in or payment approval on its own, with no new inbound chat message, is a plus worth noting in the evidence line but is not required to pass the general unverified replay: a tester may send a plain follow-up message to prompt the next reply. An informal session on a WhatsApp-based assistant (Instinct) needed exactly that nudge at both steps, which read as a failure against the previous wording even though the booking completed correctly. Requiring the no-nudge behavior stays possible, but only for a specific verified harness's own replay once that harness's procedure in `ops/verified-harnesses.md` says it proved it, never assumed from the general checklist or from another harness passing it
