@@ -398,6 +398,38 @@ def test_successful_cancel_persists_status_and_stops_being_actionable(
     assert not is_actionable(row)
 
 
+def test_status_after_cancel_does_not_say_the_booking_is_still_booked(
+    runner: CliRunner, isolated_session, monkeypatch,
+):
+    """flow status keeps phase CONFIRMED, but must not tell the user they are booked."""
+    store = load_store()
+    session = _completed_checkout_409_session()
+    session.business.name = "HVAC-Koby"
+    session.live_service = {**session.live_service, "name": "AC Repair"}
+    session.calendar_event_html_link = "https://www.google.com/calendar/event?eid=abc"
+    add_session(store, session)
+    save_store(store)
+    _install_completed_checkout_409(
+        monkeypatch,
+        checkout={},
+        booking_result=_canceled_booking(),
+    )
+    _invoke_cancel(runner, exit_code=0)
+
+    result = runner.invoke(app, ["flow", "status"])
+    text = result.stdout or result.output or ""
+    assert result.exit_code == 0, text
+    body, _ = json.JSONDecoder().raw_decode(text[text.index("{"):])
+    message = body["user_message"]
+
+    assert body["phase"] == "CONFIRMED"
+    assert "cancelled" in message
+    assert "AC Repair with HVAC-Koby" in message
+    assert not message.startswith("You're booked")
+    assert "calendar/event" not in message
+    assert "confirmed" not in body["prompt"].lower()
+
+
 def test_completed_checkout_409_still_cancels_when_the_checkout_cannot_be_reread(
     runner: CliRunner, isolated_session, monkeypatch,
 ):

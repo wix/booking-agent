@@ -1,5 +1,11 @@
 # Change Log
 
+## 23/10/26 at 20:28:22 by [Ran Yahalom](mailto:ranya@wix.com)
+
+- Released as 0.11.1. After a cancel, `flow status` was still answering "You're booked" and could repeat the calendar link, because the phase stays CONFIRMED while only the booking status changes to canceled. Status now says the booking is cancelled and does not describe it as booked
+
+---
+
 ## 23/10/26 at 18:29:18 by [Ran Yahalom](mailto:ranya@wix.com)
 
 - Recorded the Muse hosted session in the 0.11.0 readiness evidence: a $1 HVAC-Koby booking completed on the delegated route with busy-time filtering, a paid checkout, a confirmed status message that includes the raw calendar link, a real Google Calendar event, and a healthy runtime doctor. The release stays deferred because that session did not restart after the slot was chosen, and Muse is not a verified harness

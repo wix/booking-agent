@@ -1,0 +1,18 @@
+{
+  "change_type": "fix",
+  "cli_version": "0.11.1",
+  "details_url": "https://github.com/wix/booking-agent/releases/tag/v0.11.1",
+  "ecosystem_ready": false,
+  "readiness_evidence": [
+    "Not ready to offer: this wording has not been replayed in a hosted session.",
+    "Offline: after a successful cancel, flow status keeps phase CONFIRMED and booking.status canceled, and its message says the booking is cancelled. It does not say the user is booked and it does not repeat the calendar event link. A confirmed booking that is still active still gets the booked message.",
+    "Existing businesses and the registry stay compatible: no USP, UCP, or platform profile version changed and no request shape changed. Saved session files are unchanged: no field was added and the format version stays as it is."
+  ],
+  "relevant_capabilities": [
+    "cancel"
+  ],
+  "schema_version": 1,
+  "skill_version": "0.58.0",
+  "update_status": "deferred",
+  "user_summary": "Asking how a cancelled booking is going now says that it is cancelled."
+}

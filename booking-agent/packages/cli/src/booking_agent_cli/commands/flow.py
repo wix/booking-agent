@@ -793,6 +793,23 @@ def _unfinished_similar_sessions(store: Any, user_request: str) -> List[Dict[str
     return matches
 
 
+def _inactive_booking_status_message(session: Session) -> str:
+    """What status tells the user once the appointment itself is over."""
+    from ..booking_summary import selected_slot, service_and_business, when_text
+
+    label = {
+        "canceled": "cancelled",
+        "completed": "completed",
+        "no_show": "a no-show",
+    }.get(session.booking.status, (session.booking.status or "inactive").replace("_", " "))
+    booking = f"Your booking, {service_and_business(session)},"
+    slot = selected_slot(session)
+    when = when_text(session, slot, dual=False) if slot is not None else None
+    if when:
+        booking = f"{booking} {when},"
+    return f"{booking} is {label}."
+
+
 @app.command("status")
 def status() -> None:
     session = load_session()
@@ -873,6 +890,18 @@ def status() -> None:
         )
         extra_data["services"] = session.discover_services
         extra_data["discover_query"] = session.discover_query
+    elif (
+        session.flow_phase == "CONFIRMED"
+        and session.booking.status in INACTIVE_BOOKING_STATUSES
+    ):
+        # Phase stays CONFIRMED: that is where a finished booking lives. The appointment
+        # itself is booking.status, and status must not describe a canceled one as booked.
+        status_message = _inactive_booking_status_message(session)
+        prompt = (
+            "This booking is no longer active. If the user asked how it is going, post "
+            "user_message as written. Do not say they are booked, and do not offer to "
+            "add or change a calendar event."
+        )
     elif session.flow_phase == "CONFIRMED" and not session.reschedule_slot_id \
             and not session.reschedule_original_slot_id:
         from ..booking_summary import booked_message
