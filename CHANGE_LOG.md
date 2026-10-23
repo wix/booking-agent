@@ -1,5 +1,18 @@
 # Change Log
 
+## 23/10/26 at 22:03:47 by [Ran Yahalom](mailto:ranya@wix.com)
+
+- Raised the `booking-agent` skill frontmatter to 0.58.1 and updated its stale literal `--skill-version 0.58.0` example, and re-ran `scripts/sync_skill_bundle.py` to re-pin `README.md`, `packages/cli/README.md`, and `bundled_skill.md`. The CLI 0.11.1 bump had re-pinned the skill's CLI version without raising the skill's own frontmatter version, so the `version` CI job failed on pull request [#66](https://github.com/wix/booking-agent/pull/66) with "changed but its frontmatter version 0.58.0 is not above 0.58.0"
+- Added a bullet to `AGENTS.md`'s "Releasing to PyPI" section telling agents to run `scripts/check_version.py --base origin/master` (not the bare form, which silently skips the skill-bump check) before opening a pull request, and to check the skill body by hand for stale `--skill-version` example literals that `sync_skill_bundle.py` does not rewrite, so this class of CI failure does not recur
+
+---
+
+## 23/10/26 at 20:28:22 by [Ran Yahalom](mailto:ranya@wix.com)
+
+- Released as 0.11.1. After a cancel, `flow status` was still answering "You're booked" and could repeat the calendar link, because the phase stays CONFIRMED while only the booking status changes to canceled. Status now says the booking is cancelled and does not describe it as booked
+
+---
+
 ## 23/10/26 at 18:29:18 by [Ran Yahalom](mailto:ranya@wix.com)
 
 - Recorded the Muse hosted session in the 0.11.0 readiness evidence: a $1 HVAC-Koby booking completed on the delegated route with busy-time filtering, a paid checkout, a confirmed status message that includes the raw calendar link, a real Google Calendar event, and a healthy runtime doctor. The release stays deferred because that session did not restart after the slot was chosen, and Muse is not a verified harness
