@@ -1,5 +1,11 @@
 # Change Log
 
+## 23/10/26 at 15:40:15 by [Ran Yahalom](mailto:ranya@wix.com)
+
+- Clarified in `CONTRIBUTING.md`'s Hosted replay checklist that reacting to Link sign-in or payment approval on its own, with no new inbound chat message, is a plus worth noting in the evidence line but is not required to pass the general unverified replay: a tester may send a plain follow-up message to prompt the next reply. An informal session on a WhatsApp-based assistant (Instinct) needed exactly that nudge at both steps, which read as a failure against the previous wording even though the booking completed correctly. Requiring the no-nudge behavior stays possible, but only for a specific verified harness's own replay once that harness's procedure in `ops/verified-harnesses.md` says it proved it, never assumed from the general checklist or from another harness passing it
+
+---
+
 ## 23/10/26 at 13:57:09 by [Ran Yahalom](mailto:ranya@wix.com)
 
 - Released as 0.11.0 (skill 0.58.0). Added a third Google Calendar route, `--route delegated`, for assistants whose platform can write calendar events itself but cannot hand a token to the CLI, so their users can still get the booked appointment on their calendar instead of a skipped calendar step. The CLI never holds a token on this route: it tells the agent exactly which event to create, move, or delete, and records the event id and link the agent reports back with the new `flow calendar record-event`

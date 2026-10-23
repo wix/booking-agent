@@ -174,6 +174,16 @@ Offline tests cover the CLI; they cannot show how a hosted runtime and its agent
 5. Ask "what's going on?" at any point. Expect an answer from `flow status`, never "I couldn't confirm".
 6. Run `booking-agent runtime doctor`. Expect no findings.
 
+Steps 1 and 4 each wait on something that happens outside the chat: signing in to Link,
+and approving the payment in Link. A harness that notices that on its own, with no new
+inbound message, and replies right away is doing more than this checklist asks, and that
+is worth noting as a plus in the evidence line. It is **not** required here: send a plain
+follow-up message ("I signed in", "approved") to prompt the next reply, and the step still
+passes once that reply matches what "Expect" says. Requiring the no-nudge behavior is only
+for a specific verified harness's own replay, and only once that harness's procedure in
+[ops/verified-harnesses.md](ops/verified-harnesses.md) says it proved it; it is never
+assumed from this general checklist or from another harness passing it.
+
 This checklist is the **unverified** replay. It is what Cursor, Claude Code, and any other harness without its own replay uses. Passing it moves `deferred` to `recommended` only for those harnesses.
 
 A **verified** harness never inherits that result. Grok Bot and Base44 Superagent each have a replay in [ops/verified-harnesses.md](ops/verified-harnesses.md), including the restart that harness actually supports and whether calendar is connected. Passing one moves `deferred` to `recommended` only for the harnesses that share that replay. Two harnesses share a replay when both names in the registry point at the same replay id, so one successful run promotes both. The only way to recommend a release on a verified harness is to pass its replay and record that replay's rollout. A release that is `withdrawn` for everyone stays withdrawn for verified harnesses too.
