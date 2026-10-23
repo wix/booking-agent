@@ -1,5 +1,12 @@
 # Change Log
 
+## 23/10/26 at 18:29:18 by [Ran Yahalom](mailto:ranya@wix.com)
+
+- Recorded the Muse hosted session in the 0.11.0 readiness evidence: a $1 HVAC-Koby booking completed on the delegated route with busy-time filtering, a paid checkout, a confirmed status message that includes the raw calendar link, a real Google Calendar event, and a healthy runtime doctor. The release stays deferred because that session did not restart after the slot was chosen, and Muse is not a verified harness
+- Corrected the session-file evidence line, which still said no field was added. The delegated busy-read flag and its two optional request fields are additive and the format version is unchanged
+
+---
+
 ## 23/10/26 at 17:26:56 by [Ran Yahalom](mailto:ranya@wix.com)
 
 - Let a delegated route that can read its own Google Calendar actually check conflicts, instead of always marking availability as not checked. `calendar connect --route delegated --delegated-can-read-busy` opts in; `flow availability` then asks the agent to report busy intervals for its exact search window before it will show any time, and filters the returned slots once that report lands. Without the new flag, the route behaves exactly as before
