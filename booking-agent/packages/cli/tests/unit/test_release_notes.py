@@ -109,6 +109,80 @@ def test_a_verified_replay_rollout_is_checked_on_its_own():
     assert any("not a verified replay" in e for e in release_notes.entry_errors(unknown))
 
 
+def _replayed(version, skill, status="recommended"):
+    return _entry(
+        version,
+        change_type="fix",
+        skill_version=skill,
+        update_status="deferred",
+        replay_rollouts={
+            "grok-bot": {
+                "update_status": status,
+                "ecosystem_ready": status != "deferred",
+                "readiness_evidence": ["Hosted replay (grok-bot): booked."],
+            }
+        },
+    )
+
+
+def _registry(tmp_path, **overrides):
+    (tmp_path / "docs" / "harnesses").mkdir(parents=True)
+    (tmp_path / "docs" / "harnesses" / "grok-bot.md").write_text("guide\n")
+    harness = {
+        "name": "Grok Bot",
+        "replay": "grok-bot",
+        "status": "verified",
+        "guide": "docs/harnesses/grok-bot.md",
+        "replayed": {"cli": "0.2.0", "skill": "0.48.0", "date": "2026-10-22"},
+        "recommended": {"cli": "0.2.1", "skill": "0.48.1"},
+    }
+    harness.update(overrides)
+    return {"schema_version": 2, "harnesses": {"grok-bot": harness}}
+
+
+REGISTRY_ENTRIES = [
+    _replayed("0.2.0", "0.48.0"),
+    _replayed("0.2.1", "0.48.1"),
+    _replayed("0.2.2", "0.48.2", status="deferred"),
+]
+
+
+def test_the_registry_pins_the_newest_pair_its_replay_recommends(tmp_path):
+    assert release_notes.registry_errors(_registry(tmp_path), REGISTRY_ENTRIES, tmp_path) == []
+
+
+@pytest.mark.parametrize("overrides, fragment", [
+    ({"recommended": {"cli": "0.2.0", "skill": "0.48.0"}}, "is not 0.2.1, the newest release"),
+    ({"recommended": {"cli": "0.2.2", "skill": "0.48.2"}}, "is not 0.2.1, the newest release"),
+    ({"recommended": {"cli": "0.2.1", "skill": "0.48.0"}}, "the skill of release 0.2.1"),
+    ({"replayed": {"cli": "0.1.9", "skill": "0.48.0", "date": "2026-10-22"}}, "has no release notes"),
+    ({"replayed": {"cli": "0.2.0", "skill": "0.47.0", "date": "2026-10-22"}}, "the skill of release 0.2.0"),
+    ({"replayed": {"cli": "0.2.0", "skill": "0.48.0", "date": "22/10/26"}}, "YYYY-MM-DD"),
+    ({"guide": "docs/harnesses/missing.md"}, "does not exist"),
+    ({"guide": "README.md"}, "docs/harnesses/<name>.md"),
+    ({"status": "pending"}, "unknown keys"),
+    ({"status": "maybe"}, "status must be one of"),
+    ({"name": " "}, "name must be"),
+])
+def test_registry_rules(tmp_path, overrides, fragment):
+    errors = release_notes.registry_errors(_registry(tmp_path, **overrides), REGISTRY_ENTRIES, tmp_path)
+    assert any(fragment in e for e in errors), errors
+
+
+def test_a_pending_harness_has_no_recommended_replay(tmp_path):
+    registry = _registry(tmp_path)
+    pending = registry["harnesses"]["grok-bot"]
+    del pending["replayed"], pending["recommended"]
+    pending["status"] = "pending"
+    errors = release_notes.registry_errors(registry, REGISTRY_ENTRIES, tmp_path)
+    assert any("is pending, but release 0.2.1 recommends" in e for e in errors), errors
+    assert release_notes.registry_errors(registry, [_replayed("0.2.2", "0.48.2", "deferred")], tmp_path) == []
+
+
+def test_the_registry_schema_version_is_checked():
+    assert release_notes.registry_shape_errors({"schema_version": 1, "harnesses": {"grok-bot": "grok-bot"}})
+
+
 def test_a_deferred_release_may_be_not_ready():
     assert release_notes.entry_errors(
         _entry(update_status="deferred", ecosystem_ready=False, readiness_evidence=[])

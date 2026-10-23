@@ -294,7 +294,7 @@ def test_calendar_ask_lets_the_agent_decide_without_an_oauth_client(runner, tmp_
     body = _stdout_json(result)
     assert body["awaiting_user"] == "calendar_consent"
     assert body["data"]["local_oauth_configured"] is False
-    assert body["data"]["calendar_routes"] == ["connector", "local-oauth"]
+    assert body["data"]["calendar_routes"] == ["connector", "local-oauth", "delegated"]
     assert "--route connector --token-env <NAME>" in body["prompt"]
     assert "skip --session-only" in body["prompt"]
     s = must_load()

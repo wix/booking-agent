@@ -28,6 +28,10 @@ workflow. Check a downloaded wheel with
 `booking-agent update` installs only verified wheels, and the CLI checks its own installed
 files against the attested release before it books or pays.
 
+On a verified agent harness (Grok Bot, Base44 Superagent), follow that harness's install
+guide instead: it pins the CLI and skill pair that passed the harness's own booking replay.
+Guides: https://github.com/wix/booking-agent/blob/master/booking-agent/docs/harnesses/README.md
+
 Agents use the CLI through the Booking Agent skill, installed with
 `npx skills add wix/booking-agent --skill booking-agent`, or taken from the canonical raw URL:
 https://raw.githubusercontent.com/wix/booking-agent/master/booking-agent/skills/booking-agent/SKILL.md
@@ -36,7 +40,7 @@ Each release also publishes that skill at an immutable `skill-v<version>` tag an
 the release workflow, so a harness can pin and verify the exact text it follows:
 
 ```bash
-curl -fsSLO https://raw.githubusercontent.com/wix/booking-agent/skill-v0.57.4/booking-agent/skills/booking-agent/SKILL.md
+curl -fsSLO https://raw.githubusercontent.com/wix/booking-agent/skill-v0.58.0/booking-agent/skills/booking-agent/SKILL.md
 gh attestation verify SKILL.md --repo wix/booking-agent \
   --signer-workflow wix/booking-agent/.github/workflows/release.yml
 ```

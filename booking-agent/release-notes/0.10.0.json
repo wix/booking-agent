@@ -10,6 +10,15 @@
     "Existing businesses, the registry, and saved session files are unchanged: no USP, UCP, or platform profile version changed and no request shape changed."
   ],
   "replay_rollouts": {
+    "base44-superagent": {
+      "ecosystem_ready": true,
+      "readiness_evidence": [
+        "Hosted replay (base44-superagent): on 22/10/26 Base44 Superagent ran CLI 0.10.2 with skill 0.57.4, which carries every change in this release, and passed its replay with the update decision set to this replay. The 0.10.2 notes hold the full evidence and caveats.",
+        "The replay of this release alone on this harness stopped at a defect that 0.10.1 fixes. This record keeps the Base44 Superagent rollout cumulative from the first release that reads replay rollouts: an installed 0.10.0 or 0.10.1 is offered 0.10.2, because an update targets the newest release this replay recommends, while 0.10.2 stays recommended.",
+        "Older CLIs do not read replay rollouts, so a Base44 Superagent install starts from the approved release in its install guide, not from an update offer."
+      ],
+      "update_status": "recommended"
+    },
     "grok-bot": {
       "ecosystem_ready": true,
       "readiness_evidence": [

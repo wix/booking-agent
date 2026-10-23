@@ -22,7 +22,9 @@ _CALENDAR_SESSION_ID = "cli"
 
 ROUTE_CONNECTOR = "connector"
 ROUTE_LOCAL_OAUTH = "local-oauth"
-CALENDAR_ROUTES = (ROUTE_CONNECTOR, ROUTE_LOCAL_OAUTH)
+# The agent's platform writes the event itself and reports the event id back; no token.
+ROUTE_DELEGATED = "delegated"
+CALENDAR_ROUTES = (ROUTE_CONNECTOR, ROUTE_LOCAL_OAUTH, ROUTE_DELEGATED)
 
 TOKEN_SOURCE_ENV = "env"
 TOKEN_SOURCE_CACHE = "cache"
@@ -42,17 +44,27 @@ def remembered_route() -> Tuple[Optional[str], Optional[str]]:
     return store.last_calendar_route, store.last_calendar_token_env
 
 
-def remember_route(route: str, token_env: Optional[str], session=None) -> None:
-    """Record the route (and variable name, never the value) for later commands."""
+def remember_route(
+    route: str, token_env: Optional[str], session=None, *, delegated_freebusy: bool = False,
+) -> None:
+    """Record the route (and variable name, never the value) for later commands.
+
+    ``delegated_freebusy`` only means anything on the delegated route: the platform
+    can read Google Calendar busy times itself, even though it cannot hand the CLI
+    a token. It is ignored, and stored as ``False``, for every other route.
+    """
     from .session import load_store, save_session, save_store
 
+    freebusy = delegated_freebusy if route == ROUTE_DELEGATED else False
     if session is not None:
         session.calendar_route = route
         session.calendar_token_env = token_env
+        session.calendar_delegated_freebusy = freebusy
         save_session(session)
     store = load_store()
     store.last_calendar_route = route
     store.last_calendar_token_env = token_env
+    store.last_calendar_delegated_freebusy = freebusy
     save_store(store)
 
 

@@ -1,5 +1,50 @@
 # Change Log
 
+## 23/10/26 at 18:29:18 by [Ran Yahalom](mailto:ranya@wix.com)
+
+- Recorded the Muse hosted session in the 0.11.0 readiness evidence: a $1 HVAC-Koby booking completed on the delegated route with busy-time filtering, a paid checkout, a confirmed status message that includes the raw calendar link, a real Google Calendar event, and a healthy runtime doctor. The release stays deferred because that session did not restart after the slot was chosen, and Muse is not a verified harness
+- Corrected the session-file evidence line, which still said no field was added. The delegated busy-read flag and its two optional request fields are additive and the format version is unchanged
+
+---
+
+## 23/10/26 at 17:26:56 by [Ran Yahalom](mailto:ranya@wix.com)
+
+- Let a delegated route that can read its own Google Calendar actually check conflicts, instead of always marking availability as not checked. `calendar connect --route delegated --delegated-can-read-busy` opts in; `flow availability` then asks the agent to report busy intervals for its exact search window before it will show any time, and filters the returned slots once that report lands. Without the new flag, the route behaves exactly as before
+- Added `calendar report-busy --request-id <id> --busy START,END (repeatable) | --none` to record that report. A stale or unknown request id is refused, an incomplete report is refused, and a report is consumed by only the one query whose window it matches, since busy times can change between queries
+- Classified the new session fields for the support bundle: the busy read toggle is excluded like the route's other bookkeeping, and the pending request and its result are excluded outright because they can hold the user's own calendar data and must never leave the device
+- Described the new opt-in in `release-notes/0.11.0.json`'s evidence and user summary; the CLI version was already raised for this unreleased branch, so no further bump was needed
+
+- Made registry and business calls follow the host's HTTP proxy. The traced client was installing its own transport, so httpx ignored HTTP_PROXY, HTTPS_PROXY, and ALL_PROXY, and a host that can only leave through a proxy failed discovery with a TLS version error while the plain prerequisite check succeeded
+- Rewrote bracketed IPv6 entries in NO_PROXY, such as [::1], to the bare address before any client is built. httpx reads the colon as a port and raises InvalidURL, which stopped every command on that host before a request was sent. The bare address still bypasses the proxy
+
+---
+
+## 23/10/26 at 15:40:15 by [Ran Yahalom](mailto:ranya@wix.com)
+
+- Clarified in `CONTRIBUTING.md`'s Hosted replay checklist that reacting to Link sign-in or payment approval on its own, with no new inbound chat message, is a plus worth noting in the evidence line but is not required to pass the general unverified replay: a tester may send a plain follow-up message to prompt the next reply. An informal session on a WhatsApp-based assistant (Instinct) needed exactly that nudge at both steps, which read as a failure against the previous wording even though the booking completed correctly. Requiring the no-nudge behavior stays possible, but only for a specific verified harness's own replay once that harness's procedure in `ops/verified-harnesses.md` says it proved it, never assumed from the general checklist or from another harness passing it
+
+---
+
+## 23/10/26 at 13:57:09 by [Ran Yahalom](mailto:ranya@wix.com)
+
+- Released as 0.11.0 (skill 0.58.0). Added a third Google Calendar route, `--route delegated`, for assistants whose platform can write calendar events itself but cannot hand a token to the CLI, so their users can still get the booked appointment on their calendar instead of a skipped calendar step. The CLI never holds a token on this route: it tells the agent exactly which event to create, move, or delete, and records the event id and link the agent reports back with the new `flow calendar record-event`
+- Made the delegated route events-only (`calendar_delegated_events_only` for free/busy) and marked availability as not checked against the user's calendar, because without a token the CLI cannot read busy times and must never claim it did. A saved delegated choice is reused on later bookings without a token and is never mistaken for an expired one, and a late connect at the summary keeps the chosen time like the other routes
+- Kept each delegated write as a pending request with a one-time request id in the existing calendar event file, so a repeated or stale report (`calendar_delegated_request_unknown`), a report missing the id or link (`calendar_delegated_report_incomplete`), or an event written at other times than the booking (`calendar_delegated_time_mismatch`, compared as instants so any offset is accepted) is refused instead of recording a wrong event. A failed write tells the user to add, move, or delete the event themselves. `flow status`, `calendar create-event`, `update-event`, and `delete-event` re-issue an open request with the same id so the platform never writes it twice, and an event keeps the route it was written on so a later route change never sends it to the wrong writer
+- Handed move, cancel, reset, sessions forget, and cancel-open cleanup to the platform on this route. `flow purge` sends its deletes without a report command because purge erases the calendar event file the report would be recorded in; this deviates from giving every delete its own reportable request
+- Documented the route in the skill (within its size budget: the delegated rules live in the CLI prompts, and two skill lines that repeated CLI-enforced checks were shortened or removed), the README route sentence, and a "Delegated calendar" replay rule in `ops/verified-harnesses.md`. Grok Bot and Base44 Superagent rows, guides, and recommended pins are unchanged; the release is deferred until a harness replays the route
+
+---
+
+## 23/10/26 at 09:12:37 by [Ran Yahalom](mailto:ranya@wix.com)
+
+- Recorded the Base44 Superagent replay of 0.10.2 as `recommended` on 0.10.0 and 0.10.1 too, because 0.10.2 carries every change in them and an update always targets the newest release the replay recommends. Base44 Superagent installs of 0.10.0 and 0.10.1 were otherwise never offered the replayed 0.10.2. 0.9.1 and earlier stay deferred for this harness because its pay-at-appointment path was not replayed, and the general rollout is unchanged. The 0.10.2 caveat that said earlier entries were not yet updated now says they are
+- Extended `ops/verified-harnesses.json` to schema 2 so it is the one source for verified-harness install docs: each harness has its name, replay id, status, install guide, the CLI and skill pair its replay ran, and the pair its guide installs. `release_notes.py --check` now fails when an approved pair is not the newest release that replay recommends with that release's skill, when a replayed pair does not exist, when a guide is missing, or when a pending harness already has a recommended release, so docs cannot pin a version the harness was never approved for
+- Rewrote the README install section so users start from installation: verified harnesses first (a generated table linking to per-harness guides and a warning to install the approved pair), then the general `npx skills add` path, then "Pin and verify a release", which now shows how to write the matching skill from the installed CLI with `booking-agent skill print`. The wheel download commands use `uvx --python 3.12` because plain `uvx pip` chose a system Python 3.9 in the smoke test and found no release
+- Added install guides for Grok Bot and Base44 Superagent under `docs/harnesses/`, each with a one-paste prompt for the harness, a signed-wheel install into the harness's persistent folder, the bundled skill, `runtime prepare`, the harness's `BOOKING_AGENT_REPLAY`, checks, recovery after that harness's restart, and its calendar behavior and known gaps. Every command was smoke-tested in throwaway folders for both pinned pairs (0.10.0 with skill 0.57.2, 0.10.2 with skill 0.57.4): the wheel signature verified, the written skill matched its signed `skill-v` tag byte for byte, `config show` read the replay from the persistent `.env`, and repeating `runtime prepare` was harmless. The PyPI readme and the replay runbook link to them
+- Added `scripts/harness_docs.py`, its tests, and a CI step that fail when the README table, the harness index, or a guide's pinned values differ from the registry, so a rollout change cannot leave stale install pins behind. The runbook explains how to update the registry after a replay and records that the accepted Base44 run used an agent-run wipe because the host had no reset control. No shipped code or skill text changed, so the version stays 0.10.2
+
+---
+
 ## 22/10/26 at 16:50:02 by [Ran Yahalom](mailto:ranya@wix.com)
 
 - Recorded the Base44 Superagent replay of the published 0.10.2 as `recommended` for that replay only: a signed install, a booking resumed after a sandbox wipe with the same summary and slot, a calendar reconnect that kept the chosen time, a $1 payment, the booked message with the raw calendar link, and a healthy `runtime doctor`. The evidence also states what it does not show: the harness first omitted the calendar link from its own message, the restart was an agent-run wipe because the host has no reset control, and the pay-at-appointment path was not run. Earlier releases stay deferred for this harness and the general rollout is unchanged

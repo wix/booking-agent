@@ -88,9 +88,12 @@ def _emit_store_too_new(exc) -> None:
 def run() -> None:
     """Console entry point: the Typer app plus the uncaught-exception boundary."""
     from booking_agent.faults import install_warning_collector
+    from booking_agent.http_trace import tolerate_proxy_env
 
     from .session import SessionStoreTooNew
 
+    # Before any command, including ones that use a plain httpx client.
+    tolerate_proxy_env()
     install_warning_collector()
     try:
         app()

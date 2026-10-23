@@ -75,6 +75,7 @@ from ..payment_helpers import (
 from ..calendar_connection import (
     CALENDAR_ROUTES,
     ROUTE_CONNECTOR,
+    ROUTE_DELEGATED,
     ROUTE_LOCAL_OAUTH,
     cache_host_token,
     calendar_connection_status,
@@ -91,6 +92,21 @@ from ..calendar_event import (
     delete_calendar_event,
     load_cached_token,
     update_calendar_event,
+)
+from ..calendar_delegated import (
+    OP_CREATE,
+    OP_DELETE,
+    OP_UPDATE,
+    busy_instruction,
+    busy_request,
+    delegated_instruction,
+    delegated_request,
+    is_delegated,
+    pending_request,
+    record_busy_result,
+    record_delegated_result,
+    take_busy_result,
+    report_commands,
 )
 from ..calendar_preference import (
     complete_calendar_gate_with_preference,
@@ -863,6 +879,15 @@ def status() -> None:
 
         status_message = booked_message(session)
         prompt = "The booking is confirmed. If the user asked how it is going, post user_message as written."
+        waiting = _open_delegated_request(session)
+        if waiting:
+            awaiting = "calendar_delegated_write"
+            next_cmd = waiting["report_command"]
+            prompt += (
+                " A calendar write for this booking was never reported. Check your platform's "
+                "Google Calendar for it before writing again: " + delegated_instruction(waiting)
+            )
+            extra_data["delegated_request"] = waiting
     elif session.flow_phase == "CONFIRMED" and session.reschedule_slot_id:
         awaiting = "reschedule_confirm"
         prompt = _reschedule_confirm_prompt(session)
@@ -955,7 +980,9 @@ def flow_logout() -> None:
     ))
 
 
-def _calendar_cleanup_for_dropped_session(session: Session) -> Optional[Dict[str, Any]]:
+def _calendar_cleanup_for_dropped_session(
+    session: Session, *, report_back: bool = True,
+) -> Optional[Dict[str, Any]]:
     """Calendar handling when a session leaves local history.
 
     An event for a booking that is still live stays on the user's calendar (it is their
@@ -980,10 +1007,19 @@ def _calendar_cleanup_for_dropped_session(session: Session) -> Optional[Dict[str
                 + (f": {link}" if link else ".")
             ),
         }
-    result = _remove_calendar_event_after_cancel(session)
+    result = _remove_calendar_event_after_cancel(session, report_back=report_back)
     if result is not None and result.get("status") == "failed":
         _forget_event_id(session.id)
+    if result is not None and result.get("status") == "delegated" and not report_back:
+        _forget_event_id(session.id)
     return result
+
+
+def _with_calendar_agent_note(prompt: str, calendar: Optional[Dict[str, Any]]) -> str:
+    """Append what the agent's platform still has to do on the delegated route."""
+    if calendar and calendar.get("agent_note"):
+        return f"{prompt} Then remove the calendar event: {calendar['agent_note']}"
+    return prompt
 
 
 @app.command("reset")
@@ -998,6 +1034,7 @@ def reset() -> None:
     prompt = "Removed the current booking request from local history."
     if calendar and calendar.get("user_note"):
         prompt += " Tell the user: " + calendar["user_note"]
+    prompt = _with_calendar_agent_note(prompt, calendar)
     emit(AgentOutput(
         phase="STORE",
         data={"removed_session_id": active.id, "calendar": calendar},
@@ -1101,10 +1138,13 @@ def purge(
         return
 
     calendar_notes = []
+    platform_deletes = []
     for session in list(store.sessions):
-        calendar = _calendar_cleanup_for_dropped_session(session)
+        calendar = _calendar_cleanup_for_dropped_session(session, report_back=False)
         if calendar and calendar.get("user_note") and calendar.get("status") != "deleted":
             calendar_notes.append(calendar["user_note"])
+        if calendar and calendar.get("agent_note"):
+            platform_deletes.append(calendar["agent_note"])
     identity = logout_identity()
     from booking_agent.settings import booking_agent_home
     from ..session import session_path
@@ -1121,10 +1161,13 @@ def purge(
     message = "Done. I cleared everything the booking assistant saved on this device."
     if calendar_notes:
         message += "\n" + "\n".join(calendar_notes)
+    prompt = "Post user_message verbatim. Local state is cleared; start over with `flow init`."
+    if platform_deletes:
+        prompt += " Also remove these Google Calendar events: " + " ".join(platform_deletes)
     emit(AgentOutput(
         phase="STORE",
         user_message=message,
-        prompt="Post user_message verbatim. Local state is cleared; start over with `flow init`.",
+        prompt=prompt,
         next_command="booking-agent flow init --user-request '<request>'",
         forbidden=_PURGE_FORBIDDEN,
         data={"removed_files": removed, "identity": identity, "inventory": inventory},
@@ -1198,6 +1241,7 @@ def sessions_forget(
     prompt = "Removed that booking from local history."
     if calendar and calendar.get("user_note"):
         prompt += " Tell the user: " + calendar["user_note"]
+    prompt = _with_calendar_agent_note(prompt, calendar)
     emit(AgentOutput(
         phase="STORE",
         data={"forgotten_session_id": target_id, "calendar": calendar},
@@ -1447,7 +1491,9 @@ def sessions_cancel_open(
             "Do not shorten those steps. For `needs_human` rows, show the raw `booking_url` "
             "(or the first `cancel_urls` entry) and say they finish that cancellation on the "
             "business's page. For `failed` rows, say it did not go through and share the same link when "
-            "present. Do not retry automatically."
+            "present. Do not retry automatically. For each row whose `calendar.agent_note` is "
+            "set, do what it says to remove that row's calendar event and run its report "
+            "command."
         ),
         data={
             "mode": "applied",
@@ -3313,6 +3359,8 @@ def _calendar_events_lost(session: Session) -> Optional[dict]:
     """Connection status when this booking needs calendar events but the access is gone."""
     if session.calendar_state != "connected" or session.calendar_mode != CALENDAR_MODE_EVENTS:
         return None
+    if session.calendar_route == ROUTE_DELEGATED:
+        return None
     try:
         refresh_host_token(session, CALENDAR_MODE_EVENTS)
         status = calendar_connection_status()
@@ -3460,8 +3508,8 @@ def _connect_command(mode: str, route: Optional[str], token_env: Optional[str] =
     base = f"booking-agent flow calendar connect --mode {mode}"
     if route == ROUTE_CONNECTOR:
         return f"{base} --route {ROUTE_CONNECTOR} --token-env {token_env or _TOKEN_ENV_PLACEHOLDER}"
-    if route == ROUTE_LOCAL_OAUTH:
-        return f"{base} --route {ROUTE_LOCAL_OAUTH}"
+    if route in (ROUTE_LOCAL_OAUTH, ROUTE_DELEGATED):
+        return f"{base} --route {route}"
     return base
 
 
@@ -3699,13 +3747,17 @@ def calendar_ask() -> None:
             "your platform can connect Google Calendar for you and hands the access token "
             "to commands in an environment variable you can name, or `local-oauth` when "
             "local_oauth_configured is true and you can relay a sign-in link to the user. "
-            "If neither route is available, run "
+            f"Use `{ROUTE_DELEGATED}` only when neither of those is available but your "
+            "platform can create Google Calendar events itself: it adds the booked event "
+            "and cannot check free/busy, so offer only choices (2) and (3) on it. "
+            "If no route is available, run "
             f"`{_CALENDAR_SKIP_SESSION_ONLY}` without asking. Otherwise ask the user which "
             "they prefer for Google Calendar: (1) only check free/busy slots for "
             "conflicts, (2) also add the booked service as a calendar event after "
             "confirmation, or (3) neither. Map (1) and (2) to "
             "`booking-agent flow calendar connect --mode freebusy|events` with "
             f"`--route {ROUTE_CONNECTOR} --token-env <NAME>` or `--route {ROUTE_LOCAL_OAUTH}`, "
+            f"(2) on the delegated route to `--mode events --route {ROUTE_DELEGATED}`, "
             "and (3) to `booking-agent flow calendar skip`. A Google Calendar token that is "
             "already available (data.connector_token_detected) is not the user's answer; "
             "still ask."
@@ -3782,7 +3834,9 @@ def calendar_connect(
         "--route",
         help=(
             "connector = the agent's platform supplies a Google Calendar token in an "
-            "environment variable; local-oauth = sign in through a link on this device"
+            "environment variable; local-oauth = sign in through a link on this device; "
+            "delegated = the platform creates calendar events itself but cannot expose a "
+            "token (events mode only, no conflict checking)"
         ),
     ),
     token_env: Optional[str] = typer.Option(
@@ -3795,6 +3849,16 @@ def calendar_connect(
         "--timeout",
         min=30,
         help="Local OAuth: seconds the sign-in link stays valid.",
+    ),
+    delegated_can_read_busy: bool = typer.Option(
+        False,
+        "--delegated-can-read-busy",
+        help=(
+            "Delegated route only: your platform can read Google Calendar busy times "
+            "itself (it just cannot hand the CLI a token). `flow availability` will ask "
+            "you to report them before it shows times, instead of marking the calendar "
+            "unchecked."
+        ),
     ),
 ) -> None:
     session = must_load()
@@ -3821,8 +3885,10 @@ def calendar_connect(
             message=(
                 f"Pass --route {ROUTE_CONNECTOR} when your platform connects Google Calendar "
                 "and exposes the access token in an environment variable (also pass "
-                f"--token-env NAME), or --route {ROUTE_LOCAL_OAUTH} to relay a sign-in link. "
-                "The CLI cannot tell which one this runtime supports."
+                f"--token-env NAME), --route {ROUTE_LOCAL_OAUTH} to relay a sign-in link, or "
+                f"--route {ROUTE_DELEGATED} with --mode events when your platform can create "
+                "Google Calendar events itself but cannot expose a token. The CLI cannot tell "
+                "which one this runtime supports."
             ),
             next_command=None,
             data={"calendar_routes": list(CALENDAR_ROUTES), "mode": mode},
@@ -3832,15 +3898,31 @@ def calendar_connect(
     if route == ROUTE_CONNECTOR:
         _connect_via_connector(session, mode=mode, token_env=token_env)
         return
+    if route == ROUTE_DELEGATED:
+        _connect_via_delegated(session, mode=mode, can_read_busy=delegated_can_read_busy)
+        return
     _connect_via_local_oauth(session, mode=mode, timeout=timeout)
 
 
 def _emit_calendar_connected(session: Session, *, mode: str, data: dict) -> None:
-    prompt = (
-        "Calendar connected for conflict checking and post-booking events."
-        if mode == CALENDAR_MODE_EVENTS
-        else "Calendar connected for conflict checking (free/busy only)."
-    )
+    if data.get("calendar_route") == ROUTE_DELEGATED and data.get("conflict_checking"):
+        prompt = (
+            "Calendar set up: before showing times, `flow availability` will ask you to "
+            "read busy intervals from your platform's own Google Calendar for the search "
+            "window; once the booking is confirmed it will also tell you which event to "
+            "create there. Tell the user their calendar will be checked and the "
+            "appointment added."
+        )
+    elif data.get("calendar_route") == ROUTE_DELEGATED:
+        prompt = (
+            "Calendar set up: once the booking is confirmed, the CLI will tell you which "
+            "event to create through your platform's own Google Calendar. Times are not "
+            "checked against the user's calendar; tell the user that in one plain sentence."
+        )
+    elif mode == CALENDAR_MODE_EVENTS:
+        prompt = "Calendar connected for conflict checking and post-booking events."
+    else:
+        prompt = "Calendar connected for conflict checking (free/busy only)."
     prompt, next_command = _after_calendar(session, prompt)
     emit(_agent_out(
         session, prompt=prompt, next_command=next_command, data={**data, "mode": mode},
@@ -3920,6 +4002,37 @@ def _connect_via_connector(session: Session, *, mode: str, token_env: Optional[s
         session,
         mode=mode,
         data={"connected": True, "scope": scope, "calendar_route": ROUTE_CONNECTOR, "token_env": token_env},
+    )
+
+
+def _connect_via_delegated(session: Session, *, mode: str, can_read_busy: bool = False) -> None:
+    if mode != CALENDAR_MODE_EVENTS:
+        emit_error(
+            session.flow_phase,
+            code="calendar_delegated_events_only",
+            message=(
+                f"--route {ROUTE_DELEGATED} only adds the booked event to the calendar: the "
+                "CLI cannot read free/busy times through your platform unless you pass "
+                f"--delegated-can-read-busy. Ask the user whether to add the event "
+                f"(`{_connect_command(CALENDAR_MODE_EVENTS, ROUTE_DELEGATED)}`) "
+                f"or continue without the calendar (`booking-agent flow calendar skip`)."
+            ),
+            next_command="booking-agent flow calendar skip",
+            data={"mode": mode, "calendar_route": ROUTE_DELEGATED},
+        )
+        raise typer.Exit(code=1)
+
+    _stop_pending_sign_in()
+    remember_route(ROUTE_DELEGATED, None, session, delegated_freebusy=can_read_busy)
+    _complete_calendar_gate(session, mode=mode)
+    _emit_calendar_connected(
+        session,
+        mode=mode,
+        data={
+            "connected": True,
+            "calendar_route": ROUTE_DELEGATED,
+            "conflict_checking": can_read_busy,
+        },
     )
 
 
@@ -4135,6 +4248,31 @@ def calendar_cleanup() -> None:
     ))
 
 
+def _open_delegated_request(session: Session) -> Optional[Dict[str, Any]]:
+    """The delegated request still waiting for a report on this booking, re-issued as is."""
+    if not is_delegated(session):
+        return None
+    from ..calendar_event import _load_sidecar
+
+    entry = _load_sidecar().get(session.id)
+    pending = entry.get("pending") if isinstance(entry, dict) else None
+    if not isinstance(pending, dict) or pending.get("op") not in (OP_CREATE, OP_UPDATE, OP_DELETE):
+        return None
+    request = delegated_request(session, pending["op"])
+    return request if request["status"] == "requested" else None
+
+
+def _emit_delegated_request(session: Session, request: Dict[str, Any], *, lead: str) -> None:
+    """Hand one calendar write to the agent's platform and wait for its report."""
+    emit(_agent_out(
+        session,
+        awaiting_user="calendar_delegated_write",
+        prompt=f"{lead} {delegated_instruction(request)}",
+        next_command=request["report_command"],
+        data={"delegated_request": request},
+    ))
+
+
 @calendar_app.command("create-event")
 def calendar_create_event() -> None:
     """Create a Google Calendar event after booking is CONFIRMED."""
@@ -4168,7 +4306,17 @@ def calendar_create_event() -> None:
         )
         raise typer.Exit(code=1)
 
-    result = create_calendar_event(session, user_key=_CALENDAR_SESSION_ID)
+    if is_delegated(session):
+        calendar = _delegated_create_data(session)
+        if calendar.get("delegated_request"):
+            _emit_delegated_request(
+                session, calendar["delegated_request"],
+                lead="Add this booking to the user's Google Calendar.",
+            )
+            return
+        result = {"ok": not calendar.get("calendar_not_added"), "idempotent": True, **calendar}
+    else:
+        result = create_calendar_event(session, user_key=_CALENDAR_SESSION_ID)
     if not result.get("ok"):
         emit_error(
             session.flow_phase,
@@ -4220,6 +4368,24 @@ def calendar_update_event() -> None:
         )
         raise typer.Exit(code=1)
 
+    if is_delegated(session):
+        request = delegated_request(session, OP_UPDATE)
+        if request["status"] != "requested":
+            emit_error(
+                session.flow_phase,
+                code="calendar_event_invalid",
+                message=(
+                    "The appointment itself is booked at its current time, but the calendar "
+                    "event could not be prepared: " + (request.get("message") or "unknown error")
+                ),
+            )
+            raise typer.Exit(code=1)
+        _emit_delegated_request(
+            session, request,
+            lead="The booking moved; now move its Google Calendar event to the new time.",
+        )
+        return
+
     result = update_calendar_event(session, user_key=_CALENDAR_SESSION_ID)
     if not result.get("ok"):
         emit_error(
@@ -4268,6 +4434,19 @@ def calendar_delete_event() -> None:
             ),
         )
         raise typer.Exit(code=1)
+    if is_delegated(session):
+        request = delegated_request(session, OP_DELETE)
+        if request["status"] == "requested":
+            _emit_delegated_request(
+                session, request, lead="The booking is cancelled; remove its Google Calendar event.",
+            )
+            return
+        emit(_agent_out(
+            session,
+            prompt="No calendar event is kept for this booking; nothing to remove.",
+            data={"calendar": request},
+        ))
+        return
     result = delete_calendar_event(session, user_key=_CALENDAR_SESSION_ID)
     if not result.get("ok"):
         emit_error(
@@ -4285,6 +4464,225 @@ def calendar_delete_event() -> None:
         "already_missing": "The calendar event was already gone.",
     }.get(result.get("status"), "No calendar event is kept for this booking; nothing to remove.")
     emit(_agent_out(session, prompt=prompt, data={"calendar": result}))
+
+
+_DELEGATED_OUTCOMES = ("done", "failed")
+
+
+@calendar_app.command("record-event")
+def calendar_record_event(
+    request_id: str = typer.Option(
+        ..., "--request-id", help="The request_id from data.delegated_request.",
+    ),
+    outcome: str = typer.Option(
+        "done", "--outcome", help="done = the platform did the write; failed = it could not.",
+    ),
+    event_id: Optional[str] = typer.Option(
+        None, "--event-id", help="Create or move: the event id the platform returned.",
+    ),
+    html_link: Optional[str] = typer.Option(
+        None, "--html-link", help="Create or move: the event's link the platform returned.",
+    ),
+    start: Optional[str] = typer.Option(
+        None, "--start", help="Create or move: the start exactly as the platform wrote it.",
+    ),
+    end: Optional[str] = typer.Option(
+        None, "--end", help="Create or move: the end exactly as the platform wrote it.",
+    ),
+    reason: Optional[str] = typer.Option(
+        None, "--reason", help="Failed: what went wrong, in plain words.",
+    ),
+) -> None:
+    """Record what the agent's platform did for a delegated calendar request."""
+    session_id, pending = pending_request(request_id)
+    store = load_store()
+    session = next((s for s in store.sessions if s.id == session_id), None)
+    phase = session.flow_phase if session else "STORE"
+    if session_id is None:
+        emit_error(
+            phase,
+            code="calendar_delegated_request_unknown",
+            message=(
+                f"No open calendar request has id {request_id!r}: it was already reported, "
+                "replaced by a newer request, or never issued. Do not change the calendar "
+                "for it. Run `booking-agent flow status` to see where the booking is."
+            ),
+            next_command="booking-agent flow status",
+        )
+        raise typer.Exit(code=1)
+
+    op = pending.get("op")
+    done_command, failed_command = report_commands(op, request_id)
+    if outcome not in _DELEGATED_OUTCOMES:
+        emit_error(
+            phase,
+            code="calendar_delegated_report_incomplete",
+            message=f"--outcome must be one of: {', '.join(_DELEGATED_OUTCOMES)}.",
+            next_command=done_command,
+        )
+        raise typer.Exit(code=1)
+    if op == OP_CREATE and session is not None and session.flow_phase != "CONFIRMED":
+        emit_error(
+            phase,
+            code="wrong_phase",
+            message=(
+                f"Cannot record a calendar event in phase '{phase}'. Only a confirmed "
+                "booking has an event."
+            ),
+            next_command="booking-agent flow status",
+        )
+        raise typer.Exit(code=1)
+
+    result = record_delegated_result(
+        request_id, outcome=outcome, event_id=event_id, html_link=html_link,
+        start=start, end=end, reason=reason,
+    )
+    if not result.get("ok"):
+        code = result["code"]
+        if code == "calendar_delegated_time_mismatch":
+            expected = result["expected"]
+            message = (
+                f"The event your platform wrote ({result['reported']['start']} to "
+                f"{result['reported']['end']}) does not match the booking ({expected['start']} "
+                f"to {expected['end']}"
+                + (f", time zone {expected['time_zone']}" if expected.get("time_zone") else "")
+                + "). Fix the event in your platform's calendar so it matches exactly, then "
+                "run the report again with the times as written. If it cannot be fixed, run "
+                f"`{failed_command}`."
+            )
+        else:
+            message = (
+                "The report is missing " + ", ".join(result.get("missing") or ["a value"])
+                + ". Pass what your platform returned (the link must be an http(s) URL), or "
+                f"run `{failed_command}` if it did not create the event."
+            )
+        emit_error(phase, code=code, message=message, next_command=done_command, data=result)
+        raise typer.Exit(code=1)
+
+    status = result["status"]
+    link = result.get("html_link")
+    user_message: Optional[str] = None
+    if status == "recorded":
+        if session is not None:
+            session.calendar_event_id = result["event_id"]
+            session.calendar_event_html_link = link
+        prompt = (
+            "Calendar event recorded" + (" at the new time." if op == OP_UPDATE else ".")
+            + f" Show the user the raw html_link URL (never markdown [label](url)): {link}"
+        )
+    elif status == "deleted":
+        if session is not None:
+            session.calendar_event_id = None
+            session.calendar_event_html_link = None
+        prompt = "Calendar event removed. Tell the user it is off their Google Calendar too."
+    elif op == OP_CREATE:
+        user_message = "I couldn't add it to your Google Calendar, so please add it yourself."
+        prompt = "Post user_message to the user as is."
+    elif op == OP_UPDATE:
+        user_message = (
+            "The appointment itself is moved, but I couldn't move it on your Google Calendar, "
+            "so please change that event yourself" + (f": {link}" if link else ".")
+        )
+        prompt = "Post user_message to the user as is, with the raw URL."
+    else:
+        user_message = (
+            "I couldn't remove it from your Google Calendar, so please delete that event "
+            "yourself" + (f": {link}" if link else ".")
+        )
+        prompt = "Post user_message to the user as is, with the raw URL."
+    if session is not None:
+        save_session(session)
+    next_command = _after_booking_command() if op == OP_CREATE else None
+    if session is None:
+        emit(AgentOutput(
+            phase="STORE", user_message=user_message, prompt=prompt,
+            next_command=next_command, data={"calendar": result},
+        ))
+        return
+    emit(_agent_out(
+        session,
+        user_message=user_message,
+        prompt=prompt,
+        next_command=next_command,
+        data={"calendar": result},
+    ))
+
+
+@calendar_app.command("report-busy")
+def calendar_report_busy(
+    request_id: str = typer.Option(
+        ..., "--request-id", help="The request_id from data.delegated_busy_request.",
+    ),
+    busy: List[str] = typer.Option(
+        [],
+        "--busy",
+        help="One busy interval as START,END (ISO8601, repeatable). Omit with --none.",
+    ),
+    none: bool = typer.Option(
+        False, "--none", help="The requested window has no busy intervals.",
+    ),
+) -> None:
+    """Report busy intervals the agent's platform read from its own Google Calendar."""
+    session = must_load()
+    if not busy and not none:
+        emit_error(
+            session.flow_phase,
+            code="calendar_delegated_busy_report_incomplete",
+            message=(
+                "Pass --busy START,END (ISO8601) for each busy interval you found, or "
+                "--none when there are none in the requested window."
+            ),
+            next_command=None,
+        )
+        raise typer.Exit(code=1)
+
+    parsed: List[Dict[str, str]] = []
+    invalid: List[str] = []
+    for item in busy:
+        start, _, end = item.partition(",")
+        start, end = start.strip(), end.strip()
+        if start and end:
+            parsed.append({"start": start, "end": end})
+        else:
+            invalid.append(item)
+    if invalid:
+        emit_error(
+            session.flow_phase,
+            code="calendar_delegated_busy_report_invalid",
+            message="Each --busy value must be START,END (two ISO8601 datetimes).",
+            next_command=None,
+            data={"invalid": invalid},
+        )
+        raise typer.Exit(code=1)
+
+    result = record_busy_result(session, request_id, busy=parsed)
+    if not result["ok"]:
+        emit_error(
+            session.flow_phase,
+            code=result["code"],
+            message=(
+                f"No open busy-time request has id {request_id!r}: it was already "
+                "reported, replaced by a newer query, or never issued. Run "
+                "`booking-agent flow availability` again for the window you need."
+            ),
+            next_command="booking-agent flow availability",
+        )
+        raise typer.Exit(code=1)
+    save_session(session)
+
+    next_command = (
+        f"booking-agent flow availability --service-id {result['service_id']} "
+        f"--from {result['window_from']} --to {result['window_to']}"
+    )
+    emit(_agent_out(
+        session,
+        prompt=(
+            f"Recorded {result['busy_count']} busy interval(s) for this window. Run "
+            f"`{next_command}` to see the filtered times."
+        ),
+        next_command=next_command,
+        data=result,
+    ))
 
 
 # ---------------------------------------------------------------------------
@@ -4591,7 +4989,7 @@ async def _query_slots_async(
         slots_before_filter = len(slots)
         slots_filtered = 0
 
-        if session.calendar_state == "connected":
+        if session.calendar_state == "connected" and session.calendar_route != ROUTE_DELEGATED:
             cal = resolve_calendar_service()
             mode = (
                 session.calendar_mode
@@ -4622,6 +5020,27 @@ async def _query_slots_async(
             slots_filtered = slots_before_filter - len(slots)
 
     return live_service_summary(live), slots, calendar_filtered, slots_filtered, response_zones
+
+
+_CALENDAR_NOT_CHECKED_NOTE = (
+    " These times were not checked against the user's Google Calendar: their platform "
+    "adds the event after booking but this CLI cannot read their busy times. Say so when "
+    "you list them."
+)
+
+
+def _calendar_not_checked(session: Session) -> bool:
+    """Events go to the user's calendar, but busy times were never read.
+
+    False when the delegated route's platform reads busy times itself
+    (``calendar_delegated_freebusy``): then every returned slot has already
+    been through that check, just not through a token the CLI holds.
+    """
+    return (
+        session.calendar_state == "connected"
+        and session.calendar_route == ROUTE_DELEGATED
+        and not session.calendar_delegated_freebusy
+    )
 
 
 def _calendar_window(window_from: str, window_to: str) -> tuple[str, str]:
@@ -4746,6 +5165,23 @@ def availability(
         )
         raise typer.Exit(code=1)
 
+    delegated_busy: Optional[List[Dict[str, str]]] = None
+    if session.calendar_route == ROUTE_DELEGATED and session.calendar_delegated_freebusy:
+        delegated_busy = take_busy_result(session, window_from=window_from, window_to=window_to)
+        if delegated_busy is None:
+            request = busy_request(
+                session, window_from=window_from, window_to=window_to, service_id=service_id,
+            )
+            save_session(session)
+            emit(_agent_out(
+                session,
+                awaiting_user="calendar_delegated_busy_request",
+                prompt=busy_instruction(request),
+                next_command=request["report_command"],
+                data={"delegated_busy_request": request},
+            ))
+            return
+
     try:
         live_service, slots, calendar_filtered, slots_filtered, response_zones = asyncio.run(
             _query_slots_async(session, service_id, window_from, window_to)
@@ -4753,6 +5189,14 @@ def availability(
     except Exception as e:
         emit_error(session.flow_phase, code="availability_failed", message=str(e))
         raise typer.Exit(code=1)
+
+    if delegated_busy is not None:
+        from booking_agent.calendar.filter import filter_slots_by_busy_times
+
+        before = len(slots)
+        slots = filter_slots_by_busy_times(slots, delegated_busy)
+        calendar_filtered = True
+        slots_filtered = before - len(slots)
 
     from ..flow_timings import apply_pending_timings
 
@@ -4779,6 +5223,8 @@ def availability(
             )
         else:
             filter_note = " No calendar conflicts found in this window."
+    elif _calendar_not_checked(session):
+        filter_note = _CALENDAR_NOT_CHECKED_NOTE
 
     emit(_agent_out(
         session,
@@ -4796,6 +5242,7 @@ def availability(
             "resource_slot_count": len(slots),
             "calendar_filtered": calendar_filtered,
             "slots_filtered": slots_filtered,
+            "calendar_not_checked": _calendar_not_checked(session),
             "business_timezone": session.business.timezone,
             **zone_data,
             "buyer_timezone": session.buyer_timezone,
@@ -6150,6 +6597,25 @@ def _apply_skill_compliance(session: Session) -> None:
     save_session(session)
 
 
+def _delegated_create_data(session: Session) -> Dict[str, Any]:
+    """The `calendar` block after confirmation on the delegated route."""
+    request = delegated_request(session, OP_CREATE)
+    if request["status"] == "recorded":
+        session.calendar_event_id = request["event_id"]
+        session.calendar_event_html_link = request.get("html_link")
+        save_session(session)
+        return {
+            "skipped": False, "event_id": request["event_id"],
+            "html_link": request.get("html_link"), "idempotent": True,
+        }
+    if request["status"] != "requested":
+        return {
+            "skipped": False, "calendar_not_added": True,
+            "code": "calendar_event_invalid", "message": request.get("message"),
+        }
+    return {"skipped": False, "delegated_request": request}
+
+
 def _finish_post_payment_steps(session: Session) -> None:
     """After CONFIRMED, validate skill compliance and create a calendar event in-process."""
     if session.flow_phase != "CONFIRMED":
@@ -6162,6 +6628,8 @@ def _finish_post_payment_steps(session: Session) -> None:
         calendar_data = {"skipped": True}
     elif session.calendar_mode == CALENDAR_MODE_FREEBUSY:
         calendar_data = {"skipped": True, "reason": "freebusy_only"}
+    elif session.calendar_mode == CALENDAR_MODE_EVENTS and is_delegated(session):
+        calendar_data = _delegated_create_data(session)
     elif session.calendar_mode == CALENDAR_MODE_EVENTS:
         result = create_calendar_event(session, user_key=_CALENDAR_SESSION_ID)
         if not result.get("ok"):
@@ -6220,16 +6688,30 @@ def _finish_post_payment_steps(session: Session) -> None:
     message = booked_message(session)
     if calendar_data.get("calendar_not_added"):
         message += "\nI couldn't add it to your Google Calendar, so please add it yourself."
-    emit(_agent_out(
-        session,
-        user_message=message,
-        next_command=_after_booking_command(),
-        prompt=(
+    delegated = calendar_data.get("delegated_request")
+    if delegated:
+        done_prompt = (
+            "Payment complete and booking confirmed: the user is booked. Post user_message to the "
+            "user as written (raw URLs, never markdown links) and add nothing about commands, "
+            "phases, or payment internals. Then add the calendar event: "
+            + delegated_instruction(delegated)
+            + " The report's output says what to run next."
+        )
+        after = delegated["report_command"]
+    else:
+        done_prompt = (
             "Payment complete and booking confirmed: the user is booked. Post user_message to the "
             "user as written (raw URLs, never markdown links) and add nothing about commands, "
             "phases, or payment internals. Then run next_command (a quick check for a newer "
             "assistant) and follow it."
-        ),
+        )
+        after = _after_booking_command()
+    emit(_agent_out(
+        session,
+        awaiting_user="calendar_delegated_write" if delegated else None,
+        user_message=message,
+        next_command=after,
+        prompt=done_prompt,
         data={
             "booking_id": session.booking.id,
             "booking_url": booking_url,
@@ -7347,10 +7829,14 @@ def book_cancel(
             " Do not shorten those refund steps: the user needs the business link, the "
             "amount to ask for, and the booking and order references."
         )
+    prompt = _with_calendar_agent_note(prompt, calendar)
+    delegated = (calendar or {}).get("delegated_request")
     emit(_agent_out(
         session,
+        awaiting_user="calendar_delegated_write" if delegated else None,
         user_message=user_message,
         prompt=prompt,
+        next_command=delegated["report_command"] if delegated else None,
         data={
             "booking_id": bid,
             "status": status_val,
@@ -7525,8 +8011,25 @@ def _cancel_settlement(
     }
 
 
-def _remove_calendar_event_after_cancel(session: Session) -> Optional[Dict[str, Any]]:
-    """Delete the cancelled booking's Google event. Never fails the cancel itself."""
+def _remove_calendar_event_after_cancel(
+    session: Session, *, report_back: bool = True,
+) -> Optional[Dict[str, Any]]:
+    """Delete the cancelled booking's Google event. Never fails the cancel itself.
+
+    On the delegated route the agent's platform deletes it: the result carries the
+    request and an ``agent_note`` with what to do. ``report_back=False`` is for state that
+    is about to be erased, where no report could be recorded.
+    """
+    if is_delegated(session):
+        request = delegated_request(session, OP_DELETE, report_back=report_back)
+        if request["status"] != "requested":
+            return None
+        return {
+            "ok": True,
+            "status": "delegated",
+            "delegated_request": request,
+            "agent_note": delegated_instruction(request),
+        }
     try:
         result = delete_calendar_event(session, user_key=_CALENDAR_SESSION_ID)
     except Exception as e:
@@ -8356,6 +8859,7 @@ def reschedule_availability(
             "slots": rows,
             "calendar_filtered": calendar_filtered,
             "slots_filtered": slots_filtered,
+            "calendar_not_checked": _calendar_not_checked(session),
             **zone_data,
         },
     ))

@@ -66,21 +66,82 @@ REQUIRED = {
 OPTIONAL = {"replacement_version": str, "replay_rollouts": dict}
 
 
+REGISTRY_SCHEMA_VERSION = 2
+HARNESS_STATUSES = ("verified", "pending")
+HARNESS_GUIDES = "docs/harnesses/"
+_TOKEN = re.compile(r"[a-z0-9][a-z0-9-]{0,63}")
+_DATE = re.compile(r"\d{4}-\d{2}-\d{2}")
+
+
+def load_registry(path: Path = VERIFIED_HARNESSES) -> dict:
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _pair_errors(pair: object, label: str, *, dated: bool) -> list[str]:
+    keys = {"cli", "skill", "date"} if dated else {"cli", "skill"}
+    if not isinstance(pair, dict) or set(pair) != keys:
+        return [f"{label} must be an object with exactly {sorted(keys)}"]
+    errors = []
+    for key in ("cli", "skill"):
+        try:
+            Version(pair[key])
+        except (InvalidVersion, TypeError):
+            errors.append(f"{label}.{key} {pair[key]!r} is not a version")
+    if dated and (not isinstance(pair["date"], str) or not _DATE.fullmatch(pair["date"])):
+        errors.append(f"{label}.date must be YYYY-MM-DD")
+    return errors
+
+
+def registry_shape_errors(registry: object) -> list[str]:
+    """Shape of ``ops/verified-harnesses.json`` on its own, without the release notes."""
+    if not isinstance(registry, dict) or set(registry) != {"schema_version", "harnesses"}:
+        return ["verified harness registry must hold exactly schema_version and harnesses"]
+    if registry["schema_version"] != REGISTRY_SCHEMA_VERSION:
+        return [f"verified harness registry schema_version must be {REGISTRY_SCHEMA_VERSION}"]
+    harnesses = registry["harnesses"]
+    if not isinstance(harnesses, dict) or not harnesses:
+        return ["verified harness registry harnesses must be a non-empty object"]
+    errors = []
+    for harness_id, harness in harnesses.items():
+        label = f"harnesses.{harness_id}"
+        if not isinstance(harness_id, str) or not _TOKEN.fullmatch(harness_id):
+            errors.append(f"{label}: harness ids must be lowercase tokens")
+        if not isinstance(harness, dict):
+            errors.append(f"{label} must be an object")
+            continue
+        status = harness.get("status")
+        allowed = {"name", "replay", "status", "guide"}
+        if status == "verified":
+            allowed |= {"replayed", "recommended"}
+        missing, unknown = sorted(allowed - set(harness)), sorted(set(harness) - allowed)
+        if status not in HARNESS_STATUSES:
+            errors.append(f"{label}.status must be one of {list(HARNESS_STATUSES)}")
+        if missing:
+            errors.append(f"{label}: missing {missing}")
+        if unknown:
+            errors.append(f"{label}: unknown keys {unknown}")
+        if missing or unknown or status not in HARNESS_STATUSES:
+            continue
+        if not isinstance(harness["name"], str) or not harness["name"].strip():
+            errors.append(f"{label}.name must be a non-empty string")
+        if not isinstance(harness["replay"], str) or not _TOKEN.fullmatch(harness["replay"]):
+            errors.append(f"{label}.replay must be a lowercase token")
+        guide = harness["guide"]
+        if not isinstance(guide, str) or not re.fullmatch(re.escape(HARNESS_GUIDES) + r"[a-z0-9-]+\.md", guide):
+            errors.append(f"{label}.guide must be a {HARNESS_GUIDES}<name>.md path")
+        if status == "verified":
+            errors += _pair_errors(harness["replayed"], f"{label}.replayed", dated=True)
+            errors += _pair_errors(harness["recommended"], f"{label}.recommended", dated=False)
+    return errors
+
+
 def _verified_replays() -> tuple[str, ...]:
     """Load the replay ids owned by the external harness registry."""
-    registry = json.loads(VERIFIED_HARNESSES.read_text(encoding="utf-8"))
-    if registry.get("schema_version") != 1 or not isinstance(registry.get("harnesses"), dict):
-        raise ValueError(f"{VERIFIED_HARNESSES}: invalid verified harness registry")
-    harnesses = registry["harnesses"]
-    if any(not isinstance(key, str) or not isinstance(value, str) for key, value in harnesses.items()):
-        raise ValueError(f"{VERIFIED_HARNESSES}: harness and replay ids must be strings")
-    if any(
-        re.fullmatch(r"[a-z0-9][a-z0-9-]{0,63}", identifier) is None
-        for pair in harnesses.items()
-        for identifier in pair
-    ):
-        raise ValueError(f"{VERIFIED_HARNESSES}: harness and replay ids must be lowercase tokens")
-    return tuple(sorted(set(harnesses.values())))
+    registry = load_registry()
+    errors = registry_shape_errors(registry)
+    if errors:
+        raise ValueError(f"{VERIFIED_HARNESSES}: " + "; ".join(errors))
+    return tuple(sorted({harness["replay"] for harness in registry["harnesses"].values()}))
 
 
 VERIFIED_REPLAYS = _verified_replays()
@@ -285,6 +346,64 @@ def load_entries(notes_dir: Path = NOTES_DIR) -> tuple[list[dict], list[str]]:
     return entries, errors
 
 
+def registry_errors(registry: dict, entries: list[dict], workspace: Path = WORKSPACE) -> list[str]:
+    """The registry's pinned pairs agree with the release notes, and every guide exists.
+
+    A verified harness installs ``recommended``: the newest release its replay recommends,
+    with that release's skill. ``replayed`` is the pair the replay actually ran, which can
+    be older when a later release carries the replayed changes.
+    """
+    errors = registry_shape_errors(registry)
+    if errors:
+        return errors
+    by_version = {e["cli_version"]: e for e in entries}
+    for harness_id, harness in registry["harnesses"].items():
+        label = f"harnesses.{harness_id}"
+        replay = harness["replay"]
+        if not (workspace / harness["guide"]).is_file():
+            errors.append(f"{label}.guide {harness['guide']} does not exist")
+        offered = sorted(
+            (
+                e
+                for e in entries
+                if e.get("replay_rollouts", {}).get(replay, {}).get("update_status") in ("recommended", "urgent")
+            ),
+            key=lambda e: Version(e["cli_version"]),
+        )
+        if harness["status"] == "pending":
+            if offered:
+                errors.append(
+                    f"{label} is pending, but release {offered[-1]['cli_version']} recommends replay {replay}"
+                )
+            continue
+        if not offered:
+            errors.append(f"{label} is verified, but no release recommends replay {replay}")
+            continue
+        recommended, replayed = harness["recommended"], harness["replayed"]
+        newest = offered[-1]
+        if recommended["cli"] != newest["cli_version"]:
+            errors.append(
+                f"{label}.recommended.cli {recommended['cli']} is not {newest['cli_version']}, "
+                f"the newest release replay {replay} recommends"
+            )
+        elif recommended["skill"] != newest["skill_version"]:
+            errors.append(
+                f"{label}.recommended.skill {recommended['skill']} is not {newest['skill_version']}, "
+                f"the skill of release {newest['cli_version']}"
+            )
+        ran = by_version.get(replayed["cli"])
+        if ran is None:
+            errors.append(f"{label}.replayed.cli {replayed['cli']} has no release notes")
+        elif ran["skill_version"] != replayed["skill"]:
+            errors.append(
+                f"{label}.replayed.skill {replayed['skill']} is not {ran['skill_version']}, "
+                f"the skill of release {replayed['cli']}"
+            )
+        elif Version(replayed["cli"]) > Version(recommended["cli"]):
+            errors.append(f"{label}.replayed.cli {replayed['cli']} is newer than recommended.cli")
+    return errors
+
+
 def render_index(entries: list[dict]) -> str:
     ordered = sorted(entries, key=lambda e: Version(e["cli_version"]))
     doc = {"schema_version": SCHEMA_VERSION, "releases": ordered}
@@ -313,6 +432,8 @@ def check_errors(notes_dir: Path = NOTES_DIR, pyproject: Path = PYPROJECT) -> li
     index = notes_dir / INDEX.name
     if not index.is_file() or index.read_text(encoding="utf-8") != render_index(entries):
         errors.append("release-notes/index.json is out of date: run `python scripts/release_notes.py`")
+    if notes_dir == NOTES_DIR:
+        errors += [f"ops/verified-harnesses.json: {e}" for e in registry_errors(load_registry(), entries)]
     return errors
 
 

@@ -1,5 +1,5 @@
 ---
-version: 0.57.4
+version: 0.58.0
 name: booking-agent
 description: |
   Books time-based services via USP from a Link wallet. Use when the user wants to book, schedule, reserve, or pay for a service from a business (haircut, lesson, repair, class, appointment, consult). The `booking-agent` CLI owns the booking state machine and refuses to proceed when human gates are skipped. Sign the user in to Link on your own, right after install and at the start of every booking (`booking-agent flow link-auth connect`, then start `booking-agent flow link-auth poll` in the background and post the sign-in URL in the same turn, exactly like `pay poll`); never wait for the user to ask to sign in or to say they approved. After `booking-agent flow business use`, follow `next_command` through `use-ucp-checkout-mode`; businesses without native checkout fail closed. Payment uses `booking-agent flow pay request` (default returns immediately with the approval URL), then start `booking-agent flow pay poll` in the background and post the approval URL to the user in the same turn; the poll finishes checkout once they approve. Confirm through `booking-agent flow book poll --wait`; never start an inbound webhook. Surface the approval URL exactly once. Personal identification (name, phone, email, address) must always come from the user's Link account via `link-cli`, never from chat or placeholders. Before any location-based search, the CLI proposes the Link shipping address and the user confirms it or gives another; online services skip this. Talk to the user in plain everyday language only; never expose CLI, UCP, auth, session, or other implementation details unless they explicitly ask.
@@ -19,7 +19,7 @@ metadata:
         - link-cli
     install:
       - kind: uv
-        package: "booking-agent-cli==0.10.2"
+        package: "booking-agent-cli==0.11.0"
         bins: [booking-agent]
 user-invocable: true
 ---
@@ -220,7 +220,7 @@ To take a fixed, published version instead of the latest, fetch it at the releas
 workflow signs it under, and check the signature before you follow it:
 
 ```bash
-curl -fsSLO https://raw.githubusercontent.com/wix/booking-agent/skill-v0.57.4/booking-agent/skills/booking-agent/SKILL.md
+curl -fsSLO https://raw.githubusercontent.com/wix/booking-agent/skill-v0.58.0/booking-agent/skills/booking-agent/SKILL.md
 gh attestation verify SKILL.md \
   --repo wix/booking-agent \
   --signer-workflow wix/booking-agent/.github/workflows/release.yml
@@ -245,17 +245,17 @@ before installing:
 
 ```bash
 dir="$HOME/.booking-agent/verified-wheels"
-uvx pip download "booking-agent-cli==0.10.2" --no-deps --only-binary :all: -d "$dir"
+uvx pip download "booking-agent-cli==0.11.0" --no-deps --only-binary :all: -d "$dir"
 uvx pypi-attestations==0.0.30 verify pypi --repository https://github.com/wix/booking-agent \
-  "$dir/booking_agent_cli-0.10.2-py3-none-any.whl"
-uv tool install --force "$dir/booking_agent_cli-0.10.2-py3-none-any.whl"
+  "$dir/booking_agent_cli-0.11.0-py3-none-any.whl"
+uv tool install --force "$dir/booking_agent_cli-0.11.0-py3-none-any.whl"
 
 booking-agent --help
 ```
 
 Install only a wheel whose verify step passed. If `uvx` is not
-available, install the same pinned release with `uv tool install booking-agent-cli==0.10.2` or
-`pipx install booking-agent-cli==0.10.2`; the CLI checks its own files against the signed release
+available, install the same pinned release with `uv tool install booking-agent-cli==0.11.0` or
+`pipx install booking-agent-cli==0.11.0`; the CLI checks its own files against the signed release
 on the first `booking-agent flow init` and refuses to book or pay if they do not match.
 
 Harnesses that read this skill's `install` block do this for you. Do not go on
@@ -468,7 +468,7 @@ confirmation email or on the business's page (`booking_url`). Do not invent a lo
 **Step 1b — Create a new session:**
 
 ```bash
-booking-agent flow init --user-request "<user's exact request>" --skill-version 0.57.4 \
+booking-agent flow init --user-request "<user's exact request>" --skill-version 0.58.0 \
   --skill-path "<absolute path of the SKILL.md you loaded>"
 ```
 
@@ -602,24 +602,24 @@ booking-agent flow calendar ask
 
 Follow `next_command` from the JSON. **Do not ask the user calendar options yourself.**
 
-`calendar connect`/`skip` fail with `calendar_offer_not_shown` until `calendar ask` ran.
+**Pick the calendar route from what you observe at runtime**, before asking the user anything:
 
-**Pick the calendar route from what you observe at runtime.** The CLI cannot see how this
-runtime reaches Google Calendar, so you tell it on `calendar connect`. Decide before you ask
-the user anything:
-
-- **`--route connector`**: your platform can connect Google Calendar on the user's behalf and
-  hands the access token to the commands you run in an environment variable. Pass that
+- **`--route connector`**: your platform connects Google Calendar for the user and hands the
+  access token to the commands you run in an environment variable. Pass that
   variable's **name** with `--token-env <NAME>`. Never pass, print, or store the token itself,
   and never copy it into an env file. Look up the name each conversation; do not assume it.
 - **`--route local-oauth`**: `data.local_oauth_configured` is true and you can relay a sign-in
   link to the user.
+- **`--route delegated`** (events only; busy times are never checked): your platform writes
+  calendar events itself. Each write returns `awaiting_user: calendar_delegated_write`: post
+  `user_message`, do it as the `prompt` says, then run `next_command` with only what it returned. On `calendar_delegated_events_only`,
+  `calendar_delegated_time_mismatch`, `calendar_delegated_report_incomplete`, or
+  `calendar_delegated_request_unknown`, run `next_command`.
 - **Neither** (a listed but unconnected connector is a route): run
   `booking-agent flow calendar skip --session-only --no-route` without asking, then continue.
 
-The CLI stores the route and the variable name for later commands and later bookings, and it
-never guesses one: `calendar connect` without `--route` fails with `calendar_route_required`,
-and `--route connector` without a valid `--token-env` fails with `calendar_token_env_required`.
+The CLI saves the route and variable name for later bookings and never guesses one: `calendar
+connect` without `--route` fails with `calendar_route_required`, and `--route connector` without a valid `--token-env` fails with `calendar_token_env_required`.
 
 `calendar ask` outcomes (each carries its own `prompt`; ask only what it says):
 
@@ -998,12 +998,8 @@ Nothing to run; Step 7's command already added the calendar event.
 - **Never** run `sleep` or a fixed wait alongside a `booking-agent` command; wait for the command to
   exit.
 - **Never** skip the calendar gate.
-- **Never** guess a calendar route or token variable name, and never pass a token value on the
-  command line. Observe the runtime, then pass `--route` (and `--token-env <NAME>` for a
-  connector).
-- Selecting a business via direct profile URL does not skip gates — the same gates apply as
-  for registry discovery.
-
+- **Never** guess a calendar route or token variable name, or pass a token value on the command
+  line.
 ## Errors
 
 Every error exits 1 with `data.error.code`, `data.error.message`, and a `next_command`; a code not

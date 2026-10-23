@@ -281,6 +281,15 @@
       ],
       "relevant_capabilities": [],
       "replay_rollouts": {
+        "base44-superagent": {
+          "ecosystem_ready": true,
+          "readiness_evidence": [
+            "Hosted replay (base44-superagent): on 22/10/26 Base44 Superagent ran CLI 0.10.2 with skill 0.57.4, which carries every change in this release, and passed its replay with the update decision set to this replay. The 0.10.2 notes hold the full evidence and caveats.",
+            "The replay of this release alone on this harness stopped at a defect that 0.10.1 fixes. This record keeps the Base44 Superagent rollout cumulative from the first release that reads replay rollouts: an installed 0.10.0 or 0.10.1 is offered 0.10.2, because an update targets the newest release this replay recommends, while 0.10.2 stays recommended.",
+            "Older CLIs do not read replay rollouts, so a Base44 Superagent install starts from the approved release in its install guide, not from an update offer."
+          ],
+          "update_status": "recommended"
+        },
         "grok-bot": {
           "ecosystem_ready": true,
           "readiness_evidence": [
@@ -310,6 +319,17 @@
       "relevant_capabilities": [
         "booking"
       ],
+      "replay_rollouts": {
+        "base44-superagent": {
+          "ecosystem_ready": true,
+          "readiness_evidence": [
+            "Hosted replay (base44-superagent): on 22/10/26 Base44 Superagent ran CLI 0.10.2 with skill 0.57.4, which carries every change in this release, and passed its replay: after a sandbox wipe that kept /app/.agents, a fresh conversation re-showed the same summary and chosen 11:45 AM slot for a $1 HVAC-Koby AC Repair, needed no second Link sign-in, charged $1.00 once, returned the raw calendar event link in the booked message, and runtime doctor reported survived_restart true, healthy true, and no findings. The 0.10.2 notes hold the full evidence and caveats.",
+            "The replay of this release alone on this harness stopped at defects that 0.10.2 fixes. This record keeps the Base44 Superagent rollout cumulative: an installed 0.10.0 or 0.10.1 is offered 0.10.2, because an update targets the newest release this replay recommends, not this one, while 0.10.2 stays recommended.",
+            "The pay-at-appointment path that the 0.9.1 notes list as unreplayed was not run on this harness, so 0.9.1 and earlier stay deferred for Base44 Superagent."
+          ],
+          "update_status": "recommended"
+        }
+      },
       "schema_version": 1,
       "skill_version": "0.57.3",
       "update_status": "deferred",
@@ -336,7 +356,7 @@
             "Hosted replay (base44-superagent): Google Calendar was connected. The saved calendar token dropped at the summary and was reconnected without losing the chosen time. `flow status` returned \"You're booked: AC Repair with HVAC-Koby, Thu, Oct 22, 11:45 AM - 12:45 PM MST (9:45 - 10:45 PM IDT on your Google Calendar). At your address, 3194 West Rome Street, Yuma AZ 85364. Added to your Google Calendar:\" followed by the raw calendar event link. `runtime doctor` reported survived_restart true (basis boot_id_changed), healthy true, and no findings.",
             "Hosted replay (base44-superagent) caveat: Superagent's first closing message paraphrased the booking and left out the raw calendar event link; it posted the CLI's exact booked message only when asked. The CLI returned the message correctly, so this is the harness's wording, not the release.",
             "Hosted replay (base44-superagent) caveat: this host has no control to reset its sandbox, so the restart was an agent-run wipe of everything under /app except /app/.agents, plus /tmp and /root (symlinks into the saved folder removed first), together with a natural boot-id change; it is not the platform reset the replay describes.",
-            "Hosted replay (base44-superagent) caveat: the pay-at-appointment path that the 0.9.1 notes list as unreplayed was not run on this harness. HVAC-Koby's current services (a $1 repair, a free diagnostic, and a $10 deposit) do not offer it. Only this release's rollout for this replay is recorded; earlier releases stay deferred for Base44 Superagent, so an installed older version is not offered this one until their entries are updated.",
+            "Hosted replay (base44-superagent) caveat: the pay-at-appointment path that the 0.9.1 notes list as unreplayed was not run on this harness. HVAC-Koby's current services (a $1 repair, a free diagnostic, and a $10 deposit) do not offer it. 0.10.0 and 0.10.1 carry this replay's record too, since this release includes all their changes, so an installed 0.10.0 or 0.10.1 is offered this one; 0.9.1 and earlier stay deferred for Base44 Superagent.",
             "Earlier replays of 0.10.0 and 0.10.1 on this harness stopped at the defects 0.10.2 fixes (the saved booking could not be shown again after a restart; a calendar reconnect at the summary dropped the chosen time); nothing was booked or charged in them."
           ],
           "update_status": "recommended"
@@ -346,6 +366,28 @@
       "skill_version": "0.57.4",
       "update_status": "deferred",
       "user_summary": "After a restart, the assistant finds your saved booking and Link sign-in again, and reconnecting Google Calendar no longer makes you pick the time again."
+    },
+    {
+      "change_type": "feature",
+      "cli_version": "0.11.0",
+      "details_url": "https://github.com/wix/booking-agent/releases/tag/v0.11.0",
+      "ecosystem_ready": false,
+      "readiness_evidence": [
+        "Not ready to offer. No verified harness has run the delegated calendar route, so no replay rollout is recorded and Grok Bot and Base44 Superagent keep their current recommended releases. Grok Bot's documented replay still expects no calendar event. The Muse session recorded below is an unverified-harness run, and it did not do the required restart after the slot was chosen, so this release stays deferred.",
+        "Not a Base44 Superagent fix: the 0.10.2 Base44 Superagent replay already connected Google Calendar with a token and posted the raw event link, so that harness keeps the connector route. The target is a harness whose platform can write calendar events itself but cannot hand a token to the CLI.",
+        "Offline: `calendar connect --mode events --route delegated` completes the gate without a token and is refused for free/busy; availability on that route is marked as not checked against the user's calendar; a late connect at the summary keeps the chosen time; a saved delegated choice is reused without a token and is never treated as an expired one. After payment the booked message comes first, then one create request with a one-time request id; `calendar record-event` records only a report whose times match the booking (any offset), refuses incomplete, repeated, or unknown reports, and a failed report tells the user to add the event themselves. Move, cancel, and bulk cleanup hand the same kind of request to the platform, `flow status` re-issues an unreported one, and an event keeps the route it was written on. Connector and local OAuth behave as before. The full suite passes.",
+        "Offline: `calendar connect --mode events --route delegated --delegated-can-read-busy` opts into a second kind of request for a platform that can read Google Calendar busy times itself but still cannot hand the CLI a token. `flow availability` then asks for busy intervals over its exact search window before showing any time (`calendar_delegated_busy_request`), `calendar report-busy --request-id <id> --busy START,END` (repeatable) or `--none` records them once, and the next `flow availability` for that same window filters the returned slots and marks the calendar checked. A stale or unknown request id is refused; busy data is never reused for a different window, because busy times can change between queries. Without the flag, the route is unchanged from the rest of this release: events only, calendar marked not checked. A saved delegated choice remembers whether this was turned on.",
+        "Offline: registry and business calls follow HTTP_PROXY, HTTPS_PROXY, and ALL_PROXY. The traced client had been installing its own transport, so httpx ignored those variables and a host that can only leave through a proxy failed discovery with a TLS version error while the plain prerequisite check succeeded. Bracketed IPv6 entries in NO_PROXY, such as [::1], are rewritten to the bare address before any client is built, because httpx reads the colon as a port and raises InvalidURL. The bare address still bypasses the proxy. A caller-supplied transport is unchanged.",
+        "Existing businesses and the registry stay compatible: no USP, UCP, or platform profile version changed and no request shape changed. Saved session files keep their format version. The route field takes one more value, a boolean records whether the delegated route can read busy times, and two optional fields hold a pending busy-time request and its one-shot result. Older builds keep fields they do not know when they save. The pending event request still lives in the existing calendar event file.",
+        "Hosted replay: Muse (muse.ai), an unpublished checkout of this branch installed editable in its VM, booked the $1 AC Repair at HVAC-Koby on 23/10/26 (booking 6e58be95-05cb-424a-a8fe-a7607582decd, order 4b06764d-6858-4f0b-93cb-84cebec28f46). Link was already signed in. The delegated route was connected with --delegated-can-read-busy: availability asked for busy times, Muse reported 70 intervals from its own Google Calendar, and the returned set went from 130 slots to 118 with calendar_filtered true and calendar_not_checked false. The user picked the soonest remaining time (Fri 23 Oct 2026, 12:15-1:15 PM MST) and said yes. The CLI created a UCP checkout for $1.00, posted the terms URL raw, and returned a Link approval URL. Payment status is paid. flow status is phase CONFIRMED and its user_message is the booked text plus the raw Google Calendar link. The event is on the user's calendar at that instant (shown as 10:15-11:15pm in the viewer's zone) and its description carries the same booking id and order id. runtime doctor is healthy with no findings, and its state directory survived an earlier boot change (runtime_starts 3). Not done: a new conversation after the slot was chosen, and a mid-flow \"what's going on?\" turn. Muse noticed the Link approval without a further chat message and posted the booked result on its own."
+      ],
+      "relevant_capabilities": [
+        "calendar"
+      ],
+      "schema_version": 1,
+      "skill_version": "0.58.0",
+      "update_status": "deferred",
+      "user_summary": "Assistants that manage Google Calendar on their own can now add, move, and remove bookings there, and some can check it for conflicts first."
     }
   ],
   "schema_version": 1
