@@ -22,7 +22,9 @@ _CALENDAR_SESSION_ID = "cli"
 
 ROUTE_CONNECTOR = "connector"
 ROUTE_LOCAL_OAUTH = "local-oauth"
-CALENDAR_ROUTES = (ROUTE_CONNECTOR, ROUTE_LOCAL_OAUTH)
+# The agent's platform writes the event itself and reports the event id back; no token.
+ROUTE_DELEGATED = "delegated"
+CALENDAR_ROUTES = (ROUTE_CONNECTOR, ROUTE_LOCAL_OAUTH, ROUTE_DELEGATED)
 
 TOKEN_SOURCE_ENV = "env"
 TOKEN_SOURCE_CACHE = "cache"

@@ -182,7 +182,7 @@ class Session:
     calendar_gate_completed: bool = False
     calendar_state: str = "unset"  # connected | skipped | unset
     calendar_mode: str = "unset"  # none | freebusy | events | unset
-    calendar_route: Optional[str] = None  # connector | local-oauth
+    calendar_route: Optional[str] = None  # connector | local-oauth | delegated
     calendar_token_env: Optional[str] = None  # name of the host variable, never its value
     link_auth_gate_completed: bool = False
     availability_window: AvailabilityWindow = field(default_factory=AvailabilityWindow)
@@ -323,7 +323,7 @@ class SessionStore:
     active_session_id: Optional[str] = None
     last_calendar_state: Optional[str] = None  # connected | skipped
     last_calendar_mode: Optional[str] = None  # freebusy | events | none
-    last_calendar_route: Optional[str] = None  # connector | local-oauth
+    last_calendar_route: Optional[str] = None  # connector | local-oauth | delegated
     last_calendar_token_env: Optional[str] = None  # name of the host variable, never its value
     # Update prompts the user already answered (accepted or declined); never asked again.
     update_prompts_answered: List[str] = field(default_factory=list)

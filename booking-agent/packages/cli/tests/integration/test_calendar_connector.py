@@ -293,6 +293,19 @@ def test_event_writes_refresh_the_cache_from_the_current_host_token(runner, home
     assert _TOKEN not in result.stdout
 
 
+@pytest.mark.parametrize("route", ["connector", "local-oauth"])
+def test_token_routes_keep_checking_and_writing_with_their_token(home, route):
+    import booking_agent_cli.commands.flow as flow
+    from booking_agent_cli.calendar_delegated import is_delegated
+
+    session = _seed(phase="CONFIRMED", calendar_state="connected")
+    session.calendar_mode = "events"
+    session.calendar_route = route
+    assert is_delegated(session) is False
+    assert flow._calendar_not_checked(session) is False
+    assert flow._open_delegated_request(session) is None
+
+
 def test_availability_filters_with_a_connector_token_and_no_oauth_client(
     runner, home, monkeypatch,
 ):

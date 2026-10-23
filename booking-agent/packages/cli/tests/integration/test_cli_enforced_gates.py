@@ -540,7 +540,7 @@ def test_reset_deletes_the_calendar_event_of_an_unfinished_request(
     monkeypatch.setattr(calendar_event, "existing_event_id", lambda _sid: "evt_1")
     monkeypatch.setattr(
         flow, "_remove_calendar_event_after_cancel",
-        lambda session: removed.append(session.id) or {"status": "deleted"},
+        lambda session, **_k: removed.append(session.id) or {"status": "deleted"},
     )
     _init(runner)
 

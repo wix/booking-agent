@@ -11,7 +11,7 @@ from booking_agent.calendar.scope import (
     scope_satisfies_mode,
 )
 
-from .calendar_connection import bridge_token_cache_for_mode
+from .calendar_connection import ROUTE_DELEGATED, bridge_token_cache_for_mode, remembered_route
 
 from .engine import transition
 from .session import Session, load_store, save_session, save_store
@@ -47,11 +47,22 @@ def _effective_preference(
     return None, None
 
 
+def _remembered_delegated(state: Optional[str], mode: Optional[str]) -> bool:
+    """The saved choice is events through the agent's platform, which needs no token."""
+    return (
+        state == "connected"
+        and mode == CALENDAR_MODE_EVENTS
+        and remembered_route()[0] == ROUTE_DELEGATED
+    )
+
+
 def stale_remembered_calendar_mode(connection: Dict[str, Any]) -> Optional[str]:
     """Remembered connected mode whose Google Calendar access is no longer valid."""
     if connection.get("connected"):
         return None
     state, mode = get_calendar_preference()
+    if _remembered_delegated(state, mode):
+        return None
     if state == "connected" and mode in (CALENDAR_MODE_FREEBUSY, CALENDAR_MODE_EVENTS):
         return mode
     return None
@@ -69,6 +80,8 @@ def _pref_applicable(
 ) -> bool:
     if not state or not mode:
         return False
+    if _remembered_delegated(state, mode):
+        return True
     if not connection.get("connected"):
         return False
     if state == "skipped" or mode == CALENDAR_MODE_NONE:
@@ -122,17 +135,27 @@ def try_apply_remembered_calendar_gate(
             prompt="Using your saved calendar preference (skip). Ready to query availability.",
         )
 
+    delegated = _remembered_delegated(state, mode)
     bridge = before_connect_apply or bridge_token_cache_for_mode
-    if not bridge(mode):
+    if not delegated and not bridge(mode):
         return None
 
     session.calendar_gate_completed = True
     session.calendar_remembered_applied = True
     session.calendar_state = "connected"
     session.calendar_mode = mode
+    if delegated:
+        session.calendar_route = ROUTE_DELEGATED
+        session.calendar_token_env = None
     _reach_calendar_gate(session)
     save_session(session)
-    if mode == CALENDAR_MODE_EVENTS:
+    if delegated:
+        prompt = (
+            "Using your saved preference: after the booking is confirmed, add it to Google "
+            "Calendar through your platform. Times are not checked against the user's "
+            "calendar. Ready to query availability."
+        )
+    elif mode == CALENDAR_MODE_EVENTS:
         prompt = (
             "Google Calendar is already connected; using your saved preference: conflict "
             "checking and post-booking events. Ready to query availability."

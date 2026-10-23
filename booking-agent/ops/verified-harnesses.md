@@ -61,6 +61,23 @@ does not repeat the restart after the base Grok Bot replay has already proved th
 saved state survives Update Bot's Computer. The evidence must identify both runs so a
 reviewer can see the complete result.
 
+### Delegated calendar
+
+A replay that connects Google Calendar with `--route delegated` (the harness's own platform
+writes the event) also checks the report-back:
+
+1. After payment, the output has `awaiting_user: calendar_delegated_write`. The booking
+   confirmation is posted first, then the platform creates one event with the requested fields.
+2. `flow calendar record-event` succeeds with the platform's event id and link, and the booked
+   message shows that raw link. A report with other times fails with
+   `calendar_delegated_time_mismatch`.
+3. After the restart, `flow status` does not ask for the write again. Cancel or move the booking
+   and expect a delete or move request that is also reported back.
+4. The availability step says the user's calendar was not checked. Never record this route as
+   conflict checking.
+
+A harness's calendar row changes to delegated only after a replay of these steps passes.
+
 Set the assigned replay before the run. On a host that does not inject it, put this non-secret
 setting in the persistent Booking Agent `.env` file so every CLI process sees it:
 

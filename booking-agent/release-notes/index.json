@@ -366,6 +366,25 @@
       "skill_version": "0.57.4",
       "update_status": "deferred",
       "user_summary": "After a restart, the assistant finds your saved booking and Link sign-in again, and reconnecting Google Calendar no longer makes you pick the time again."
+    },
+    {
+      "change_type": "feature",
+      "cli_version": "0.11.0",
+      "details_url": "https://github.com/wix/booking-agent/releases/tag/v0.11.0",
+      "ecosystem_ready": false,
+      "readiness_evidence": [
+        "Not ready to offer: Hosted replay: none yet. No verified harness has run the new delegated calendar route, so no replay rollout is recorded and Grok Bot and Base44 Superagent keep their current recommended releases. Grok Bot's documented replay still expects no calendar event; whether delegated calendar works there is a separate replay to run before its calendar row changes.",
+        "Not a Base44 Superagent fix: the 0.10.2 Base44 Superagent replay already connected Google Calendar with a token and posted the raw event link, so that harness keeps the connector route. The target is a harness whose platform can write calendar events itself but cannot hand a token to the CLI.",
+        "Offline: `calendar connect --mode events --route delegated` completes the gate without a token and is refused for free/busy; availability on that route is marked as not checked against the user's calendar; a late connect at the summary keeps the chosen time; a saved delegated choice is reused without a token and is never treated as an expired one. After payment the booked message comes first, then one create request with a one-time request id; `calendar record-event` records only a report whose times match the booking (any offset), refuses incomplete, repeated, or unknown reports, and a failed report tells the user to add the event themselves. Move, cancel, and bulk cleanup hand the same kind of request to the platform, `flow status` re-issues an unreported one, and an event keeps the route it was written on. Connector and local OAuth behave as before. The full suite passes.",
+        "Existing businesses and the registry stay compatible: no USP, UCP, or platform profile version changed and no request shape changed. Saved session files are unchanged: the route field takes one more value, no field was added, and the format version stays as it is. The pending request lives in the existing calendar event file."
+      ],
+      "relevant_capabilities": [
+        "calendar"
+      ],
+      "schema_version": 1,
+      "skill_version": "0.58.0",
+      "update_status": "deferred",
+      "user_summary": "Assistants that manage Google Calendar on their own can now add, move, and remove your booked appointments there."
     }
   ],
   "schema_version": 1

@@ -72,7 +72,7 @@ booking-agent skill print \
 Each release also publishes the skill at an immutable tag, `skill-v<frontmatter version>`, and signs it with the same workflow that signs the wheels, so a harness can pin and verify the exact text it follows:
 
 ```bash
-curl -fsSLO https://raw.githubusercontent.com/wix/booking-agent/skill-v0.57.4/booking-agent/skills/booking-agent/SKILL.md
+curl -fsSLO https://raw.githubusercontent.com/wix/booking-agent/skill-v0.58.0/booking-agent/skills/booking-agent/SKILL.md
 gh attestation verify SKILL.md \
   --repo wix/booking-agent \
   --signer-workflow wix/booking-agent/.github/workflows/release.yml
@@ -166,7 +166,7 @@ Operators may set `GOOGLE_CALENDAR_*` in `.env` to enable local Google OAuth on 
 
 The [`booking-agent` skill](skills/booking-agent/SKILL.md) is installed as described under [Installation](#installation). It provisions `booking-agent`, defines the booking contract (gates, stop points, and error recovery), and follows the UCP-native path from `business use`, using [create-payment-credential](https://github.com/stripe/link-cli/blob/main/skills/create-payment-credential/SKILL.md) for spend-request approval.
 
-The same skill runs in every agent runtime. The agent supplies what only it can observe: the Google Calendar route (`flow calendar connect --route connector --token-env <NAME>` when its platform hands it a calendar token, or `--route local-oauth` for a sign-in link), and, when its filesystem resets between conversations, a folder that survives (`booking-agent runtime prepare --persistent-root <dir>`).
+The same skill runs in every agent runtime. The agent supplies what only it can observe: the Google Calendar route (`flow calendar connect --route connector --token-env <NAME>` when its platform hands it a calendar token, `--route local-oauth` for a sign-in link, or `--route delegated` when its platform writes calendar events itself and reports each event back with `flow calendar record-event`; times are not checked against the user's calendar on that route), and, when its filesystem resets between conversations, a folder that survives (`booking-agent runtime prepare --persistent-root <dir>`).
 
 Every `booking-agent` command emits JSON. The agent reads `next_command` and `awaiting_user` on each response; the CLI drives the loop. Full contract in [SKILL.md](skills/booking-agent/SKILL.md).
 

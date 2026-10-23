@@ -1,5 +1,15 @@
 # Change Log
 
+## 23/10/26 at 13:57:09 by [Ran Yahalom](mailto:ranya@wix.com)
+
+- Released as 0.11.0 (skill 0.58.0). Added a third Google Calendar route, `--route delegated`, for assistants whose platform can write calendar events itself but cannot hand a token to the CLI, so their users can still get the booked appointment on their calendar instead of a skipped calendar step. The CLI never holds a token on this route: it tells the agent exactly which event to create, move, or delete, and records the event id and link the agent reports back with the new `flow calendar record-event`
+- Made the delegated route events-only (`calendar_delegated_events_only` for free/busy) and marked availability as not checked against the user's calendar, because without a token the CLI cannot read busy times and must never claim it did. A saved delegated choice is reused on later bookings without a token and is never mistaken for an expired one, and a late connect at the summary keeps the chosen time like the other routes
+- Kept each delegated write as a pending request with a one-time request id in the existing calendar event file, so a repeated or stale report (`calendar_delegated_request_unknown`), a report missing the id or link (`calendar_delegated_report_incomplete`), or an event written at other times than the booking (`calendar_delegated_time_mismatch`, compared as instants so any offset is accepted) is refused instead of recording a wrong event. A failed write tells the user to add, move, or delete the event themselves. `flow status`, `calendar create-event`, `update-event`, and `delete-event` re-issue an open request with the same id so the platform never writes it twice, and an event keeps the route it was written on so a later route change never sends it to the wrong writer
+- Handed move, cancel, reset, sessions forget, and cancel-open cleanup to the platform on this route. `flow purge` sends its deletes without a report command because purge erases the calendar event file the report would be recorded in; this deviates from giving every delete its own reportable request
+- Documented the route in the skill (within its size budget: the delegated rules live in the CLI prompts, and two skill lines that repeated CLI-enforced checks were shortened or removed), the README route sentence, and a "Delegated calendar" replay rule in `ops/verified-harnesses.md`. Grok Bot and Base44 Superagent rows, guides, and recommended pins are unchanged; the release is deferred until a harness replays the route
+
+---
+
 ## 23/10/26 at 09:12:37 by [Ran Yahalom](mailto:ranya@wix.com)
 
 - Recorded the Base44 Superagent replay of 0.10.2 as `recommended` on 0.10.0 and 0.10.1 too, because 0.10.2 carries every change in them and an update always targets the newest release the replay recommends. Base44 Superagent installs of 0.10.0 and 0.10.1 were otherwise never offered the replayed 0.10.2. 0.9.1 and earlier stay deferred for this harness because its pay-at-appointment path was not replayed, and the general rollout is unchanged. The 0.10.2 caveat that said earlier entries were not yet updated now says they are

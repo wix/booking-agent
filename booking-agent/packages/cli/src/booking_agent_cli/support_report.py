@@ -106,6 +106,8 @@ SKILL_PROSE_CODES = frozenset({
     "approval_not_surfaced_to_user", "approval_timeout", "booking_canceled_after_payment",
     "booking_confirmation_pending", "booking_not_confirmed",
     "buyer_email_invalid", "buyer_not_from_link_cli", "calendar_callback_port_busy",
+    "calendar_delegated_events_only", "calendar_delegated_report_incomplete",
+    "calendar_delegated_request_unknown", "calendar_delegated_time_mismatch",
     "calendar_gate_not_completed", "calendar_insufficient_scope", "calendar_oauth_failed",
     "calendar_oauth_not_configured", "calendar_oauth_not_started", "calendar_oauth_timeout",
     "calendar_route_required", "calendar_token_env_required", "checkout_already_in_progress",
