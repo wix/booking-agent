@@ -29,6 +29,21 @@
         "skill": "0.57.1"
       },
       "status": "verified"
+    },
+    "muse": {
+      "guide": "docs/harnesses/muse.md",
+      "name": "Muse",
+      "recommended": {
+        "cli": "0.11.1",
+        "skill": "0.58.1"
+      },
+      "replay": "muse",
+      "replayed": {
+        "cli": "0.11.1",
+        "date": "2026-10-25",
+        "skill": "0.58.1"
+      },
+      "status": "verified"
     }
   },
   "schema_version": 2

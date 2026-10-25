@@ -25,6 +25,7 @@ These harnesses passed a hosted booking replay of their own. Follow the harness'
 |---|---|---|---|---|
 | Base44 Superagent | [Install on Base44 Superagent](docs/harnesses/base44-superagent.md) | `0.10.2` | `0.57.4` | Passed 22 Oct 2026 with CLI 0.10.2 |
 | Grok Bot | [Install on Grok Bot](docs/harnesses/grok-bot.md) | `0.10.0` | `0.57.2` | Passed 22 Oct 2026 with CLI 0.9.1 |
+| Muse | [Install on Muse](docs/harnesses/muse.md) | `0.11.1` | `0.58.1` | Passed 25 Oct 2026 with CLI 0.11.1 |
 <!-- verified-harnesses:end -->
 
 On a verified harness, install the approved pair, not the latest release. A newer release has not passed that harness's replay yet, so the installed CLI will not offer it there either. More about verified harnesses, and how a harness gets added: [docs/harnesses](docs/harnesses/README.md).

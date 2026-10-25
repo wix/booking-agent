@@ -395,13 +395,27 @@
       "details_url": "https://github.com/wix/booking-agent/releases/tag/v0.11.1",
       "ecosystem_ready": false,
       "readiness_evidence": [
-        "Not ready to offer: this wording has not been replayed in a hosted session.",
+        "Not ready to offer on the general rollout. Muse replayed this wording; that result is recorded under replay_rollouts and does not apply to any other harness.",
         "Offline: after a successful cancel, flow status keeps phase CONFIRMED and booking.status canceled, and its message says the booking is cancelled. It does not say the user is booked and it does not repeat the calendar event link. A confirmed booking that is still active still gets the booked message.",
         "Existing businesses and the registry stay compatible: no USP, UCP, or platform profile version changed and no request shape changed. Saved session files are unchanged: no field was added and the format version stays as it is."
       ],
       "relevant_capabilities": [
         "cancel"
       ],
+      "replay_rollouts": {
+        "muse": {
+          "ecosystem_ready": true,
+          "readiness_evidence": [
+            "Hosted replay (muse): on 25/10/26 Muse installed the published CLI 0.11.1 from PyPI. The wheel signature check passed, and the wheel was kept at /home/hatch/workspace/verified-wheels/booking_agent_cli-0.11.1-py3-none-any.whl. Skill 0.58.1 was written unchanged from booking-agent skill print into /home/hatch/workspace/custom-skills/booking-agent/SKILL.md. runtime prepare --persistent-root /home/hatch/workspace linked the booking state and the Link sign-in into that folder. BOOKING_AGENT_REPLAY=muse was read from the persistent user .env. Muse does not inject that variable.",
+            "Hosted replay (muse): the $1 AC Repair at HVAC-Koby was selected for Mon 26 Oct 2026, 10:30-11:30 AM MST, at 3194 West Rome Street, Yuma AZ 85364. Calendar used --route delegated --delegated-can-read-busy. Muse reported 10 busy intervals from its own Google Calendar, and availability showed 14 slots after one conflict was removed. Link was already signed in. The chat stopped after the slot. The next morning the Secure VM had been replaced: boot id ba0721f8-d5a2-414b-809a-e50b1b41aa31 at the slot, then 2c487b69-16fa-4354-b279-6fb0cf4ce477, with /home/hatch/workspace kept. No Reset was used. The CLI, the skill, link-cli, the session file, and the Link sign-in were still present. flow status was SLOT_SELECTED for that same booking. There was no second search and no second Link sign-in. Asking what's going on returned that waiting recap.",
+            "Hosted replay (muse): the user said yes. Muse posted the business terms and, after its own safety check and a second yes to post the link, the Link approval URL once. It then noticed the approval with no further chat message. The $1.00 was charged once (booking 81d8b476-18b3-4a76-af83-8912404b277c, order 7d885f89-dddc-4f3d-8b49-854e6aef83fd). The message included You're booked and the raw Google Calendar event link. Muse created that event itself; the CLI had no calendar token. The same turn cancelled the throwaway, and the delete was reported with status deleted. flow status says the booking is cancelled, does not say the user is booked, and does not repeat the calendar link. The phase stays CONFIRMED. HVAC-Koby did not refund the $1.00.",
+            "Hosted replay (muse): runtime doctor reported survived_restart true, survived_restart_basis boot_id_changed, runtime_starts 6, healthy true, and no findings. The state directory is linked to /home/hatch/workspace/booking-agent.",
+            "Hosted replay (muse) caveat: there is no control that replaces the Secure VM. This restart was the platform's own replacement overnight. A new chat on the same boot does not count. Reset in Muse's data settings deletes the computer and must not be used.",
+            "Hosted replay (muse) caveat: the pay-at-appointment path was not run on this harness. The paid booking and the cancel-after-book wording were."
+          ],
+          "update_status": "recommended"
+        }
+      },
       "schema_version": 1,
       "skill_version": "0.58.1",
       "update_status": "deferred",

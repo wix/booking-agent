@@ -11,6 +11,7 @@ that release passes the same replay.
 |---|---|---|---|---|
 | Base44 Superagent | [Install on Base44 Superagent](base44-superagent.md) | `0.10.2` | `0.57.4` | Passed 22 Oct 2026 with CLI 0.10.2 |
 | Grok Bot | [Install on Grok Bot](grok-bot.md) | `0.10.0` | `0.57.2` | Passed 22 Oct 2026 with CLI 0.9.1 |
+| Muse | [Install on Muse](muse.md) | `0.11.1` | `0.58.1` | Passed 25 Oct 2026 with CLI 0.11.1 |
 <!-- verified-harnesses:end -->
 
 The approved CLI is the newest release that the harness's replay recommends. It can be

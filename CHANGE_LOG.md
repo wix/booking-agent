@@ -1,5 +1,12 @@
 # Change Log
 
+## 25/10/26 at 08:06:47 by [Ran Yahalom](mailto:ranya@wix.com)
+
+- Recorded the Muse replay of CLI 0.11.1 and skill 0.58.1 so Muse is a verified harness with its own replay id, install guide, and approved pair. The signed wheel was installed in the Secure VM, the chosen $1 HVAC-Koby booking was resumed after the boot id changed, the charge went through once, Muse added the calendar event without handing the CLI a token, and cancelling afterwards made status say the booking is cancelled. The general rollout stays deferred, so Grok Bot and Base44 Superagent are not offered 0.11.1
+- Wrote Muse's restart and calendar rules from that run: the restart is a Secure VM replacement that keeps `/home/hatch/workspace` (there is no safe Reset button), and calendar is the delegated route that can read busy times
+
+---
+
 ## 23/10/26 at 22:03:47 by [Ran Yahalom](mailto:ranya@wix.com)
 
 - Raised the `booking-agent` skill frontmatter to 0.58.1 and updated its stale literal `--skill-version 0.58.0` example, and re-ran `scripts/sync_skill_bundle.py` to re-pin `README.md`, `packages/cli/README.md`, and `bundled_skill.md`. The CLI 0.11.1 bump had re-pinned the skill's CLI version without raising the skill's own frontmatter version, so the `version` CI job failed on pull request [#66](https://github.com/wix/booking-agent/pull/66) with "changed but its frontmatter version 0.58.0 is not above 0.58.0"
