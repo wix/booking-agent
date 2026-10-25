@@ -157,7 +157,7 @@ Decide `change_type`, `update_status`, and `ecosystem_ready` in this order. Do n
    - `available`: a normal fix or internal improvement. Users are not prompted.
    - `recommended`: a ready feature with a clear benefit to users, or a broadly useful fix. Mentioned after a booking, or before one when it is relevant to it. A ready breaking release is offered before the next booking.
    - `urgent`: only for a security, data-loss, payment-safety, or severe correctness problem, and only with the release owner's approval written in the PR as `Release-owner approval: <who, why>`. Offered before the next booking.
-   - `deferred`: the rollout is not finished or evidence is missing. Never offered, and a newer version is not offered past it either, because installing it would bring this release's changes too.
+   - `deferred`: the rollout is not finished or evidence is missing. That release is never offered, but a later `recommended` or `urgent` release still is (from CLI 0.11.2 on; older CLIs stop at the first deferred release). Installing the later release brings this release's changes too, so the later release's evidence has to cover them.
    - `withdrawn`: a released version that must not be installed any more. Needs a newer, installable `replacement_version`.
 6. **Green CI is not readiness.** A newer version, passing tests, or a schema that validates does not show that the registry and live businesses work with the release.
 
@@ -186,7 +186,7 @@ assumed from this general checklist or from another harness passing it.
 
 This checklist is the **unverified** replay. It is what Cursor, Claude Code, and any other harness without its own replay uses. Passing it moves `deferred` to `recommended` only for those harnesses.
 
-A **verified** harness never inherits that result. Grok Bot, Base44 Superagent, and Muse each have a replay in [ops/verified-harnesses.md](ops/verified-harnesses.md), including the restart that harness actually supports and whether calendar is connected. Passing one moves `deferred` to `recommended` only for the harnesses that share that replay. Two harnesses share a replay when both names in the registry point at the same replay id, so one successful run promotes both. The only way to recommend a release on a verified harness is to pass its replay and record that replay's rollout. A release that is `withdrawn` for everyone stays withdrawn for verified harnesses too.
+A **verified** harness never inherits that result. Grok Bot, Base44 Superagent, and Muse each have a replay in [ops/verified-harnesses.md](ops/verified-harnesses.md), including the restart that harness actually supports and whether calendar is connected. Passing one moves `deferred` to `recommended` only for the harnesses that share that replay. Two harnesses share a replay when both names in the registry point at the same replay id, so one successful run promotes both. The only way to recommend a release on a verified harness is to pass its replay and record that replay's rollout. The one exception is the records through 0.11.2 that let CLIs older than 0.11.2 reach it (see [ops/verified-harnesses.md](ops/verified-harnesses.md)); do not add more. A release that is `withdrawn` for everyone stays withdrawn for verified harnesses too.
 
 Saved session files have their own rule. Adding an optional field keeps `STORE_SCHEMA_VERSION` and `SCHEMA_VERSION` in `session.py` as they are: older builds keep fields they do not know when they save. Raising either number makes every older build refuse the file and ask its user to update, so that is a breaking change, and its release cannot be `available`.
 
@@ -198,7 +198,7 @@ What an installed assistant does with the decision:
 | `urgent`, or a ready `breaking` release that is `recommended` | Asked before the next booking starts |
 | `recommended` feature or fix | Offered after a booking; offered before one only when the request needs an affected capability; otherwise mentioned only if the assistant checks on the user's request |
 | `available` | Nothing |
-| `deferred`, or any release after a `deferred` one | Nothing |
+| `deferred` | Nothing for that release; a later ready release is still offered |
 | The installed version is `withdrawn` | Asked to move to `replacement_version` |
 
 Nothing is ever installed without the user's yes, never during a booking, and never from a source checkout. A user who says no is not asked about that version again. `BOOKING_AGENT_UPDATE_CHECK=0` turns all of it off.

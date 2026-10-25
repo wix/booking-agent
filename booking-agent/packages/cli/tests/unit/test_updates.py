@@ -53,10 +53,59 @@ def test_replay_identity_is_generic_runtime_configuration(monkeypatch):
     assert updates.configured_replay() is None
 
 
-def test_the_committed_index_parses():
+def _committed_releases():
     index = Path(__file__).resolve().parents[4] / "release-notes" / "index.json"
-    releases = updates.parse_index(json.loads(index.read_text()))
+    return updates.parse_index(json.loads(index.read_text()))
+
+
+def test_the_committed_index_parses():
+    releases = _committed_releases()
     assert releases and all(updates.parse_version(r.cli_version) for r in releases)
+
+
+def _verified_harnesses():
+    return [h for h in release_notes.load_registry()["harnesses"].values() if h["status"] == "verified"]
+
+
+def test_every_verified_harness_is_offered_its_approved_release():
+    """From each release since the replayed one, the decision targets the registry's pin."""
+    releases = _committed_releases()
+    for harness in _verified_harnesses():
+        replayed = updates.parse_version(harness["replayed"]["cli"])
+        approved = harness["recommended"]["cli"]
+        for start in [r.cli_version for r in releases if replayed <= r.key < updates.parse_version(approved)]:
+            d = updates.decide(
+                reported_skill=SKILL_VERSION, releases=releases, installed=start, replay_id=harness["replay"],
+            )
+            assert d.target_version == approved, (harness["name"], start, d.target_version)
+        at_pin = updates.decide(
+            reported_skill=SKILL_VERSION, releases=releases, installed=approved, replay_id=harness["replay"],
+        )
+        assert at_pin.target_version is None, (harness["name"], at_pin.target_version)
+
+
+def _pre_skip_target(installed, releases):
+    """The walk inside CLIs before 0.11.2: it stops at the first deferred release."""
+    current, target = updates.parse_version(installed), None
+    for release in releases:
+        if release.key <= current:
+            continue
+        if release.update_status == "deferred":
+            break
+        if release.update_status != "withdrawn":
+            target = release
+    return target.cli_version if target else None
+
+
+@pytest.mark.parametrize("installed,replay", [
+    ("0.10.0", "grok-bot"),
+    ("0.10.2", "base44-superagent"),
+    ("0.11.1", "muse"),
+])
+def test_installed_harness_clis_can_walk_to_the_first_cli_that_skips_gaps(installed, replay):
+    releases = updates.releases_for_replay(_committed_releases(), replay)
+    target = _pre_skip_target(installed, releases)
+    assert target is not None and updates.parse_version(target) >= updates.parse_version("0.11.2"), target
 
 
 @pytest.mark.parametrize("text,ok", [
@@ -132,7 +181,7 @@ def test_harnesses_that_share_a_replay_promote_together():
     assert first.replay == second.replay == "shared"
 
 
-def test_every_deferred_release_in_a_verified_upgrade_needs_that_replay():
+def test_a_gap_does_not_hold_back_the_newest_release_a_replay_recommends():
     old = _entry(
         "0.2.0", status="deferred", ready=False,
         replay_rollouts={"grok-bot": _rollout()},
@@ -142,15 +191,15 @@ def test_every_deferred_release_in_a_verified_upgrade_needs_that_replay():
         "0.4.0", status="deferred", ready=False,
         replay_rollouts={"grok-bot": _rollout()},
     )
-    blocked = _decide(old, missing, newest, replay_id="grok-bot")
-    assert blocked.target_version == "0.2.0"
+    assert _decide(old, missing, newest, replay_id="grok-bot").target_version == "0.4.0"
 
-    middle = _entry(
+    held = _entry(
         "0.3.0", status="deferred", ready=False,
-        replay_rollouts={"grok-bot": _rollout()},
+        replay_rollouts={"grok-bot": _rollout("deferred", ready=False)},
     )
-    promoted = _decide(old, middle, newest, replay_id="grok-bot")
-    assert promoted.target_version == "0.4.0"
+    d = _decide(old, held, newest, replay_id="grok-bot")
+    assert d.target_version == "0.4.0"
+    assert "0.3.0" not in d.user_summary
 
 
 def test_a_withdrawn_release_stays_withdrawn_for_a_verified_harness():
@@ -161,12 +210,22 @@ def test_a_withdrawn_release_stays_withdrawn_for_a_verified_harness():
     ).reason == "installed_version_withdrawn"
 
 
-def test_a_deferred_release_holds_back_every_later_one():
+def test_a_deferred_release_holds_back_only_itself():
+    d = _decide(
+        _entry("0.2.0", "breaking", status="deferred", ready=False),
+        _entry("0.3.0", "fix", "urgent"),
+    )
+    assert (d.action, d.target_version, d.change_type) == ("urgent", "0.3.0", "fix")
+
+
+def test_a_withdrawn_release_in_a_gap_is_never_the_target():
     d = _decide(
         _entry("0.2.0", status="deferred", ready=False),
-        _entry("0.3.0", status="urgent"),
+        _entry("0.3.0", status="withdrawn", replacement_version="0.4.0"),
+        _entry("0.4.0", status="recommended"),
+        _entry("0.5.0", status="withdrawn", replacement_version="0.5.1"),
     )
-    assert d.action == "none" and d.target_version is None
+    assert d.target_version == "0.4.0"
 
 
 def test_the_target_is_the_newest_safe_release_and_carries_the_strongest_status():

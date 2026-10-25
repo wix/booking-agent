@@ -1,0 +1,44 @@
+{
+  "change_type": "fix",
+  "cli_version": "0.11.2",
+  "details_url": "https://github.com/wix/booking-agent/releases/tag/v0.11.2",
+  "ecosystem_ready": false,
+  "readiness_evidence": [
+    "Not ready to offer on the general rollout: no general hosted replay has run on this release. The change is offline-tested (test_updates.py): a deferred release now holds back only itself, so a later recommended release is still offered; a withdrawn release is never the target.",
+    "Existing businesses and the registry stay compatible: no USP, UCP, or platform profile version changed and no request shape changed. Saved session files are unchanged."
+  ],
+  "relevant_capabilities": [],
+  "replay_rollouts": {
+    "base44-superagent": {
+      "ecosystem_ready": true,
+      "readiness_evidence": [
+        "Not replayed on Base44 Superagent. Base44 Superagent's installed CLI 0.10.2 stops its update walk at the first release with no recommended record for this replay, so without this record it is never offered 0.11.2, the first release that skips a held-back release instead of stopping at it. This record exists only so that walk reaches 0.11.2.",
+        "Existing businesses, the registry, and saved session files stay compatible: no USP, UCP, or platform profile version changed in any release from 0.10.2 to 0.11.2, and saved session files keep their format version.",
+        "The update decision is covered offline: a deferred release holds back only itself, a withdrawn release is never the target, and from every release since this harness's replayed one the decision targets 0.11.2 (test_updates.py). The tests fail without the change."
+      ],
+      "update_status": "recommended"
+    },
+    "grok-bot": {
+      "ecosystem_ready": true,
+      "readiness_evidence": [
+        "Not replayed on Grok Bot. Grok Bot's installed CLI 0.10.0 stops its update walk at the first release with no recommended record for this replay, so without this record it is never offered 0.11.2, the first release that skips a held-back release instead of stopping at it. This record exists only so that walk reaches 0.11.2.",
+        "Existing businesses, the registry, and saved session files stay compatible: no USP, UCP, or platform profile version changed in any release from 0.10.0 to 0.11.2, and saved session files keep their format version.",
+        "The update decision is covered offline: a deferred release holds back only itself, a withdrawn release is never the target, and from every release since this harness's replayed one the decision targets 0.11.2 (test_updates.py). The tests fail without the change."
+      ],
+      "update_status": "recommended"
+    },
+    "muse": {
+      "ecosystem_ready": true,
+      "readiness_evidence": [
+        "Not replayed on Muse. Muse's installed CLI 0.11.1 stops its update walk at the first release with no recommended record for this replay, so without this record it is never offered 0.11.2, the first release that skips a held-back release instead of stopping at it. This record exists only so that walk reaches 0.11.2.",
+        "Existing businesses, the registry, and saved session files stay compatible: no USP, UCP, or platform profile version changed in any release from 0.11.1 to 0.11.2, and saved session files keep their format version.",
+        "The update decision is covered offline: a deferred release holds back only itself, a withdrawn release is never the target, and from every release since this harness's replayed one the decision targets 0.11.2 (test_updates.py). The tests fail without the change."
+      ],
+      "update_status": "recommended"
+    }
+  },
+  "schema_version": 1,
+  "skill_version": "0.58.2",
+  "update_status": "deferred",
+  "user_summary": "Update checks now offer the newest ready release even when an earlier release is still held back."
+}

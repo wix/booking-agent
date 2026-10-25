@@ -40,7 +40,7 @@ Each release also publishes that skill at an immutable `skill-v<version>` tag an
 the release workflow, so a harness can pin and verify the exact text it follows:
 
 ```bash
-curl -fsSLO https://raw.githubusercontent.com/wix/booking-agent/skill-v0.58.1/booking-agent/skills/booking-agent/SKILL.md
+curl -fsSLO https://raw.githubusercontent.com/wix/booking-agent/skill-v0.58.2/booking-agent/skills/booking-agent/SKILL.md
 gh attestation verify SKILL.md --repo wix/booking-agent \
   --signer-workflow wix/booking-agent/.github/workflows/release.yml
 ```

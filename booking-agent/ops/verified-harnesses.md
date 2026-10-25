@@ -16,13 +16,15 @@ stays `deferred`, even when the general status is `recommended`. A release that 
 CLI versions before 0.10.0 do not understand replay-specific rollouts. A verified
 harness installs its approved release manually, from its guide in
 [docs/harnesses](../docs/harnesses/README.md). From 0.10.0 onward, the installed CLI
-enforces the harness rollout for later updates. The completed Grok Bot replay is
-recorded as `recommended` for 0.9.0, 0.9.1, and 0.10.0, so its cumulative rollout has no
-deferred gap through 0.10.0. The completed Base44 Superagent replay of 0.10.2 is
-recorded as `recommended` for 0.10.0, 0.10.1, and 0.10.2, so an installed 0.10.0 or
-0.10.1 is offered 0.10.2. The completed Muse replay is recorded as `recommended` for
-0.11.1 only, so a Muse install starts from that release. Grok Bot and Base44 Superagent
-have no Muse record, so they are not offered 0.11.0 or 0.11.1.
+enforces the harness rollout for later updates.
+
+From 0.11.2 onward, the installed CLI skips a `deferred` release instead of stopping at
+it, so only the newest release a replay recommends needs a record for that replay.
+CLIs from 0.10.0 to 0.11.1 still stop at the first release with no `recommended` record
+for their replay. To let them reach 0.11.2, every release up to 0.11.2 is recorded as
+`recommended` for Grok Bot (from 0.9.0), Base44 Superagent (from 0.10.0), and Muse (from
+0.11.1). The records after each harness's replayed release say they were not replayed
+there and exist only for that walk. Do not add records like these for later releases.
 
 ## Registry
 

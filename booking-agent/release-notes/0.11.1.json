@@ -12,6 +12,22 @@
     "cancel"
   ],
   "replay_rollouts": {
+    "base44-superagent": {
+      "ecosystem_ready": true,
+      "readiness_evidence": [
+        "Not replayed on Base44 Superagent. Base44 Superagent's installed CLI 0.10.2 stops its update walk at the first release with no recommended record for this replay, so without this record it is never offered 0.11.2, the first release that skips a held-back release instead of stopping at it. This record exists only so that walk reaches 0.11.2.",
+        "Existing businesses, the registry, and saved session files stay compatible: no USP, UCP, or platform profile version changed in any release from 0.10.2 to 0.11.2, and saved session files keep their format version."
+      ],
+      "update_status": "recommended"
+    },
+    "grok-bot": {
+      "ecosystem_ready": true,
+      "readiness_evidence": [
+        "Not replayed on Grok Bot. Grok Bot's installed CLI 0.10.0 stops its update walk at the first release with no recommended record for this replay, so without this record it is never offered 0.11.2, the first release that skips a held-back release instead of stopping at it. This record exists only so that walk reaches 0.11.2.",
+        "Existing businesses, the registry, and saved session files stay compatible: no USP, UCP, or platform profile version changed in any release from 0.10.0 to 0.11.2, and saved session files keep their format version."
+      ],
+      "update_status": "recommended"
+    },
     "muse": {
       "ecosystem_ready": true,
       "readiness_evidence": [

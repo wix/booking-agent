@@ -1,5 +1,14 @@
 # Change Log
 
+## 25/10/26 at 09:08:05 by [Ran Yahalom](mailto:ranya@wix.com)
+
+- Changed the update check so a `deferred` release holds back only itself. It used to stop at the first deferred release, so one held-back release (or a replay with no record for it) hid every later recommended release. Verified harnesses were never offered their approved pair, and unverified harnesses had the same problem on the general rollout. Released as 0.11.2
+- Recorded every release up to 0.11.2 as `recommended` for the Grok Bot, Base44 Superagent, and Muse replays, and pinned all three harnesses to 0.11.2 / skill 0.58.2. CLIs already installed there (0.10.0, 0.10.2, 0.11.1) still stop at the first gap, so without these records they could never reach the fixed CLI. Each added record says it was not replayed on that harness
+- Added tests that a gap or a deferred release no longer blocks a later ready one, that a withdrawn release is never the target, that every verified harness is offered its registry pin from any release since its replay, and that the old installed walk reaches 0.11.2 on each harness. These keep the registry and the runtime decision from drifting apart again
+- Rewrote the `deferred` rule in `CONTRIBUTING.md` and the backfill paragraph in `ops/verified-harnesses.md` to match, including that the backfill through 0.11.2 is a one-off. Raised the skill to 0.58.2 because re-pinning it to the new CLI changes `SKILL.md`
+
+---
+
 ## 25/10/26 at 08:06:47 by [Ran Yahalom](mailto:ranya@wix.com)
 
 - Recorded the Muse replay of CLI 0.11.1 and skill 0.58.1 so Muse is a verified harness with its own replay id, install guide, and approved pair. The signed wheel was installed in the Secure VM, the chosen $1 HVAC-Koby booking was resumed after the boot id changed, the charge went through once, Muse added the calendar event without handing the CLI a token, and cancelling afterwards made status say the booking is cancelled. The general rollout stays deferred, so Grok Bot and Base44 Superagent are not offered 0.11.1

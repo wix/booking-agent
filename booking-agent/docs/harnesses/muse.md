@@ -7,13 +7,15 @@ a verified copy of the CLI all live there.
 <!-- harness-pins:start -->
 | Item | Value |
 |---|---|
-| Approved Booking Agent CLI | `0.11.1` |
-| Approved Booking Agent skill | `0.58.1`, bundled in that CLI |
+| Approved Booking Agent CLI | `0.11.2` |
+| Approved Booking Agent skill | `0.58.2`, bundled in that CLI |
 | Replay id | `muse` |
 | Hosted replay | Passed 25 Oct 2026 with CLI 0.11.1 and skill 0.58.1 |
 
+The approved CLI carries every change the replayed CLI ran. Its release notes record why it is approved.
+
 ```bash
-cli=0.11.1
+cli=0.11.2
 replay=muse
 ```
 <!-- harness-pins:end -->
