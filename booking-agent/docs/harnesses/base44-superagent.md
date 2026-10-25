@@ -7,13 +7,15 @@ and a verified copy of the CLI all live there.
 <!-- harness-pins:start -->
 | Item | Value |
 |---|---|
-| Approved Booking Agent CLI | `0.10.2` |
-| Approved Booking Agent skill | `0.57.4`, bundled in that CLI |
+| Approved Booking Agent CLI | `0.11.2` |
+| Approved Booking Agent skill | `0.58.2`, bundled in that CLI |
 | Replay id | `base44-superagent` |
 | Hosted replay | Passed 22 Oct 2026 with CLI 0.10.2 and skill 0.57.4 |
 
+The approved CLI carries every change the replayed CLI ran. Its release notes record why it is approved.
+
 ```bash
-cli=0.10.2
+cli=0.11.2
 replay=base44-superagent
 ```
 <!-- harness-pins:end -->

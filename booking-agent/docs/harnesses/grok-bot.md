@@ -6,15 +6,15 @@ Only the Grok Bot app is installed by you; everything below runs on that cloud c
 <!-- harness-pins:start -->
 | Item | Value |
 |---|---|
-| Approved Booking Agent CLI | `0.10.0` |
-| Approved Booking Agent skill | `0.57.2`, bundled in that CLI |
+| Approved Booking Agent CLI | `0.11.2` |
+| Approved Booking Agent skill | `0.58.2`, bundled in that CLI |
 | Replay id | `grok-bot` |
 | Hosted replay | Passed 22 Oct 2026 with CLI 0.9.1 and skill 0.57.1 |
 
 The approved CLI carries every change the replayed CLI ran. Its release notes record why it is approved.
 
 ```bash
-cli=0.10.0
+cli=0.11.2
 replay=grok-bot
 ```
 <!-- harness-pins:end -->

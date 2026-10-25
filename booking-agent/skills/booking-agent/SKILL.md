@@ -1,5 +1,5 @@
 ---
-version: 0.58.1
+version: 0.58.2
 name: booking-agent
 description: |
   Books time-based services via USP from a Link wallet. Use when the user wants to book, schedule, reserve, or pay for a service from a business (haircut, lesson, repair, class, appointment, consult). The `booking-agent` CLI owns the booking state machine and refuses to proceed when human gates are skipped. Sign the user in to Link on your own, right after install and at the start of every booking (`booking-agent flow link-auth connect`, then start `booking-agent flow link-auth poll` in the background and post the sign-in URL in the same turn, exactly like `pay poll`); never wait for the user to ask to sign in or to say they approved. After `booking-agent flow business use`, follow `next_command` through `use-ucp-checkout-mode`; businesses without native checkout fail closed. Payment uses `booking-agent flow pay request` (default returns immediately with the approval URL), then start `booking-agent flow pay poll` in the background and post the approval URL to the user in the same turn; the poll finishes checkout once they approve. Confirm through `booking-agent flow book poll --wait`; never start an inbound webhook. Surface the approval URL exactly once. Personal identification (name, phone, email, address) must always come from the user's Link account via `link-cli`, never from chat or placeholders. Before any location-based search, the CLI proposes the Link shipping address and the user confirms it or gives another; online services skip this. Talk to the user in plain everyday language only; never expose CLI, UCP, auth, session, or other implementation details unless they explicitly ask.
@@ -19,7 +19,7 @@ metadata:
         - link-cli
     install:
       - kind: uv
-        package: "booking-agent-cli==0.11.1"
+        package: "booking-agent-cli==0.11.2"
         bins: [booking-agent]
 user-invocable: true
 ---
@@ -220,7 +220,7 @@ To take a fixed, published version instead of the latest, fetch it at the releas
 workflow signs it under, and check the signature before you follow it:
 
 ```bash
-curl -fsSLO https://raw.githubusercontent.com/wix/booking-agent/skill-v0.58.1/booking-agent/skills/booking-agent/SKILL.md
+curl -fsSLO https://raw.githubusercontent.com/wix/booking-agent/skill-v0.58.2/booking-agent/skills/booking-agent/SKILL.md
 gh attestation verify SKILL.md \
   --repo wix/booking-agent \
   --signer-workflow wix/booking-agent/.github/workflows/release.yml
@@ -245,17 +245,17 @@ before installing:
 
 ```bash
 dir="$HOME/.booking-agent/verified-wheels"
-uvx pip download "booking-agent-cli==0.11.1" --no-deps --only-binary :all: -d "$dir"
+uvx pip download "booking-agent-cli==0.11.2" --no-deps --only-binary :all: -d "$dir"
 uvx pypi-attestations==0.0.30 verify pypi --repository https://github.com/wix/booking-agent \
-  "$dir/booking_agent_cli-0.11.1-py3-none-any.whl"
-uv tool install --force "$dir/booking_agent_cli-0.11.1-py3-none-any.whl"
+  "$dir/booking_agent_cli-0.11.2-py3-none-any.whl"
+uv tool install --force "$dir/booking_agent_cli-0.11.2-py3-none-any.whl"
 
 booking-agent --help
 ```
 
 Install only a wheel whose verify step passed. If `uvx` is not
-available, install the same pinned release with `uv tool install booking-agent-cli==0.11.1` or
-`pipx install booking-agent-cli==0.11.1`; the CLI checks its own files against the signed release
+available, install the same pinned release with `uv tool install booking-agent-cli==0.11.2` or
+`pipx install booking-agent-cli==0.11.2`; the CLI checks its own files against the signed release
 on the first `booking-agent flow init` and refuses to book or pay if they do not match.
 
 Harnesses that read this skill's `install` block do this for you. Do not go on
@@ -468,7 +468,7 @@ confirmation email or on the business's page (`booking_url`). Do not invent a lo
 **Step 1b — Create a new session:**
 
 ```bash
-booking-agent flow init --user-request "<user's exact request>" --skill-version 0.58.1 \
+booking-agent flow init --user-request "<user's exact request>" --skill-version 0.58.2 \
   --skill-path "<absolute path of the SKILL.md you loaded>"
 ```
 

@@ -220,27 +220,28 @@ def local_pair_reason(reported: Optional[str]) -> Optional[str]:
 
 
 def select_target(installed: str, releases: Sequence[Release]) -> Tuple[Optional[Release], List[Release]]:
-    """The newest release that is safe to move to, and every release that move brings in.
+    """The newest release that is safe to move to, and the ready releases that move brings in.
 
-    Installing a version brings every release between the installed one and it, so a
-    deferred release in that range holds back everything after it.
+    A deferred release is skipped, not a stopping point: it holds back only itself, so
+    a later recommended or urgent release is still offered. ``releases`` carries either
+    the general rollout or one replay's effective status; both are read the same way.
+    CLIs before 0.11.2 stop at the first deferred release, which is why the release
+    notes recommend every release up to 0.11.2 for each verified replay.
     """
     current = parse_version(installed)
     if current is None:
         return None, []
     target: Optional[Release] = None
-    passed: List[Release] = []
+    brought: List[Release] = []
     for release in releases:
-        if release.key <= current:
+        if release.key <= current or release.update_status == "deferred":
             continue
-        if release.update_status == "deferred":
-            break
-        passed.append(release)
+        brought.append(release)
         if release.update_status != "withdrawn":
             target = release
     if target is None:
         return None, []
-    return target, [r for r in passed if r.key <= target.key]
+    return target, [r for r in brought if r.key <= target.key]
 
 
 def decide(

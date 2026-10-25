@@ -4,8 +4,8 @@
       "guide": "docs/harnesses/base44-superagent.md",
       "name": "Base44 Superagent",
       "recommended": {
-        "cli": "0.10.2",
-        "skill": "0.57.4"
+        "cli": "0.11.2",
+        "skill": "0.58.2"
       },
       "replay": "base44-superagent",
       "replayed": {
@@ -19,14 +19,29 @@
       "guide": "docs/harnesses/grok-bot.md",
       "name": "Grok Bot",
       "recommended": {
-        "cli": "0.10.0",
-        "skill": "0.57.2"
+        "cli": "0.11.2",
+        "skill": "0.58.2"
       },
       "replay": "grok-bot",
       "replayed": {
         "cli": "0.9.1",
         "date": "2026-10-22",
         "skill": "0.57.1"
+      },
+      "status": "verified"
+    },
+    "muse": {
+      "guide": "docs/harnesses/muse.md",
+      "name": "Muse",
+      "recommended": {
+        "cli": "0.11.2",
+        "skill": "0.58.2"
+      },
+      "replay": "muse",
+      "replayed": {
+        "cli": "0.11.1",
+        "date": "2026-10-25",
+        "skill": "0.58.1"
       },
       "status": "verified"
     }

@@ -1,5 +1,28 @@
 # Change Log
 
+## 25/10/26 at 10:02:22 by [Ran Yahalom](mailto:ranya@wix.com)
+
+- Ran the general hosted replay of CLI 0.11.2 and skill 0.58.2 in Cursor on macOS with no replay id set, and recorded every release from 0.8.0 to 0.11.2 as `recommended` on the general rollout. The general rollout had been deferred since 0.8.0, so unverified harnesses (OpenClaw, Claude Code, Cursor) were never offered anything newer than 0.7.0, and CLIs before 0.11.2 stop at the first deferred release. The replay resumed a paid $1 booking in a new conversation, charged once, added the calendar event, ran a fresh Link sign-in, booked a pay-at-appointment service after the business's terms with nothing charged, and cancelled both bookings with status saying cancelled. Caveats are in the evidence: the restart was a new chat on the same machine, and the CLI was installed from the release commit's source folder before publication
+- Added the general rollout to the test that replays the walk inside already-installed CLIs, so a CLI on 0.7.0 is shown to reach 0.11.2, and noted the general backfill in `ops/verified-harnesses.md`
+
+---
+
+## 25/10/26 at 09:08:05 by [Ran Yahalom](mailto:ranya@wix.com)
+
+- Changed the update check so a `deferred` release holds back only itself. It used to stop at the first deferred release, so one held-back release (or a replay with no record for it) hid every later recommended release. Verified harnesses were never offered their approved pair, and unverified harnesses had the same problem on the general rollout. Released as 0.11.2
+- Recorded every release up to 0.11.2 as `recommended` for the Grok Bot, Base44 Superagent, and Muse replays, and pinned all three harnesses to 0.11.2 / skill 0.58.2. CLIs already installed there (0.10.0, 0.10.2, 0.11.1) still stop at the first gap, so without these records they could never reach the fixed CLI. Each added record says it was not replayed on that harness
+- Added tests that a gap or a deferred release no longer blocks a later ready one, that a withdrawn release is never the target, that every verified harness is offered its registry pin from any release since its replay, and that the old installed walk reaches 0.11.2 on each harness. These keep the registry and the runtime decision from drifting apart again
+- Rewrote the `deferred` rule in `CONTRIBUTING.md` and the backfill paragraph in `ops/verified-harnesses.md` to match, including that the backfill through 0.11.2 is a one-off. Raised the skill to 0.58.2 because re-pinning it to the new CLI changes `SKILL.md`
+
+---
+
+## 25/10/26 at 08:06:47 by [Ran Yahalom](mailto:ranya@wix.com)
+
+- Recorded the Muse replay of CLI 0.11.1 and skill 0.58.1 so Muse is a verified harness with its own replay id, install guide, and approved pair. The signed wheel was installed in the Secure VM, the chosen $1 HVAC-Koby booking was resumed after the boot id changed, the charge went through once, Muse added the calendar event without handing the CLI a token, and cancelling afterwards made status say the booking is cancelled. The general rollout stays deferred, so Grok Bot and Base44 Superagent are not offered 0.11.1
+- Wrote Muse's restart and calendar rules from that run: the restart is a Secure VM replacement that keeps `/home/hatch/workspace` (there is no safe Reset button), and calendar is the delegated route that can read busy times
+
+---
+
 ## 23/10/26 at 22:03:47 by [Ran Yahalom](mailto:ranya@wix.com)
 
 - Raised the `booking-agent` skill frontmatter to 0.58.1 and updated its stale literal `--skill-version 0.58.0` example, and re-ran `scripts/sync_skill_bundle.py` to re-pin `README.md`, `packages/cli/README.md`, and `bundled_skill.md`. The CLI 0.11.1 bump had re-pinned the skill's CLI version without raising the skill's own frontmatter version, so the `version` CI job failed on pull request [#66](https://github.com/wix/booking-agent/pull/66) with "changed but its frontmatter version 0.58.0 is not above 0.58.0"

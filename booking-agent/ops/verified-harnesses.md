@@ -16,11 +16,18 @@ stays `deferred`, even when the general status is `recommended`. A release that 
 CLI versions before 0.10.0 do not understand replay-specific rollouts. A verified
 harness installs its approved release manually, from its guide in
 [docs/harnesses](../docs/harnesses/README.md). From 0.10.0 onward, the installed CLI
-enforces the harness rollout for later updates. The completed Grok Bot replay is
-recorded as `recommended` for 0.9.0, 0.9.1, and 0.10.0, so its cumulative rollout has no
-deferred gap through 0.10.0. The completed Base44 Superagent replay of 0.10.2 is
-recorded as `recommended` for 0.10.0, 0.10.1, and 0.10.2, so an installed 0.10.0 or
-0.10.1 is offered 0.10.2.
+enforces the harness rollout for later updates.
+
+From 0.11.2 onward, the installed CLI skips a `deferred` release instead of stopping at
+it, so only the newest release a replay recommends needs a record for that replay.
+CLIs from 0.10.0 to 0.11.1 still stop at the first release with no `recommended` record
+for their replay. To let them reach 0.11.2, every release up to 0.11.2 is recorded as
+`recommended` for Grok Bot (from 0.9.0), Base44 Superagent (from 0.10.0), and Muse (from
+0.11.1). The records after each harness's replayed release say they were not replayed
+there and exist only for that walk. Do not add records like these for later releases.
+The general rollout recommends every release from 0.8.0 to 0.11.2 for the same reason,
+backed by the general replay of 0.11.2 on 25/10/26, so unverified harnesses on 0.7.0 or
+later reach 0.11.2 too.
 
 ## Registry
 
@@ -41,6 +48,7 @@ values.
 |---|---|---|---|
 | Grok Bot | `grok-bot` | `grok-bot` | Unavailable. Expect a clear statement that no calendar event was added. |
 | Base44 Superagent | `base44-superagent` | `base44-superagent` | Connected. Expect the raw calendar event link. |
+| Muse | `muse` | `muse` | Delegated, and Muse can read busy times. The CLI receives no token. Expect the raw calendar event link, and availability marked as checked. |
 
 To add a harness that shares an existing replay, point its id at that replay id and
 do not invent a second procedure. To add a harness with a different restart or calendar
@@ -77,6 +85,11 @@ writes the event) also checks the report-back:
    conflict checking.
 
 A harness's calendar row changes to delegated only after a replay of these steps passes.
+
+A harness that also passes `--delegated-can-read-busy` follows the same report-back, with one
+difference at availability: the CLI asks for busy intervals over its search window, filters the
+slots from that report, and marks the calendar checked. Record that harness on this variant.
+The events-only sentence above, that the calendar was not checked, does not apply to it.
 
 Set the assigned replay before the run. On a host that does not inject it, put this non-secret
 setting in the persistent Booking Agent `.env` file so every CLI process sees it:
@@ -138,3 +151,46 @@ changed. When the host has no reset control, do the same and record it as a cave
 4. Expect "You're booked" and the raw calendar event link.
 5. Ask "what's going on?" and run `booking-agent runtime doctor`. Expect
    `survived_restart: true`, `healthy: true`, and no findings.
+
+## Muse
+
+Muse keeps one Secure VM. Files under `/home/hatch/workspace` survive a replacement of
+that VM. There is no `/workspace` on this host. Installed programs outside the workspace
+may need reinstalling from a copy kept there. Muse does not inject `BOOKING_AGENT_REPLAY`;
+the install writes it into the persistent Booking Agent `.env`.
+
+There is no button for the replacement. Reset in Muse's data settings deletes the
+computer, including chats, files, and memory, and must not be used. A new chat on the
+same boot does not change the boot id.
+
+The restart that counts is a replacement that changes `/proc/sys/kernel/random/boot_id`
+and keeps `/home/hatch/workspace`. On the 0.11.1 replay the slot was chosen on boot
+`ba0721f8-d5a2-414b-809a-e50b1b41aa31`, and the booking was continued the next morning on
+boot `2c487b69-16fa-4354-b279-6fb0cf4ce477`.
+
+Google Calendar stays on Muse's side. The CLI never receives a token. Connect with
+`--route delegated --delegated-can-read-busy`, report the busy intervals the CLI asks
+for, and after payment create the one event it asks for and report that event back.
+
+1. Put `BOOKING_AGENT_REPLAY=muse` in the persistent `~/.booking-agent/.env` before the
+   first booking command.
+2. Start the booking. When the CLI asks, connect the delegated route above and report
+   busy times. Choose a slot. Stop there. Do not say yes, pay, or create an event.
+3. Wait until the boot id changes. Do not use Reset.
+4. Continue the saved booking. Reinstall `booking-agent` from the verified wheel under
+   `/home/hatch/workspace/verified-wheels` if it is missing, and reinstall `link-cli` the
+   same way. Run `booking-agent runtime prepare --persistent-root /home/hatch/workspace`.
+   Do not search again and do not sign in again unless Link expired.
+5. Expect "You're booked" and the raw calendar event link. `flow status` must not ask
+   for that create again.
+6. Cancel or move the booking and report the delete or move the same way. After a
+   cancel, `flow status` says the booking is cancelled and does not repeat the calendar
+   link.
+7. Ask "what's going on?" and run `booking-agent runtime doctor`. Expect
+   `survived_restart: true`, `survived_restart_basis: boot_id_changed`, `healthy: true`,
+   and no findings.
+
+A doctor result of `folder_not_yet_shown_to_survive_a_restart` before the first
+replacement is expected. On the 0.11.1 run Muse held the Link approval URL behind its
+own safety check until the user said yes a second time, then noticed the approval
+without another message. That second yes is the harness, and it is not a second charge.

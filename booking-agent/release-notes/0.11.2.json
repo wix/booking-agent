@@ -1,0 +1,51 @@
+{
+  "change_type": "fix",
+  "cli_version": "0.11.2",
+  "details_url": "https://github.com/wix/booking-agent/releases/tag/v0.11.2",
+  "ecosystem_ready": true,
+  "readiness_evidence": [
+    "Hosted replay: on 25/10/26 an unverified harness (Cursor on macOS, BOOKING_AGENT_REPLAY unset, so the general rollout) ran CLI 0.11.2 with skill 0.58.2, installed from the release commit's source folder before publication, so the signed-release check on the first flow init was not exercised. The skill was loaded unchanged from booking-agent skill print. Booking 1 was the $1 AC Repair at HVAC-Koby for Tue 27 Oct 2026, 10:00-11:00 AM MST, at 3194 West Rome Street, Yuma AZ 85364. The saved Google Calendar connection had expired; the user reconnected it through the local sign-in in events mode, and availability found no conflicts. After the slot was chosen the conversation was replaced by a new Cursor chat. Asked \"what's going on with my booking?\", it resumed that booking at the summary with no second search, no second Link sign-in, and no reconnect request.",
+    "Hosted replay: the user said yes; \"Booking it now.\" came at once, the Link approval URL was posted once, and the chat noticed the approval with no further message. $1.00 was charged once (booking fa63d017-8967-40b6-8349-fb082996141d, order 80643a06-726b-4f28-918d-e2ef9701c54b). The booked message included the raw Google Calendar event link, and flow status then returned the same message.",
+    "Hosted replay: booking 2 started signed out of Link (flow logout first). flow init sent the assistant to the Link sign-in before any question, the sign-in URL was posted once, and the booking continued when the background poll saw the approval. Google Calendar was connected again through the local sign-in, and availability removed 4 slots that conflicted with the calendar, including booking 1. The $2 AC Diagnostic & Inspection at HVAC-Koby, paid at the appointment, for Tue 27 Oct, 11:00-11:45 AM MST, showed the recap with \"$2.00, paid to the business at the appointment (nothing is charged now)\". flow book stopped for the business's payment terms and terms-of-service link; after the user accepted them, checkout completed with no Link payment and nothing charged (booking 08a23ee3-e216-4e7d-8cd9-06ea40d4c011, order c7a3b6c4-36fa-4532-9c31-f2bff8090226). The booked message included the calendar link and \"Nothing was charged. Full price, due at your appointment.\"",
+    "Hosted replay: both throwaway bookings were then cancelled, and both calendar events were reported deleted. HVAC-Koby did not refund the $1.00; the message gave the refund steps with the booking and order references. flow status on the paid booking said it is cancelled and did not say the user is booked. runtime doctor reported healthy true with one info finding, not_persistent, because ~/.booking-agent on this Mac is not linked to a declared persistent folder.",
+    "Hosted replay caveat: the restart was a new conversation on the same machine and filesystem, not a fresh sandbox, so surviving a wiped runtime was not shown on the general rollout. Not run: the connector and delegated calendar routes (Muse ran the delegated route on 0.11.1), a deposit, and bank verification.",
+    "The release owner confirmed on 25/10/26 that the fault-report support service has been redeployed and smoke-tested and that pay-at-appointment is generally available on the business side.",
+    "This is the release the replay above ran. It brings every change from 0.8.0 on, so installing it is what each of those releases was held back for.",
+    "Held back until the general replay of 0.11.2 on 25/10/26. Earlier note: Not ready to offer on the general rollout: no general hosted replay has run on this release. The change is offline-tested (test_updates.py): a deferred release now holds back only itself, so a later recommended release is still offered; a withdrawn release is never the target.",
+    "Existing businesses and the registry stay compatible: no USP, UCP, or platform profile version changed and no request shape changed. Saved session files are unchanged."
+  ],
+  "relevant_capabilities": [],
+  "replay_rollouts": {
+    "base44-superagent": {
+      "ecosystem_ready": true,
+      "readiness_evidence": [
+        "Not replayed on Base44 Superagent. Base44 Superagent's installed CLI 0.10.2 stops its update walk at the first release with no recommended record for this replay, so without this record it is never offered 0.11.2, the first release that skips a held-back release instead of stopping at it. This record exists only so that walk reaches 0.11.2.",
+        "Existing businesses, the registry, and saved session files stay compatible: no USP, UCP, or platform profile version changed in any release from 0.10.2 to 0.11.2, and saved session files keep their format version.",
+        "The update decision is covered offline: a deferred release holds back only itself, a withdrawn release is never the target, and from every release since this harness's replayed one the decision targets 0.11.2 (test_updates.py). The tests fail without the change."
+      ],
+      "update_status": "recommended"
+    },
+    "grok-bot": {
+      "ecosystem_ready": true,
+      "readiness_evidence": [
+        "Not replayed on Grok Bot. Grok Bot's installed CLI 0.10.0 stops its update walk at the first release with no recommended record for this replay, so without this record it is never offered 0.11.2, the first release that skips a held-back release instead of stopping at it. This record exists only so that walk reaches 0.11.2.",
+        "Existing businesses, the registry, and saved session files stay compatible: no USP, UCP, or platform profile version changed in any release from 0.10.0 to 0.11.2, and saved session files keep their format version.",
+        "The update decision is covered offline: a deferred release holds back only itself, a withdrawn release is never the target, and from every release since this harness's replayed one the decision targets 0.11.2 (test_updates.py). The tests fail without the change."
+      ],
+      "update_status": "recommended"
+    },
+    "muse": {
+      "ecosystem_ready": true,
+      "readiness_evidence": [
+        "Not replayed on Muse. Muse's installed CLI 0.11.1 stops its update walk at the first release with no recommended record for this replay, so without this record it is never offered 0.11.2, the first release that skips a held-back release instead of stopping at it. This record exists only so that walk reaches 0.11.2.",
+        "Existing businesses, the registry, and saved session files stay compatible: no USP, UCP, or platform profile version changed in any release from 0.11.1 to 0.11.2, and saved session files keep their format version.",
+        "The update decision is covered offline: a deferred release holds back only itself, a withdrawn release is never the target, and from every release since this harness's replayed one the decision targets 0.11.2 (test_updates.py). The tests fail without the change."
+      ],
+      "update_status": "recommended"
+    }
+  },
+  "schema_version": 1,
+  "skill_version": "0.58.2",
+  "update_status": "recommended",
+  "user_summary": "Update checks now offer the newest ready release even when an earlier release is still held back."
+}
