@@ -1,5 +1,12 @@
 # Change Log
 
+## 25/10/26 at 10:02:22 by [Ran Yahalom](mailto:ranya@wix.com)
+
+- Ran the general hosted replay of CLI 0.11.2 and skill 0.58.2 in Cursor on macOS with no replay id set, and recorded every release from 0.8.0 to 0.11.2 as `recommended` on the general rollout. The general rollout had been deferred since 0.8.0, so unverified harnesses (OpenClaw, Claude Code, Cursor) were never offered anything newer than 0.7.0, and CLIs before 0.11.2 stop at the first deferred release. The replay resumed a paid $1 booking in a new conversation, charged once, added the calendar event, ran a fresh Link sign-in, booked a pay-at-appointment service after the business's terms with nothing charged, and cancelled both bookings with status saying cancelled. Caveats are in the evidence: the restart was a new chat on the same machine, and the CLI was installed from the release commit's source folder before publication
+- Added the general rollout to the test that replays the walk inside already-installed CLIs, so a CLI on 0.7.0 is shown to reach 0.11.2, and noted the general backfill in `ops/verified-harnesses.md`
+
+---
+
 ## 25/10/26 at 09:08:05 by [Ran Yahalom](mailto:ranya@wix.com)
 
 - Changed the update check so a `deferred` release holds back only itself. It used to stop at the first deferred release, so one held-back release (or a replay with no record for it) hid every later recommended release. Verified harnesses were never offered their approved pair, and unverified harnesses had the same problem on the general rollout. Released as 0.11.2

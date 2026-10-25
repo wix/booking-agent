@@ -25,6 +25,9 @@ for their replay. To let them reach 0.11.2, every release up to 0.11.2 is record
 `recommended` for Grok Bot (from 0.9.0), Base44 Superagent (from 0.10.0), and Muse (from
 0.11.1). The records after each harness's replayed release say they were not replayed
 there and exist only for that walk. Do not add records like these for later releases.
+The general rollout recommends every release from 0.8.0 to 0.11.2 for the same reason,
+backed by the general replay of 0.11.2 on 25/10/26, so unverified harnesses on 0.7.0 or
+later reach 0.11.2 too.
 
 ## Registry
 

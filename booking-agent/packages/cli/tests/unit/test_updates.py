@@ -98,12 +98,15 @@ def _pre_skip_target(installed, releases):
 
 
 @pytest.mark.parametrize("installed,replay", [
+    ("0.7.0", None),
     ("0.10.0", "grok-bot"),
     ("0.10.2", "base44-superagent"),
     ("0.11.1", "muse"),
 ])
 def test_installed_harness_clis_can_walk_to_the_first_cli_that_skips_gaps(installed, replay):
-    releases = updates.releases_for_replay(_committed_releases(), replay)
+    releases = _committed_releases()
+    if replay:
+        releases = updates.releases_for_replay(releases, replay)
     target = _pre_skip_target(installed, releases)
     assert target is not None and updates.parse_version(target) >= updates.parse_version("0.11.2"), target
 
