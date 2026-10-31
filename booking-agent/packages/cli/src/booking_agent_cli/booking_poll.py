@@ -108,7 +108,11 @@ async def _fetch_booking_async(session: Session, booking_id: str) -> Any:
 
 def fetch_booking(session: Session, booking_id: str) -> Any:
     """Single ``get_booking`` call (resolves the profile each time, like book_poll)."""
-    return asyncio.run(_fetch_booking_async(session, booking_id))
+    from . import booking_questions_flow as bq_flow
+
+    booking = asyncio.run(_fetch_booking_async(session, booking_id))
+    bq_flow.record_business_state(session, getattr(booking, "booking_question_state", None))
+    return booking
 
 
 def wait_for_booking_terminal(

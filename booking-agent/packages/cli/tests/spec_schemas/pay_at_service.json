@@ -1,0 +1,167 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://usp-protocol.dev/schemas/services/pay_at_service.json",
+  "title": "USP Pay-at-Service Settlement Extension",
+  "description": "Lets a UCP checkout complete when the buyer owes money that is settled in person rather than through the protocol. UCP payment terms (dev.ucp.common.payment.terms) can already disclose that a payment falls due after completion, but that extension assumes a stored instrument will be charged later: it requires the funding instrument to be capable of every schedule of the selected term. Pay-at-service in local time-based services usually has no instrument at all, because the buyer pays cash or taps a terminal at the counter. This extension supplies the missing piece: a declaration that a named term is discharged outside UCP, so a business can offer the term, a platform can complete the checkout with no instrument, and neither side has to improvise. See specification.md Section 11.3.",
+  "requires": {
+    "dev.ucp.shopping.checkout": ">=2026-08-25",
+    "dev.ucp.common.payment.terms": ">=2026-08-25",
+    "dev.usp-protocol.services.bookings": ">=2026-08-20"
+  },
+  "allOf": [
+    {
+      "$ref": "https://ucp.dev/latest/schemas/shopping/checkout.json"
+    },
+    {
+      "$ref": "#/$defs/dev.ucp.shopping.checkout"
+    }
+  ],
+  "$defs": {
+    "dev.ucp.shopping.checkout": {
+      "type": "object",
+      "description": "Extension properties added to the UCP checkout root. Composed into the root via allOf: without that composition this object is declared but applied to nothing, so a checkout that misshapes settlement would validate silently. settlement is a sibling of payment rather than a member of it because it does not describe a payment being taken; it declares that one of the offered terms is discharged by a channel UCP does not model.",
+      "properties": {
+        "settlement": {
+          "$ref": "#/$defs/OfflineSettlement",
+          "description": "Present when one of the terms offered on this checkout is settled outside the protocol. Absent on a checkout whose every term is funded by an instrument."
+        }
+      },
+      "if": {
+        "required": [
+          "settlement"
+        ]
+      },
+      "then": {
+        "required": [
+          "payment"
+        ],
+        "properties": {
+          "payment": {
+            "type": "object",
+            "description": "When settlement is present the checkout MUST carry UCP payment terms, because settlement names a term and states nothing about amounts or timing on its own. The term it names supplies both.",
+            "required": [
+              "terms",
+              "selected_term_id"
+            ],
+            "properties": {
+              "terms": {
+                "type": "array",
+                "contains": {
+                  "$ref": "#/$defs/PayAtServiceTerm"
+                },
+                "description": "At least one offered term MUST be a pay-at-service term. Other terms MAY be ordinary instrument-funded terms, which is how a business offers 'pay now' and 'pay at your appointment' side by side."
+              }
+            }
+          }
+        }
+      }
+    },
+    "OfflineSettlement": {
+      "type": "object",
+      "title": "OfflineSettlement",
+      "description": "Declares that the obligation created by one payment term is discharged outside UCP. This is the whole contribution of the extension: UCP can already say what is owed and when, but has no way to say that nobody will charge an instrument for it.",
+      "required": [
+        "mode",
+        "term_id"
+      ],
+      "properties": {
+        "mode": {
+          "type": "string",
+          "const": "offline",
+          "description": "Fixed value. A single-valued enum rather than a boolean so that later revisions can add settlement channels without a breaking change, and so an unrecognized value fails closed instead of reading as false."
+        },
+        "term_id": {
+          "type": "string",
+          "description": "The payment.terms[].id this declaration applies to. Required so that a checkout offering both an instrument-funded term and a pay-at-service term is unambiguous about which one is offline. A consumer that cannot resolve this id against the latest terms array MUST treat the checkout as not offering offline settlement."
+        },
+        "accepted_methods": {
+          "type": "array",
+          "description": "Display-only hint about what the business accepts in person, for an open vocabulary. Purely informative: a platform MAY render it so the buyer knows to bring cash, and MUST NOT treat it as a commitment, a validation input, or a reason to withhold completion. The authoritative buyer-facing statement of what is owed and when remains the schedule description, per the UCP payment terms extension.",
+          "items": {
+            "type": "string",
+            "examples": [
+              "cash",
+              "card_in_person",
+              "bank_transfer"
+            ]
+          }
+        }
+      }
+    },
+    "PayAtServiceTerm": {
+      "type": "object",
+      "title": "PayAtServiceTerm",
+      "description": "A UCP payment term whose schedules all fall due at the service rather than at completion. Constrains the term shape defined by dev.ucp.common.payment.terms; it does not replace it.",
+      "required": [
+        "id",
+        "title",
+        "schedules"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier for this term within the checkout, referenced by payment.selected_term_id and by settlement.term_id."
+        },
+        "title": {
+          "type": "string",
+          "description": "Short buyer-facing label, for example 'Pay at your appointment'."
+        },
+        "schedules": {
+          "type": "array",
+          "minItems": 1,
+          "description": "Every schedule on a pay-at-service term falls due at the service. A term that mixes an immediate payment with a balance due later is a deposit, which UCP payment terms already expresses on its own; it only needs this extension when that balance is also collected in person.",
+          "items": {
+            "$ref": "#/$defs/AtServiceSchedule"
+          }
+        }
+      }
+    },
+    "AtServiceSchedule": {
+      "type": "object",
+      "title": "AtServiceSchedule",
+      "description": "One payment due at the service. Registers a concrete value in the open timing vocabulary that dev.ucp.common.payment.terms defines, so that a platform recognizing this extension can anchor the payment to the booked slot instead of reading the description alone.",
+      "required": [
+        "id",
+        "type",
+        "description",
+        "due_at",
+        "amount"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Identifier for this schedule, unique within its term."
+        },
+        "type": {
+          "type": "string",
+          "const": "at_service",
+          "description": "Timing class. Not 'immediate', so a platform that does not recognize this extension still correctly concludes that the payment is not due at completion, per the UCP rule that unrecognized timing values mean not due at completion. That default is what makes this extension safe to ignore."
+        },
+        "description": {
+          "type": "object",
+          "description": "Complete buyer-facing statement of when and how the payment is due, in the shape dev.ucp.common.payment.terms defines. Required by UCP and restated here because it is the only field a platform is guaranteed to render.",
+          "required": [
+            "plain"
+          ],
+          "properties": {
+            "plain": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        "due_at": {
+          "type": "string",
+          "format": "date-time",
+          "description": "RFC 3339 date-time with an offset, equal to the start of the booked slot. UCP makes due_at optional and tells businesses to omit it when the date depends on a future event. A booked slot is not such an event: the time is known at checkout, which is the entire point of scheduling, so this extension requires it. That is what lets a platform set a reminder rather than parse prose."
+        },
+        "amount": {
+          "type": ["integer", "string"],
+          "pattern": "^[0-9]+$",
+          "minimum": 0,
+          "description": "Amount charged when this payment is taken, in the checkout currency's ISO 4217 minor units, inclusive of tax and every other charge. Stated once here rather than duplicated into settlement, so the amount owed cannot drift between the two."
+        }
+      }
+    }
+  }
+}

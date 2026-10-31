@@ -1,0 +1,80 @@
+{
+  "id": "bq-flow-once-per-buyer-satisfied",
+  "section": "11.4.7",
+  "requirement": "once-per-buyer-satisfied",
+  "kind": "flow",
+  "expect": "accept",
+  "notes": "Authenticated buyer context proves the once-per-buyer prerequisite was completed. The business returns eligible with no new answers requested. The platform did not infer this itself; it sent no submission and let the business decide.",
+  "given": {
+    "service": {
+      "id": "svc_color_90",
+      "type": "appointment",
+      "booking_question_sets": [
+        {
+          "id": "consult",
+          "revision": "r1",
+          "purpose": "eligibility",
+          "completion_timing": "preflight",
+          "frequency": "once_per_buyer",
+          "items": [
+            {
+              "kind": "question",
+              "id": "consult_done",
+              "label": {
+                "plain": "Have you had a color consultation with us?"
+              },
+              "schema": {
+                "type": "boolean"
+              },
+              "required": true
+            }
+          ]
+        }
+      ]
+    },
+    "buyer_history": {
+      "completed_sets": [
+        {
+          "set_id": "consult",
+          "revision": "r1",
+          "completed_at": "2026-09-01T10:00:00Z"
+        }
+      ]
+    }
+  },
+  "when": [
+    {
+      "at": "2026-10-25T10:00:00Z",
+      "step": "check_eligibility",
+      "with": {
+        "service_id": "svc_cut_45",
+        "buyer": {
+          "first_name": "Dana",
+          "last_name": "Levi",
+          "email": "dana@example.com",
+          "phone_number": "+14155550123"
+        },
+        "booking_question_submissions": []
+      },
+      "result": {
+        "eligibility": {
+          "decision": "eligible",
+          "assessment_token": "bqat_7Hc2kQ",
+          "expires_at": "2026-10-25T10:15:00Z"
+        }
+      }
+    }
+  ],
+  "then": {
+    "answers_requested": [],
+    "decision": "eligible",
+    "http_status": 200
+  },
+  "wrong_answers": [
+    {
+      "behaviour": "platform skips the check because its memory says the buyer did it",
+      "violates": "11.4.11 platform item 3",
+      "why": "Only the business's eligible decision counts."
+    }
+  ]
+}

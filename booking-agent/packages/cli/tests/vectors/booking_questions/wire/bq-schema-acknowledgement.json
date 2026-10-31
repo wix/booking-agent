@@ -1,0 +1,79 @@
+{
+  "id": "bq-schema-acknowledgement",
+  "section": "11.4.3",
+  "requirement": "acknowledgement-const-true",
+  "kind": "wire",
+  "binding": [
+    "rest",
+    "mcp"
+  ],
+  "expect": "accept",
+  "schema": "booking_questions.json#/$defs/BookingQuestion",
+  "notes": "An acknowledgment is schema const: true. false is not an acknowledgment, and default is forbidden so the box is never pre-ticked.",
+  "case": "no-show fee acknowledgment",
+  "instance": {
+    "kind": "question",
+    "id": "no_show_fee",
+    "label": {
+      "plain": "I agree to the no-show fee."
+    },
+    "schema": {
+      "type": "boolean",
+      "const": true
+    },
+    "required": true,
+    "rendering": "checkbox",
+    "collection": "platform_surface"
+  },
+  "then": {
+    "conforming": true,
+    "schema_valid": true,
+    "member_name_violations": []
+  },
+  "answer_cases": [
+    {
+      "value": true,
+      "valid": true
+    },
+    {
+      "value": false,
+      "valid": false,
+      "errors": [
+        "const"
+      ]
+    }
+  ],
+  "variants": [
+    {
+      "case": "pre-ticked acknowledgment",
+      "expect": "reject",
+      "instance": {
+        "kind": "question",
+        "id": "no_show_fee",
+        "label": {
+          "plain": "I agree to the no-show fee."
+        },
+        "schema": {
+          "type": "boolean",
+          "const": true
+        },
+        "required": true,
+        "rendering": "checkbox",
+        "collection": "platform_surface",
+        "default": true
+      },
+      "then": {
+        "conforming": false,
+        "schema_valid": false,
+        "member_name_violations": []
+      }
+    }
+  ],
+  "wrong_answers": [
+    {
+      "behaviour": "publish default: true for convenience",
+      "violates": "11.4.3 default",
+      "why": "A pre-ticked acknowledgment is not an explicit buyer response."
+    }
+  ]
+}

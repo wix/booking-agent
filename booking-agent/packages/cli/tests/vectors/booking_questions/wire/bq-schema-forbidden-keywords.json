@@ -1,0 +1,161 @@
+{
+  "id": "bq-schema-forbidden-keywords",
+  "section": "11.4.3",
+  "requirement": "restricted-subset",
+  "kind": "wire",
+  "binding": [
+    "rest",
+    "mcp"
+  ],
+  "expect": "reject",
+  "schema": "booking_questions.json#/$defs/BookingQuestion",
+  "notes": "Every answer-schema variant forbids keywords it does not list. Each variant below adds one forbidden keyword to an otherwise valid question.",
+  "case": "pattern",
+  "instance": {
+    "kind": "question",
+    "id": "code",
+    "label": {
+      "plain": "Gift code"
+    },
+    "schema": {
+      "type": "string",
+      "maxLength": 20,
+      "pattern": "^[A-Z0-9]+$"
+    },
+    "required": true
+  },
+  "then": {
+    "conforming": false,
+    "schema_valid": false,
+    "member_name_violations": []
+  },
+  "variants": [
+    {
+      "case": "remote $ref",
+      "expect": "reject",
+      "instance": {
+        "kind": "question",
+        "id": "code",
+        "label": {
+          "plain": "Gift code"
+        },
+        "schema": {
+          "$ref": "https://example.com/schema.json"
+        },
+        "required": true
+      },
+      "then": {
+        "conforming": false,
+        "schema_valid": false,
+        "member_name_violations": []
+      }
+    },
+    {
+      "case": "nested object",
+      "expect": "reject",
+      "instance": {
+        "kind": "question",
+        "id": "code",
+        "label": {
+          "plain": "Gift code"
+        },
+        "schema": {
+          "type": "object",
+          "properties": {
+            "a": {
+              "type": "string"
+            }
+          }
+        },
+        "required": true
+      },
+      "then": {
+        "conforming": false,
+        "schema_valid": false,
+        "member_name_violations": []
+      }
+    },
+    {
+      "case": "patternProperties",
+      "expect": "reject",
+      "instance": {
+        "kind": "question",
+        "id": "code",
+        "label": {
+          "plain": "Gift code"
+        },
+        "schema": {
+          "type": "string",
+          "maxLength": 20,
+          "patternProperties": {
+            ".*": {}
+          }
+        },
+        "required": true
+      },
+      "then": {
+        "conforming": false,
+        "schema_valid": false,
+        "member_name_violations": []
+      }
+    },
+    {
+      "case": "if/then",
+      "expect": "reject",
+      "instance": {
+        "kind": "question",
+        "id": "code",
+        "label": {
+          "plain": "Gift code"
+        },
+        "schema": {
+          "type": "string",
+          "maxLength": 20,
+          "if": {
+            "minLength": 5
+          },
+          "then": {
+            "maxLength": 10
+          }
+        },
+        "required": true
+      },
+      "then": {
+        "conforming": false,
+        "schema_valid": false,
+        "member_name_violations": []
+      }
+    },
+    {
+      "case": "control: the same question without extra keywords",
+      "expect": "accept",
+      "instance": {
+        "kind": "question",
+        "id": "code",
+        "label": {
+          "plain": "Gift code"
+        },
+        "schema": {
+          "type": "string",
+          "maxLength": 20
+        },
+        "required": true,
+        "description": {
+          "plain": "Two letters followed by six digits."
+        }
+      },
+      "then": {
+        "conforming": true,
+        "schema_valid": true,
+        "member_name_violations": []
+      }
+    }
+  ],
+  "wrong_answers": [
+    {
+      "behaviour": "pass the business schema to a full JSON Schema validator",
+      "violates": "11.4.3 Answer Schema",
+      "why": "Remote references and conditionals turn a form into fetchable, Turing-adjacent logic the platform must trust."
+    }
+  ]
+}

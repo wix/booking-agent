@@ -1,0 +1,86 @@
+{
+  "id": "bq-cond-pruning",
+  "section": "11.4.3",
+  "requirement": "condition-pruning",
+  "kind": "eval",
+  "notes": "Changing an earlier answer re-evaluates every later condition. Answers to questions that became inapplicable are pruned; a business that still receives one ignores it with the informational booking_question_answer_ignored, which the checker derives for every flow step that carries submissions.",
+  "given": {
+    "set": {
+      "id": "p",
+      "revision": "r1",
+      "purpose": "intake",
+      "completion_timing": "before_confirmation",
+      "frequency": "every_booking",
+      "items": [
+        {
+          "kind": "question",
+          "id": "has_pets",
+          "label": {
+            "plain": "Any pets at home?"
+          },
+          "schema": {
+            "type": "boolean"
+          },
+          "required": true
+        },
+        {
+          "kind": "question",
+          "id": "pet_count",
+          "label": {
+            "plain": "How many?"
+          },
+          "schema": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "required": true,
+          "when": {
+            "question": "has_pets",
+            "op": "equals",
+            "value": true
+          }
+        }
+      ]
+    }
+  },
+  "cases": [
+    {
+      "case": "pets yes",
+      "answers": {
+        "has_pets": true,
+        "pet_count": 2
+      },
+      "then": {
+        "definition_valid": true,
+        "applicable": [
+          "has_pets",
+          "pet_count"
+        ],
+        "pruned": []
+      }
+    },
+    {
+      "case": "changed to no",
+      "answers": {
+        "has_pets": false,
+        "pet_count": 2
+      },
+      "then": {
+        "definition_valid": true,
+        "applicable": [
+          "has_pets"
+        ],
+        "pruned": [
+          "pet_count"
+        ]
+      }
+    }
+  ],
+  "wrong_answers": [
+    {
+      "behaviour": "reject the request because of the stale answer",
+      "violates": "11.4.3 Conditions item 5",
+      "why": "The buyer did nothing wrong; the platform merely kept a value it should have removed."
+    }
+  ]
+}

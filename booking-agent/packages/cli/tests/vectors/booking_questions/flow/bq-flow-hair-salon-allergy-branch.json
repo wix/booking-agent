@@ -1,0 +1,166 @@
+{
+  "id": "bq-flow-hair-salon-allergy-branch",
+  "section": "11.4.3",
+  "requirement": "service-specific-conditional-questions",
+  "kind": "flow",
+  "expect": "accept",
+  "evidence": "service-specific-conditional-questions",
+  "notes": "A salon service asks hair length and a color-allergy branch. Answering yes reveals a required follow-up, which the business reports missing until it is answered.",
+  "given": {
+    "service": {
+      "id": "svc_cut_45",
+      "type": "appointment",
+      "booking_question_sets": [
+        {
+          "id": "intake",
+          "revision": "r1",
+          "purpose": "intake",
+          "completion_timing": "before_confirmation",
+          "frequency": "every_booking",
+          "items": [
+            {
+              "kind": "question",
+              "id": "hair_length",
+              "label": {
+                "plain": "Hair length"
+              },
+              "schema": {
+                "type": "string",
+                "oneOf": [
+                  {
+                    "const": "short",
+                    "title": "Short"
+                  },
+                  {
+                    "const": "medium",
+                    "title": "Medium"
+                  },
+                  {
+                    "const": "long",
+                    "title": "Long"
+                  }
+                ]
+              },
+              "required": true
+            },
+            {
+              "kind": "question",
+              "id": "color_allergy",
+              "label": {
+                "plain": "Have you reacted to hair color before?"
+              },
+              "schema": {
+                "type": "boolean"
+              },
+              "required": true
+            },
+            {
+              "kind": "question",
+              "id": "allergy_detail",
+              "label": {
+                "plain": "What happened?"
+              },
+              "schema": {
+                "type": "string",
+                "maxLength": 300
+              },
+              "required": true,
+              "when": {
+                "question": "color_allergy",
+                "op": "equals",
+                "value": true
+              }
+            }
+          ]
+        }
+      ]
+    },
+    "hold": {
+      "id": "hold_bq_1",
+      "slot_id": "slot_20261028_1000",
+      "service_id": "svc_cut_45",
+      "spots": 1,
+      "expires_at": "2026-10-25T10:10:00Z",
+      "status": "active"
+    }
+  },
+  "when": [
+    {
+      "at": "2026-10-25T10:00:00Z",
+      "step": "create_booking",
+      "with": {
+        "hold_id": "hold_bq_1",
+        "buyer": {
+          "first_name": "Dana",
+          "last_name": "Levi",
+          "email": "dana@example.com",
+          "phone_number": "+14155550123"
+        },
+        "booking_question_submissions": [
+          {
+            "set_id": "intake",
+            "revision": "r1",
+            "answers": {
+              "hair_length": "long",
+              "color_allergy": true
+            }
+          }
+        ]
+      },
+      "result": {
+        "accepted": false,
+        "booking_created": false,
+        "messages": [
+          {
+            "type": "error",
+            "code": "booking_question_answer_missing",
+            "content": "This answer is required.",
+            "severity": "recoverable",
+            "path": "$.booking_question_submissions[?@.set_id=='intake'].answers['allergy_detail']"
+          }
+        ]
+      }
+    },
+    {
+      "at": "2026-10-25T10:01:00Z",
+      "step": "create_booking",
+      "with": {
+        "hold_id": "hold_bq_1",
+        "buyer": {
+          "first_name": "Dana",
+          "last_name": "Levi",
+          "email": "dana@example.com",
+          "phone_number": "+14155550123"
+        },
+        "booking_question_submissions": [
+          {
+            "set_id": "intake",
+            "revision": "r1",
+            "answers": {
+              "hair_length": "long",
+              "color_allergy": true,
+              "allergy_detail": "Itching after a dark dye"
+            }
+          }
+        ]
+      },
+      "result": {
+        "accepted": true,
+        "booking_id": "bkg_bq_1",
+        "booking_status": "confirmed",
+        "messages": []
+      }
+    }
+  ],
+  "then": {
+    "booking_status": "confirmed",
+    "http_status": 200
+  },
+  "wrong_answers": [
+    {
+      "behaviour": "ask the follow-up to everyone",
+      "violates": "11.4.3 Conditions",
+      "why": "Buyers without a history of reactions are asked to describe one."
+    }
+  ]
+}

@@ -1,0 +1,41 @@
+{
+  "id": "bq-flow-service-picker-field-withheld",
+  "section": "11.4.11",
+  "requirement": "service-picker-withheld",
+  "kind": "flow",
+  "expect": "accept",
+  "notes": "A form field that asks the buyer to pick a service or appointment duplicates the booking's own service and slot selection. When it does not match the booking, the service stays withheld.",
+  "given": {
+    "business_form": {
+      "service_id": "svc_brow",
+      "fields": [
+        {
+          "type": "service_picker",
+          "label": "Which treatment?"
+        }
+      ]
+    }
+  },
+  "when": [
+    {
+      "at": "2026-10-25T08:00:00Z",
+      "step": "catalog_publish",
+      "with": {
+        "service_id": "svc_brow"
+      },
+      "result": {
+        "service_published": false
+      }
+    }
+  ],
+  "then": {
+    "service_published": false
+  },
+  "wrong_answers": [
+    {
+      "behaviour": "map the picker to a single-choice question",
+      "violates": "11.4.11 business item 2",
+      "why": "The buyer could pick a different service in the form than the one being booked."
+    }
+  ]
+}

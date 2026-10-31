@@ -1,0 +1,103 @@
+{
+  "id": "bq-flow-eligible-token",
+  "section": "11.4.4",
+  "requirement": "preflight-eligible-token",
+  "kind": "flow",
+  "expect": "accept",
+  "notes": "An eligible decision returns a short-lived assessment token. The platform presents slots and the hold carrying the token is accepted.",
+  "given": {
+    "service": {
+      "id": "svc_color_90",
+      "type": "appointment",
+      "booking_question_sets": [
+        {
+          "id": "eligibility",
+          "revision": "r1",
+          "purpose": "eligibility",
+          "completion_timing": "preflight",
+          "frequency": "every_booking",
+          "items": [
+            {
+              "kind": "question",
+              "id": "prior_reaction",
+              "label": {
+                "plain": "Have you ever reacted to hair dye?"
+              },
+              "schema": {
+                "type": "boolean"
+              },
+              "required": true
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "when": [
+    {
+      "at": "2026-10-25T10:00:00Z",
+      "step": "check_eligibility",
+      "with": {
+        "service_id": "svc_cut_45",
+        "buyer": {
+          "first_name": "Dana",
+          "last_name": "Levi",
+          "email": "dana@example.com",
+          "phone_number": "+14155550123"
+        },
+        "booking_question_submissions": [
+          {
+            "set_id": "eligibility",
+            "revision": "r1",
+            "answers": {
+              "prior_reaction": false
+            }
+          }
+        ]
+      },
+      "result": {
+        "eligibility": {
+          "decision": "eligible",
+          "assessment_token": "bqat_7Hc2kQ",
+          "expires_at": "2026-10-25T10:15:00Z"
+        }
+      }
+    },
+    {
+      "at": "2026-10-25T10:00:10Z",
+      "step": "query_availability",
+      "with": {
+        "service_id": "svc_color_90",
+        "booking_question_assessment_token": "bqat_7Hc2kQ"
+      },
+      "result": {
+        "slots_presented": true
+      }
+    },
+    {
+      "at": "2026-10-25T10:01:00Z",
+      "step": "hold_slot",
+      "with": {
+        "slot_id": "slot_20261028_1000",
+        "spots": 1,
+        "booking_question_assessment_token": "bqat_7Hc2kQ"
+      },
+      "result": {
+        "accepted": true,
+        "hold_id": "hold_bq_9",
+        "messages": []
+      }
+    }
+  ],
+  "then": {
+    "hold_created": true,
+    "http_status": 200
+  },
+  "wrong_answers": [
+    {
+      "behaviour": "present slots before the decision",
+      "violates": "11.4.4 Preflight Eligibility Check",
+      "why": "The buyer picks a time for a service they cannot book."
+    }
+  ]
+}

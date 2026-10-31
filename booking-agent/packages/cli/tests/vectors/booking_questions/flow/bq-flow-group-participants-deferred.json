@@ -1,0 +1,38 @@
+{
+  "id": "bq-flow-group-participants-deferred",
+  "section": "11.4.13",
+  "requirement": "group-participants-deferred",
+  "kind": "flow",
+  "expect": "accept",
+  "notes": "A group service whose form needs independent answers from each attendee stays withheld. USP has no participants concept, so this is a fail-closed deferral, not a wire shape.",
+  "given": {
+    "business_form": {
+      "service_id": "svc_team_class",
+      "type": "group",
+      "per_attendee_fields": true
+    }
+  },
+  "when": [
+    {
+      "at": "2026-10-25T08:00:00Z",
+      "step": "catalog_publish",
+      "with": {
+        "service_id": "svc_team_class"
+      },
+      "result": {
+        "service_published": false
+      }
+    }
+  ],
+  "then": {
+    "service_published": false,
+    "deferral": "11.4.13"
+  },
+  "wrong_answers": [
+    {
+      "behaviour": "collect only the booker's answers",
+      "violates": "11.4.13 Deferred Capabilities",
+      "why": "The business is missing answers for every other attendee."
+    }
+  ]
+}

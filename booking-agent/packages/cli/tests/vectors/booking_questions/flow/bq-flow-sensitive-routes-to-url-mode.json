@@ -1,0 +1,65 @@
+{
+  "id": "bq-flow-sensitive-routes-to-url-mode",
+  "section": "11.4.10",
+  "requirement": "sensitive-url-mode",
+  "kind": "flow",
+  "expect": "accept",
+  "notes": "A sensitive, credential-like question is never offered through an MCP elicitation form; it goes to the business continue_url.",
+  "given": {
+    "service": {
+      "id": "svc_cut_45",
+      "type": "appointment",
+      "booking_question_sets": [
+        {
+          "id": "intake",
+          "revision": "r1",
+          "purpose": "intake",
+          "completion_timing": "before_confirmation",
+          "frequency": "every_booking",
+          "items": [
+            {
+              "kind": "question",
+              "id": "insurance_id",
+              "label": {
+                "plain": "Insurance member ID"
+              },
+              "schema": {
+                "type": "string",
+                "maxLength": 30
+              },
+              "required": true,
+              "sensitive": true,
+              "collection": "business_surface"
+            }
+          ]
+        }
+      ]
+    },
+    "binding": "mcp"
+  },
+  "when": [
+    {
+      "at": "2026-10-25T09:59:00Z",
+      "step": "platform_routes",
+      "with": {
+        "question": "insurance_id"
+      },
+      "result": {
+        "mcp_elicitation_form": false,
+        "route": "continue_url",
+        "continue_url": "https://studio.example.com/forms/sess_44"
+      }
+    }
+  ],
+  "then": {
+    "elicitation_used": false,
+    "http_status": 200
+  },
+  "wrong_answers": [
+    {
+      "behaviour": "collect it through a form elicitation",
+      "violates": "11.4.10 Privacy and Safety",
+      "why": "The value would pass through the client and model context."
+    }
+  ]
+}

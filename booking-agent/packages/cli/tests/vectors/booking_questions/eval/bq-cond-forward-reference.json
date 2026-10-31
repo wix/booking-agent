@@ -1,0 +1,233 @@
+{
+  "id": "bq-cond-forward-reference",
+  "section": "11.4.3",
+  "requirement": "condition-earlier-question-only",
+  "kind": "eval",
+  "notes": "A condition names only an earlier question in the same set. Forward, self, and cross-set references, and references to non-question items, are definition errors.",
+  "given": {
+    "set": {
+      "id": "r",
+      "revision": "r1",
+      "purpose": "intake",
+      "completion_timing": "before_confirmation",
+      "frequency": "every_booking",
+      "items": [
+        {
+          "kind": "question",
+          "id": "a",
+          "label": {
+            "plain": "A"
+          },
+          "schema": {
+            "type": "boolean"
+          },
+          "required": true
+        },
+        {
+          "kind": "question",
+          "id": "b",
+          "label": {
+            "plain": "B"
+          },
+          "schema": {
+            "type": "string",
+            "maxLength": 10
+          },
+          "required": false,
+          "when": {
+            "question": "a",
+            "op": "equals",
+            "value": true
+          }
+        }
+      ]
+    }
+  },
+  "cases": [
+    {
+      "case": "backward reference",
+      "answers": {
+        "a": true
+      },
+      "then": {
+        "definition_valid": true,
+        "applicable": [
+          "a",
+          "b"
+        ]
+      }
+    },
+    {
+      "case": "forward reference",
+      "set": {
+        "id": "r",
+        "revision": "r1",
+        "purpose": "intake",
+        "completion_timing": "before_confirmation",
+        "frequency": "every_booking",
+        "items": [
+          {
+            "kind": "question",
+            "id": "a",
+            "label": {
+              "plain": "A"
+            },
+            "schema": {
+              "type": "string",
+              "maxLength": 10
+            },
+            "required": false,
+            "when": {
+              "question": "b",
+              "op": "answered"
+            }
+          },
+          {
+            "kind": "question",
+            "id": "b",
+            "label": {
+              "plain": "B"
+            },
+            "schema": {
+              "type": "boolean"
+            },
+            "required": true
+          }
+        ]
+      },
+      "then": {
+        "definition_valid": false,
+        "semantic_errors": [
+          "forward_reference:a"
+        ]
+      }
+    },
+    {
+      "case": "self reference",
+      "set": {
+        "id": "r",
+        "revision": "r1",
+        "purpose": "intake",
+        "completion_timing": "before_confirmation",
+        "frequency": "every_booking",
+        "items": [
+          {
+            "kind": "question",
+            "id": "a",
+            "label": {
+              "plain": "A"
+            },
+            "schema": {
+              "type": "string",
+              "maxLength": 10
+            },
+            "required": false,
+            "when": {
+              "question": "a",
+              "op": "answered"
+            }
+          }
+        ]
+      },
+      "then": {
+        "definition_valid": false,
+        "semantic_errors": [
+          "self_reference:a"
+        ]
+      }
+    },
+    {
+      "case": "cross-set reference",
+      "set": {
+        "id": "r",
+        "revision": "r1",
+        "purpose": "intake",
+        "completion_timing": "before_confirmation",
+        "frequency": "every_booking",
+        "items": [
+          {
+            "kind": "question",
+            "id": "a",
+            "label": {
+              "plain": "A"
+            },
+            "schema": {
+              "type": "boolean"
+            },
+            "required": true
+          },
+          {
+            "kind": "question",
+            "id": "b",
+            "label": {
+              "plain": "B"
+            },
+            "schema": {
+              "type": "string",
+              "maxLength": 10
+            },
+            "required": false,
+            "when": {
+              "question": "hair_length",
+              "op": "answered"
+            }
+          }
+        ]
+      },
+      "then": {
+        "definition_valid": false,
+        "semantic_errors": [
+          "unknown_reference:b"
+        ]
+      }
+    },
+    {
+      "case": "reference to a notice",
+      "set": {
+        "id": "r",
+        "revision": "r1",
+        "purpose": "intake",
+        "completion_timing": "before_confirmation",
+        "frequency": "every_booking",
+        "items": [
+          {
+            "kind": "notice",
+            "id": "n",
+            "content": {
+              "plain": "Read this."
+            }
+          },
+          {
+            "kind": "question",
+            "id": "b",
+            "label": {
+              "plain": "B"
+            },
+            "schema": {
+              "type": "string",
+              "maxLength": 10
+            },
+            "required": false,
+            "when": {
+              "question": "n",
+              "op": "answered"
+            }
+          }
+        ]
+      },
+      "then": {
+        "definition_valid": false,
+        "semantic_errors": [
+          "reference_not_question:b"
+        ]
+      }
+    }
+  ],
+  "wrong_answers": [
+    {
+      "behaviour": "resolve forward references with a fixpoint",
+      "violates": "11.4.3 Conditions item 1",
+      "why": "Cycles become possible and two evaluators can settle on different fixpoints."
+    }
+  ]
+}

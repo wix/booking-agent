@@ -1,0 +1,57 @@
+{
+  "id": "bq-schema-external-file",
+  "section": "11.4.3",
+  "requirement": "external-task-file",
+  "kind": "wire",
+  "binding": [
+    "rest",
+    "mcp"
+  ],
+  "expect": "accept",
+  "schema": "booking_questions.json#/$defs/BookingQuestionExternalTask",
+  "notes": "A file task is business-hosted work completed through a session-specific continue_url. It has collection business_surface and never carries an answer value.",
+  "case": "file task",
+  "instance": {
+    "kind": "external_task",
+    "id": "file_task",
+    "label": {
+      "plain": "Upload a photo of the area to treat"
+    },
+    "task_type": "file",
+    "required": true,
+    "collection": "business_surface"
+  },
+  "then": {
+    "conforming": true,
+    "schema_valid": true,
+    "member_name_violations": []
+  },
+  "variants": [
+    {
+      "case": "file task collected in band",
+      "expect": "reject",
+      "instance": {
+        "kind": "external_task",
+        "id": "file_task",
+        "label": {
+          "plain": "Upload a photo of the area to treat"
+        },
+        "task_type": "file",
+        "required": true,
+        "collection": "in_band"
+      },
+      "then": {
+        "conforming": false,
+        "schema_valid": false,
+        "member_name_violations": []
+      }
+    }
+  ],
+  "wrong_answers": [
+    {
+      "behaviour": "accept the file as a base64 answer",
+      "violates": "11.4.10 Privacy and Safety",
+      "why": "Files and signatures would flow through agent context and logs."
+    }
+  ]
+}

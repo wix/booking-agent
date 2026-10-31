@@ -1,0 +1,113 @@
+{
+  "id": "bq-cond-contact-preference",
+  "section": "11.4.3",
+  "requirement": "condition-contact-preference",
+  "kind": "eval",
+  "notes": "Choosing SMS reveals an E.164 phone question; choosing email reveals an email question.",
+  "given": {
+    "set": {
+      "id": "contact",
+      "revision": "r1",
+      "purpose": "intake",
+      "completion_timing": "before_confirmation",
+      "frequency": "every_booking",
+      "items": [
+        {
+          "kind": "question",
+          "id": "channel",
+          "label": {
+            "plain": "How should we remind you?"
+          },
+          "schema": {
+            "type": "string",
+            "oneOf": [
+              {
+                "const": "sms",
+                "title": "Text message"
+              },
+              {
+                "const": "email",
+                "title": "Email"
+              }
+            ]
+          },
+          "required": true
+        },
+        {
+          "kind": "question",
+          "id": "sms_number",
+          "label": {
+            "plain": "Mobile number"
+          },
+          "schema": {
+            "type": "string",
+            "format": "phone"
+          },
+          "required": true,
+          "when": {
+            "question": "channel",
+            "op": "equals",
+            "value": "sms"
+          }
+        },
+        {
+          "kind": "question",
+          "id": "reminder_email",
+          "label": {
+            "plain": "Email"
+          },
+          "schema": {
+            "type": "string",
+            "format": "email"
+          },
+          "required": true,
+          "when": {
+            "question": "channel",
+            "op": "equals",
+            "value": "email"
+          }
+        }
+      ]
+    }
+  },
+  "cases": [
+    {
+      "case": "sms",
+      "answers": {
+        "channel": "sms"
+      },
+      "then": {
+        "definition_valid": true,
+        "applicable": [
+          "channel",
+          "sms_number"
+        ],
+        "required_unanswered": [
+          "sms_number"
+        ]
+      }
+    },
+    {
+      "case": "email",
+      "answers": {
+        "channel": "email",
+        "reminder_email": "dana@example.com"
+      },
+      "then": {
+        "definition_valid": true,
+        "applicable": [
+          "channel",
+          "reminder_email"
+        ],
+        "required_unanswered": []
+      }
+    }
+  ],
+  "wrong_answers": [
+    {
+      "behaviour": "require both contact questions",
+      "violates": "11.4.3 Conditions",
+      "why": "Buyers are forced to give a channel they declined."
+    }
+  ]
+}

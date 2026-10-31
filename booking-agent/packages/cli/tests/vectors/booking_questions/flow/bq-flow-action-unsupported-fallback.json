@@ -1,0 +1,148 @@
+{
+  "id": "bq-flow-action-unsupported-fallback",
+  "section": "11.4.8",
+  "requirement": "buyer-input-action-fallback",
+  "kind": "flow",
+  "expect": "accept",
+  "notes": "A voice-only platform cannot display the label verbatim with a deliberate response control, so it cannot honour the contract. It uses the continue_url fallback; without one, the Action stays unresolved.",
+  "given": {
+    "service": {
+      "id": "svc_cut_45",
+      "type": "appointment",
+      "booking_question_sets": [
+        {
+          "id": "intake",
+          "revision": "r1",
+          "purpose": "intake",
+          "completion_timing": "before_confirmation",
+          "frequency": "every_booking",
+          "items": [
+            {
+              "kind": "question",
+              "id": "hair_notes",
+              "label": {
+                "plain": "Anything the stylist should know?"
+              },
+              "schema": {
+                "type": "string",
+                "maxLength": 500
+              },
+              "required": true
+            },
+            {
+              "kind": "question",
+              "id": "no_show_fee",
+              "label": {
+                "plain": "I agree to the no-show fee of $30."
+              },
+              "schema": {
+                "type": "boolean",
+                "const": true
+              },
+              "required": true,
+              "rendering": "checkbox",
+              "collection": "platform_surface"
+            }
+          ]
+        }
+      ]
+    },
+    "hold": {
+      "id": "hold_bq_1",
+      "slot_id": "slot_20261028_1000",
+      "service_id": "svc_cut_45",
+      "spots": 1,
+      "expires_at": "2026-10-25T10:10:00Z",
+      "status": "active"
+    }
+  },
+  "when": [
+    {
+      "at": "2026-10-25T10:00:00Z",
+      "step": "create_booking",
+      "with": {
+        "hold_id": "hold_bq_1",
+        "buyer": {
+          "first_name": "Dana",
+          "last_name": "Levi",
+          "email": "dana@example.com",
+          "phone_number": "+14155550123"
+        },
+        "booking_question_submissions": [
+          {
+            "set_id": "intake",
+            "revision": "r1",
+            "answers": {
+              "hair_notes": "Fine hair"
+            }
+          }
+        ]
+      },
+      "result": {
+        "accepted": true,
+        "booking_id": "bkg_bq_1",
+        "booking_status": "requires_action",
+        "actions": [
+          {
+            "type": "dev.usp-protocol.services.booking_questions.buyer_input",
+            "id": "act_bq_1",
+            "status": "pending",
+            "config": {
+              "mode": "acknowledge",
+              "sets": [
+                {
+                  "set_id": "intake",
+                  "revision": "r1"
+                }
+              ],
+              "item_ids": [
+                "no_show_fee"
+              ],
+              "presentation": "verbatim"
+            },
+            "continue_url": "https://studio.example.com/forms/sess_42"
+          }
+        ],
+        "messages": []
+      }
+    },
+    {
+      "at": "2026-10-25T10:00:05Z",
+      "step": "platform_hands_off",
+      "with": {
+        "continue_url": "https://studio.example.com/forms/sess_42"
+      },
+      "result": {
+        "handoff": true
+      }
+    },
+    {
+      "at": "2026-10-25T10:02:00Z",
+      "step": "business_observes",
+      "with": {
+        "action_id": "act_bq_1"
+      },
+      "result": {
+        "booking_status": "confirmed"
+      }
+    }
+  ],
+  "then": {
+    "booking_status": "confirmed",
+    "http_status": 200
+  },
+  "variants": [
+    {
+      "case": "no continue_url",
+      "booking_status": "requires_action",
+      "why": "Without a fallback the platform leaves the Action unresolved."
+    }
+  ],
+  "wrong_answers": [
+    {
+      "behaviour": "read the label aloud and submit the agent's understanding of yes",
+      "violates": "11.4.8 Contract",
+      "why": "Agent inference is not an explicit buyer response under the contract."
+    }
+  ]
+}

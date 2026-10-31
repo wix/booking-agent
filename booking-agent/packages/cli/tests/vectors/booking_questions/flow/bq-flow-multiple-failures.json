@@ -1,0 +1,132 @@
+{
+  "id": "bq-flow-multiple-failures",
+  "section": "11.4.9",
+  "requirement": "booking-question-failure-order",
+  "kind": "flow",
+  "expect": "reject",
+  "outcome_code": "booking_question_answer_missing",
+  "notes": "Three failures at once: a missing required buyer field, an invalid answer, and a missing answer. The business returns one message per failure, required_buyer_fields first, then question-set failures in item order.",
+  "given": {
+    "service": {
+      "id": "svc_cut_45",
+      "type": "appointment",
+      "booking_question_sets": [
+        {
+          "id": "intake",
+          "revision": "r1",
+          "purpose": "intake",
+          "completion_timing": "before_confirmation",
+          "frequency": "every_booking",
+          "items": [
+            {
+              "kind": "question",
+              "id": "contact_email",
+              "label": {
+                "plain": "Email for the consultation notes"
+              },
+              "schema": {
+                "type": "string",
+                "format": "email"
+              },
+              "required": true
+            },
+            {
+              "kind": "question",
+              "id": "goal",
+              "label": {
+                "plain": "What would you like to achieve?"
+              },
+              "schema": {
+                "type": "string",
+                "maxLength": 300
+              },
+              "required": true
+            }
+          ]
+        }
+      ],
+      "required_buyer_fields": [
+        "phone_number"
+      ]
+    },
+    "hold": {
+      "id": "hold_bq_1",
+      "slot_id": "slot_20261028_1000",
+      "service_id": "svc_cut_45",
+      "spots": 1,
+      "expires_at": "2026-10-25T10:10:00Z",
+      "status": "active"
+    }
+  },
+  "when": [
+    {
+      "at": "2026-10-25T10:00:00Z",
+      "step": "create_booking",
+      "with": {
+        "hold_id": "hold_bq_1",
+        "buyer": {
+          "first_name": "Dana",
+          "last_name": "Levi",
+          "email": "dana@example.com"
+        },
+        "booking_question_submissions": [
+          {
+            "set_id": "intake",
+            "revision": "r1",
+            "answers": {
+              "contact_email": "A <a@b.c>"
+            }
+          }
+        ]
+      },
+      "result": {
+        "accepted": false,
+        "booking_created": false,
+        "messages": [
+          {
+            "type": "error",
+            "code": "booking_question_answer_missing",
+            "content": "This answer is required.",
+            "severity": "recoverable",
+            "path": "$.buyer.phone_number"
+          },
+          {
+            "type": "error",
+            "code": "booking_question_answer_invalid",
+            "content": "Enter an email address such as name@example.com.",
+            "severity": "recoverable",
+            "path": "$.booking_question_submissions[?@.set_id=='intake'].answers['contact_email']"
+          },
+          {
+            "type": "error",
+            "code": "booking_question_answer_missing",
+            "content": "This answer is required.",
+            "severity": "recoverable",
+            "path": "$.booking_question_submissions[?@.set_id=='intake'].answers['goal']"
+          }
+        ]
+      }
+    }
+  ],
+  "then": {
+    "booking_created": false,
+    "hold": {
+      "id": "hold_bq_1",
+      "status": "active",
+      "expires_at": "2026-10-25T10:10:00Z"
+    },
+    "slot_capacity_held": 1,
+    "payment_authorized": false,
+    "actions_created": [],
+    "http_status": 200,
+    "outcome_code": "booking_question_answer_missing",
+    "message_count": 3
+  },
+  "wrong_answers": [
+    {
+      "behaviour": "stop at the first failure",
+      "violates": "11.4.9 Order",
+      "why": "The buyer is sent back three times, one round trip per field."
+    }
+  ]
+}

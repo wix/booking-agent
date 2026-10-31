@@ -129,6 +129,14 @@ def require_buyer_from_link_cli(session: Session) -> None:
 def transition(session: Session, *, to: str) -> None:
     """In-place phase update with the previous phase implicit."""
     session.flow_phase = to
+    if to == "CONFIRMED":
+        from . import booking_questions_flow as bq_flow
+
+        bq_flow.retain_after_confirmation(session)
+        recipient = getattr(session, "recipient", None)
+        if isinstance(recipient, dict):
+            for key in ("email", "phone_number"):
+                recipient.pop(key, None)
 
 
 def recommend_next(session: Session) -> str | None:

@@ -1,0 +1,122 @@
+{
+  "id": "bq-flow-uri-scheme-policy",
+  "section": "11.4.3",
+  "requirement": "uri-scheme-business-policy",
+  "kind": "flow",
+  "expect": "accept",
+  "notes": "javascript:alert(1) is schema-valid under format: uri. The business MAY reject the scheme as booking_question_answer_invalid; that is policy, so it is not derived.",
+  "given": {
+    "service": {
+      "id": "svc_cut_45",
+      "type": "appointment",
+      "booking_question_sets": [
+        {
+          "id": "intake",
+          "revision": "r1",
+          "purpose": "intake",
+          "completion_timing": "before_confirmation",
+          "frequency": "every_booking",
+          "items": [
+            {
+              "kind": "question",
+              "id": "portfolio",
+              "label": {
+                "plain": "Link to your portfolio"
+              },
+              "schema": {
+                "type": "string",
+                "format": "uri"
+              },
+              "required": true
+            }
+          ]
+        }
+      ]
+    },
+    "hold": {
+      "id": "hold_bq_1",
+      "slot_id": "slot_20261028_1000",
+      "service_id": "svc_cut_45",
+      "spots": 1,
+      "expires_at": "2026-10-25T10:10:00Z",
+      "status": "active"
+    }
+  },
+  "when": [
+    {
+      "at": "2026-10-25T10:00:00Z",
+      "step": "create_booking",
+      "with": {
+        "hold_id": "hold_bq_1",
+        "buyer": {
+          "first_name": "Dana",
+          "last_name": "Levi",
+          "email": "dana@example.com",
+          "phone_number": "+14155550123"
+        },
+        "booking_question_submissions": [
+          {
+            "set_id": "intake",
+            "revision": "r1",
+            "answers": {
+              "portfolio": "javascript:alert(1)"
+            }
+          }
+        ]
+      },
+      "result": {
+        "accepted": false,
+        "booking_created": false,
+        "messages": [
+          {
+            "type": "error",
+            "code": "booking_question_answer_invalid",
+            "content": "Use a link that starts with https://.",
+            "severity": "recoverable",
+            "path": "$.booking_question_submissions[?@.set_id=='intake'].answers['portfolio']",
+            "policy": true
+          }
+        ]
+      }
+    },
+    {
+      "at": "2026-10-25T10:01:00Z",
+      "step": "create_booking",
+      "with": {
+        "hold_id": "hold_bq_1",
+        "buyer": {
+          "first_name": "Dana",
+          "last_name": "Levi",
+          "email": "dana@example.com",
+          "phone_number": "+14155550123"
+        },
+        "booking_question_submissions": [
+          {
+            "set_id": "intake",
+            "revision": "r1",
+            "answers": {
+              "portfolio": "https://example.com/work"
+            }
+          }
+        ]
+      },
+      "result": {
+        "accepted": true,
+        "booking_id": "bkg_bq_1",
+        "booking_status": "confirmed",
+        "messages": []
+      }
+    }
+  ],
+  "then": {
+    "booking_status": "confirmed",
+    "http_status": 200
+  },
+  "wrong_answers": [
+    {
+      "behaviour": "render the stored answer as a clickable link",
+      "violates": "11.4.10 Privacy and Safety",
+      "why": "Business-provided and buyer-provided text are untrusted; a script URI becomes executable in the staff dashboard."
+    }
+  ]
+}

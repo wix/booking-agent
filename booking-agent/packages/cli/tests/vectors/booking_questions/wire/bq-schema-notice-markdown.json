@@ -1,0 +1,72 @@
+{
+  "id": "bq-schema-notice-markdown",
+  "section": "11.4.3",
+  "requirement": "notice-full-content",
+  "kind": "wire",
+  "binding": [
+    "rest",
+    "mcp"
+  ],
+  "expect": "accept",
+  "schema": "booking_questions.json#/$defs/BookingQuestionNotice",
+  "notes": "A notice carries Description content with plain and markdown and never carries an answer value.",
+  "case": "cancellation notice",
+  "instance": {
+    "kind": "notice",
+    "id": "cancel_notice",
+    "content": {
+      "plain": "Cancellations within 24 hours are charged in full. Policy: https://studio.example.com/policy",
+      "markdown": "Cancellations within 24 hours are charged in full. [Policy](https://studio.example.com/policy)"
+    }
+  },
+  "then": {
+    "conforming": true,
+    "schema_valid": true,
+    "member_name_violations": []
+  },
+  "variants": [
+    {
+      "case": "notice with an answer value",
+      "expect": "reject",
+      "instance": {
+        "kind": "notice",
+        "id": "cancel_notice",
+        "content": {
+          "plain": "Cancellations within 24 hours are charged in full."
+        },
+        "value": true
+      },
+      "then": {
+        "conforming": false,
+        "schema_valid": false,
+        "member_name_violations": []
+      }
+    },
+    {
+      "case": "notice with an answer schema",
+      "expect": "reject",
+      "instance": {
+        "kind": "notice",
+        "id": "cancel_notice",
+        "content": {
+          "plain": "Cancellations within 24 hours are charged in full."
+        },
+        "schema": {
+          "type": "boolean"
+        }
+      },
+      "then": {
+        "conforming": false,
+        "schema_valid": false,
+        "member_name_violations": []
+      }
+    }
+  ],
+  "wrong_answers": [
+    {
+      "behaviour": "treat displaying a notice as an acknowledgment",
+      "violates": "11.4.3 Items",
+      "why": "A notice is display-only; acknowledgment needs an explicit const: true question."
+    }
+  ]
+}

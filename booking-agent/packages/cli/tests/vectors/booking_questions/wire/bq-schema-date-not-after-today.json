@@ -1,0 +1,136 @@
+{
+  "id": "bq-schema-date-not-after-today",
+  "section": "11.4.3",
+  "requirement": "date-bound-relative",
+  "kind": "wire",
+  "binding": [
+    "rest",
+    "mcp"
+  ],
+  "expect": "accept",
+  "schema": "booking_questions.json#/$defs/BookingQuestion",
+  "notes": "Date bounds are inclusive and either an absolute full-date or a signed ISO 8601 duration added to the request date. With a fixed request date of 2026-10-25, P0D is that date and -P18Y is 2008-10-25. No keyword such as today exists.",
+  "case": "birth date not in the future",
+  "instance": {
+    "kind": "question",
+    "id": "birth_date",
+    "label": {
+      "plain": "Date of birth"
+    },
+    "schema": {
+      "type": "string",
+      "format": "date",
+      "not_after": "P0D"
+    },
+    "required": true
+  },
+  "then": {
+    "conforming": true,
+    "schema_valid": true,
+    "member_name_violations": []
+  },
+  "answer_cases": [
+    {
+      "value": "2026-10-25",
+      "request_date": "2026-10-25",
+      "valid": true
+    },
+    {
+      "value": "2026-10-26",
+      "request_date": "2026-10-25",
+      "valid": false,
+      "errors": [
+        "not_after"
+      ]
+    }
+  ],
+  "variants": [
+    {
+      "case": "participant at least 18",
+      "expect": "accept",
+      "instance": {
+        "kind": "question",
+        "id": "birth_date",
+        "label": {
+          "plain": "Date of birth"
+        },
+        "schema": {
+          "type": "string",
+          "format": "date",
+          "not_after": "-P18Y"
+        },
+        "required": true
+      },
+      "then": {
+        "conforming": true,
+        "schema_valid": true,
+        "member_name_violations": []
+      },
+      "answer_cases": [
+        {
+          "value": "2008-10-25",
+          "request_date": "2026-10-25",
+          "valid": true
+        },
+        {
+          "value": "2008-10-26",
+          "request_date": "2026-10-25",
+          "valid": false,
+          "errors": [
+            "not_after"
+          ]
+        }
+      ]
+    },
+    {
+      "case": "keyword bound",
+      "expect": "reject",
+      "instance": {
+        "kind": "question",
+        "id": "birth_date",
+        "label": {
+          "plain": "Date of birth"
+        },
+        "schema": {
+          "type": "string",
+          "format": "date",
+          "not_after": "today"
+        },
+        "required": true
+      },
+      "then": {
+        "conforming": false,
+        "schema_valid": false,
+        "member_name_violations": []
+      }
+    },
+    {
+      "case": "date bound on a number question",
+      "expect": "reject",
+      "instance": {
+        "kind": "question",
+        "id": "age",
+        "label": {
+          "plain": "Age"
+        },
+        "schema": {
+          "type": "integer",
+          "not_after": "P0D"
+        },
+        "required": true
+      },
+      "then": {
+        "conforming": false,
+        "schema_valid": false,
+        "member_name_violations": []
+      }
+    }
+  ],
+  "wrong_answers": [
+    {
+      "behaviour": "compare against the platform's local date",
+      "violates": "11.4.3 Date bounds",
+      "why": "The request date is evaluated in the business's time zone; a platform in another zone moves the boundary by a day."
+    }
+  ]
+}

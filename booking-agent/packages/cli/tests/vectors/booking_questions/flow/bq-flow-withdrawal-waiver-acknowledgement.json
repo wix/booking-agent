@@ -1,0 +1,137 @@
+{
+  "id": "bq-flow-withdrawal-waiver-acknowledgement",
+  "section": "11.4.8",
+  "requirement": "multiple-acknowledgements",
+  "kind": "flow",
+  "expect": "accept",
+  "notes": "Two acknowledgments, a withdrawal-right waiver and a no-show fee, covered by one buyer-input Action with no item_ids, so every applicable item is covered. Each needs its own explicit response.",
+  "given": {
+    "service": {
+      "id": "svc_cut_45",
+      "type": "appointment",
+      "booking_question_sets": [
+        {
+          "id": "intake",
+          "revision": "r1",
+          "purpose": "intake",
+          "completion_timing": "before_confirmation",
+          "frequency": "every_booking",
+          "items": [
+            {
+              "kind": "question",
+              "id": "withdrawal_waiver",
+              "label": {
+                "plain": "I ask for the service to start within 14 days and accept that I lose my right to withdraw."
+              },
+              "schema": {
+                "type": "boolean",
+                "const": true
+              },
+              "required": true,
+              "rendering": "checkbox",
+              "collection": "platform_surface"
+            },
+            {
+              "kind": "question",
+              "id": "no_show_fee",
+              "label": {
+                "plain": "I agree to the no-show fee of $30."
+              },
+              "schema": {
+                "type": "boolean",
+                "const": true
+              },
+              "required": true,
+              "rendering": "checkbox",
+              "collection": "platform_surface"
+            }
+          ]
+        }
+      ]
+    },
+    "hold": {
+      "id": "hold_bq_1",
+      "slot_id": "slot_20261028_1000",
+      "service_id": "svc_cut_45",
+      "spots": 1,
+      "expires_at": "2026-10-25T10:10:00Z",
+      "status": "active"
+    }
+  },
+  "when": [
+    {
+      "at": "2026-10-25T10:00:00Z",
+      "step": "create_booking",
+      "with": {
+        "hold_id": "hold_bq_1",
+        "buyer": {
+          "first_name": "Dana",
+          "last_name": "Levi",
+          "email": "dana@example.com",
+          "phone_number": "+14155550123"
+        },
+        "booking_question_submissions": []
+      },
+      "result": {
+        "accepted": true,
+        "booking_id": "bkg_bq_1",
+        "booking_status": "requires_action",
+        "messages": [],
+        "actions": [
+          {
+            "type": "dev.usp-protocol.services.booking_questions.buyer_input",
+            "id": "act_bq_8",
+            "status": "pending",
+            "config": {
+              "mode": "acknowledge",
+              "sets": [
+                {
+                  "set_id": "intake",
+                  "revision": "r1"
+                }
+              ],
+              "presentation": "verbatim"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "at": "2026-10-25T10:00:30Z",
+      "step": "update_booking",
+      "with": {
+        "booking_id": "bkg_bq_1",
+        "booking_question_submissions": [
+          {
+            "set_id": "intake",
+            "revision": "r1",
+            "answers": {
+              "withdrawal_waiver": true,
+              "no_show_fee": true
+            },
+            "action_id": "act_bq_8"
+          }
+        ]
+      },
+      "booking_status": "requires_action",
+      "result": {
+        "accepted": true,
+        "booking_status": "confirmed",
+        "actions": [],
+        "messages": []
+      }
+    }
+  ],
+  "then": {
+    "booking_status": "confirmed",
+    "separate_responses": 2,
+    "http_status": 200
+  },
+  "wrong_answers": [
+    {
+      "behaviour": "one checkbox for both statements",
+      "violates": "11.4.8 Contract",
+      "why": "Disclosure associations are not preserved, so neither acknowledgment is explicit."
+    }
+  ]
+}

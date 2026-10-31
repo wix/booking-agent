@@ -1,0 +1,335 @@
+{
+  "id": "bq-schema-single-choice",
+  "section": "11.4.3",
+  "requirement": "single-choice-oneof",
+  "kind": "wire",
+  "binding": [
+    "rest",
+    "mcp"
+  ],
+  "expect": "accept",
+  "schema": "booking_questions.json#/$defs/BookingQuestion",
+  "notes": "Single choice is a string with oneOf {const, title} options: at most 50, each const unique.",
+  "case": "hair length",
+  "instance": {
+    "kind": "question",
+    "id": "hair_length",
+    "label": {
+      "plain": "Hair length"
+    },
+    "schema": {
+      "type": "string",
+      "oneOf": [
+        {
+          "const": "short",
+          "title": "Short"
+        },
+        {
+          "const": "medium",
+          "title": "Medium"
+        },
+        {
+          "const": "long",
+          "title": "Long"
+        }
+      ]
+    },
+    "required": true,
+    "rendering": "radio"
+  },
+  "then": {
+    "conforming": true,
+    "schema_valid": true,
+    "member_name_violations": []
+  },
+  "answer_cases": [
+    {
+      "value": "medium",
+      "valid": true
+    },
+    {
+      "value": "xl",
+      "valid": false,
+      "errors": [
+        "option"
+      ]
+    },
+    {
+      "value": [
+        "medium"
+      ],
+      "valid": false,
+      "errors": [
+        "type"
+      ]
+    }
+  ],
+  "variants": [
+    {
+      "case": "duplicate const",
+      "expect": "reject",
+      "instance": {
+        "kind": "question",
+        "id": "hair_length",
+        "label": {
+          "plain": "Hair length"
+        },
+        "schema": {
+          "type": "string",
+          "oneOf": [
+            {
+              "const": "short",
+              "title": "Short"
+            },
+            {
+              "const": "short",
+              "title": "Short bob"
+            }
+          ]
+        },
+        "required": true
+      },
+      "then": {
+        "conforming": false,
+        "schema_valid": true,
+        "member_name_violations": [],
+        "semantic_errors": [
+          "duplicate_option_const:hair_length"
+        ]
+      }
+    },
+    {
+      "case": "51 options",
+      "expect": "reject",
+      "instance": {
+        "kind": "question",
+        "id": "hair_color",
+        "label": {
+          "plain": "Color"
+        },
+        "schema": {
+          "type": "string",
+          "oneOf": [
+            {
+              "const": "c0",
+              "title": "Color 0"
+            },
+            {
+              "const": "c1",
+              "title": "Color 1"
+            },
+            {
+              "const": "c2",
+              "title": "Color 2"
+            },
+            {
+              "const": "c3",
+              "title": "Color 3"
+            },
+            {
+              "const": "c4",
+              "title": "Color 4"
+            },
+            {
+              "const": "c5",
+              "title": "Color 5"
+            },
+            {
+              "const": "c6",
+              "title": "Color 6"
+            },
+            {
+              "const": "c7",
+              "title": "Color 7"
+            },
+            {
+              "const": "c8",
+              "title": "Color 8"
+            },
+            {
+              "const": "c9",
+              "title": "Color 9"
+            },
+            {
+              "const": "c10",
+              "title": "Color 10"
+            },
+            {
+              "const": "c11",
+              "title": "Color 11"
+            },
+            {
+              "const": "c12",
+              "title": "Color 12"
+            },
+            {
+              "const": "c13",
+              "title": "Color 13"
+            },
+            {
+              "const": "c14",
+              "title": "Color 14"
+            },
+            {
+              "const": "c15",
+              "title": "Color 15"
+            },
+            {
+              "const": "c16",
+              "title": "Color 16"
+            },
+            {
+              "const": "c17",
+              "title": "Color 17"
+            },
+            {
+              "const": "c18",
+              "title": "Color 18"
+            },
+            {
+              "const": "c19",
+              "title": "Color 19"
+            },
+            {
+              "const": "c20",
+              "title": "Color 20"
+            },
+            {
+              "const": "c21",
+              "title": "Color 21"
+            },
+            {
+              "const": "c22",
+              "title": "Color 22"
+            },
+            {
+              "const": "c23",
+              "title": "Color 23"
+            },
+            {
+              "const": "c24",
+              "title": "Color 24"
+            },
+            {
+              "const": "c25",
+              "title": "Color 25"
+            },
+            {
+              "const": "c26",
+              "title": "Color 26"
+            },
+            {
+              "const": "c27",
+              "title": "Color 27"
+            },
+            {
+              "const": "c28",
+              "title": "Color 28"
+            },
+            {
+              "const": "c29",
+              "title": "Color 29"
+            },
+            {
+              "const": "c30",
+              "title": "Color 30"
+            },
+            {
+              "const": "c31",
+              "title": "Color 31"
+            },
+            {
+              "const": "c32",
+              "title": "Color 32"
+            },
+            {
+              "const": "c33",
+              "title": "Color 33"
+            },
+            {
+              "const": "c34",
+              "title": "Color 34"
+            },
+            {
+              "const": "c35",
+              "title": "Color 35"
+            },
+            {
+              "const": "c36",
+              "title": "Color 36"
+            },
+            {
+              "const": "c37",
+              "title": "Color 37"
+            },
+            {
+              "const": "c38",
+              "title": "Color 38"
+            },
+            {
+              "const": "c39",
+              "title": "Color 39"
+            },
+            {
+              "const": "c40",
+              "title": "Color 40"
+            },
+            {
+              "const": "c41",
+              "title": "Color 41"
+            },
+            {
+              "const": "c42",
+              "title": "Color 42"
+            },
+            {
+              "const": "c43",
+              "title": "Color 43"
+            },
+            {
+              "const": "c44",
+              "title": "Color 44"
+            },
+            {
+              "const": "c45",
+              "title": "Color 45"
+            },
+            {
+              "const": "c46",
+              "title": "Color 46"
+            },
+            {
+              "const": "c47",
+              "title": "Color 47"
+            },
+            {
+              "const": "c48",
+              "title": "Color 48"
+            },
+            {
+              "const": "c49",
+              "title": "Color 49"
+            },
+            {
+              "const": "c50",
+              "title": "Color 50"
+            }
+          ]
+        },
+        "required": true
+      },
+      "then": {
+        "conforming": false,
+        "schema_valid": false,
+        "member_name_violations": []
+      }
+    }
+  ],
+  "wrong_answers": [
+    {
+      "behaviour": "accept duplicate option values and take the first",
+      "violates": "11.4.3 Answer Schema",
+      "why": "The buyer picked one title and the business recorded another."
+    }
+  ]
+}

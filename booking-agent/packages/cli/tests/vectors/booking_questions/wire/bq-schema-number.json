@@ -1,0 +1,123 @@
+{
+  "id": "bq-schema-number",
+  "section": "11.4.3",
+  "requirement": "number-answer-typed",
+  "kind": "wire",
+  "binding": [
+    "rest",
+    "mcp"
+  ],
+  "expect": "accept",
+  "schema": "booking_questions.json#/$defs/BookingQuestion",
+  "notes": "Integer and number answers are JSON numbers with inclusive bounds. A numeric string is not a number, so a platform cannot forward unparsed chat text.",
+  "case": "integer 1 to 10",
+  "instance": {
+    "kind": "question",
+    "id": "guests",
+    "label": {
+      "plain": "How many people are coming?"
+    },
+    "schema": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 10
+    },
+    "required": true
+  },
+  "then": {
+    "conforming": true,
+    "schema_valid": true,
+    "member_name_violations": []
+  },
+  "answer_cases": [
+    {
+      "value": 5,
+      "valid": true
+    },
+    {
+      "value": "5",
+      "valid": false,
+      "errors": [
+        "type"
+      ]
+    },
+    {
+      "value": 11,
+      "valid": false,
+      "errors": [
+        "maximum"
+      ]
+    },
+    {
+      "value": 2.5,
+      "valid": false,
+      "errors": [
+        "type"
+      ]
+    }
+  ],
+  "variants": [
+    {
+      "case": "number allows fractions",
+      "expect": "accept",
+      "instance": {
+        "kind": "question",
+        "id": "length_m",
+        "label": {
+          "plain": "Length in meters"
+        },
+        "schema": {
+          "type": "number",
+          "minimum": 0
+        },
+        "required": true
+      },
+      "then": {
+        "conforming": true,
+        "schema_valid": true,
+        "member_name_violations": []
+      },
+      "answer_cases": [
+        {
+          "value": 2.5,
+          "valid": true
+        },
+        {
+          "value": -1,
+          "valid": false,
+          "errors": [
+            "minimum"
+          ]
+        }
+      ]
+    },
+    {
+      "case": "unknown numeric keyword",
+      "expect": "reject",
+      "instance": {
+        "kind": "question",
+        "id": "guests",
+        "label": {
+          "plain": "How many people are coming?"
+        },
+        "schema": {
+          "type": "integer",
+          "multipleOf": 2
+        },
+        "required": true
+      },
+      "then": {
+        "conforming": false,
+        "schema_valid": false,
+        "member_name_violations": []
+      }
+    }
+  ],
+  "wrong_answers": [
+    {
+      "behaviour": "coerce \"5\" to 5",
+      "violates": "11.4.3 Answer Schema",
+      "why": "Coercion hides a platform that passes raw text and breaks on the first locale-formatted number."
+    }
+  ]
+}

@@ -778,6 +778,37 @@ def test_build_paid_bookings_variable_pricing_uses_slot_amount():
     assert body["line_items"][0]["item"]["price"] == 7500
 
 
+def test_build_paid_bookings_carries_recipient_and_buyer_extras_only_when_set():
+    common = dict(
+        service=_sample_service(),
+        slot_id="slot_1",
+        slot_start="2026-06-25T14:00:00+00:00",
+        slot_end="2026-06-25T15:00:00+00:00",
+        slot_duration="PT60M",
+        buyer_first="Ada",
+        buyer_last="Lovelace",
+        buyer_email="ada@booking-agent.test",
+        currency="USD",
+    )
+    body = build_paid_bookings_create_body(
+        **common,
+        booking_extras={"recipient": {"first_name": "Noa", "last_name": "Levi"},
+                        "booking_question_submissions": None},
+        buyer_extras={"phone_number": "+15555550100"},
+    )
+    assert body["booking"]["recipient"] == {"first_name": "Noa", "last_name": "Levi"}
+    assert "booking_question_submissions" not in body["booking"]
+    assert body["buyer"]["phone_number"] == "+15555550100"
+    assert body == {**body, **build_paid_bookings_create_body(
+        **common,
+        booking_extras={"recipient": {"first_name": "Noa", "last_name": "Levi"}},
+        buyer_extras={"phone_number": "+15555550100"},
+    )}
+    plain = build_paid_bookings_create_body(**common, booking_extras={}, buyer_extras=None)
+    assert "recipient" not in plain["booking"]
+    assert "phone_number" not in plain["buyer"]
+
+
 def test_validate_create_checkout_ready_requires_status():
     with pytest.raises(UcpProfileValidationError, match="ready_for_complete"):
         validate_create_checkout_ready({"status": "pending"})

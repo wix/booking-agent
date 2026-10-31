@@ -1,0 +1,70 @@
+{
+  "id": "bq-flow-waived-state",
+  "section": "11.4.6",
+  "requirement": "waived-not-blocking",
+  "kind": "flow",
+  "expect": "accept",
+  "notes": "Staff waived a required set for this booking. It is shown in state and does not block confirmation.",
+  "given": {
+    "service": {
+      "id": "svc_cut_45",
+      "type": "appointment",
+      "booking_question_sets": [
+        {
+          "id": "waiver",
+          "revision": "r1",
+          "purpose": "intake",
+          "completion_timing": "before_confirmation",
+          "frequency": "every_booking",
+          "items": [
+            {
+              "kind": "external_task",
+              "id": "waiver_sig",
+              "label": {
+                "plain": "Sign the treatment waiver"
+              },
+              "task_type": "signature",
+              "required": true,
+              "collection": "business_surface"
+            }
+          ]
+        }
+      ]
+    },
+    "booking": {
+      "id": "bkg_bq_1",
+      "status": "requires_action"
+    }
+  },
+  "when": [
+    {
+      "at": "2026-10-25T10:05:00Z",
+      "step": "business_waives",
+      "with": {
+        "set_id": "waiver"
+      },
+      "result": {
+        "booking_status": "confirmed",
+        "booking_question_state": [
+          {
+            "set_id": "waiver",
+            "revision": "r1",
+            "status": "waived",
+            "completion_timing": "before_confirmation"
+          }
+        ]
+      }
+    }
+  ],
+  "then": {
+    "booking_status": "confirmed",
+    "http_status": 200
+  },
+  "wrong_answers": [
+    {
+      "behaviour": "hide waived sets from the state echo",
+      "violates": "11.4.6 Booking Question State",
+      "why": "The platform keeps asking the buyer to sign something the business no longer needs."
+    }
+  ]
+}

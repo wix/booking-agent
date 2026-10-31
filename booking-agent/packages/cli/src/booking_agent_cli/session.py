@@ -300,6 +300,25 @@ class Session:
     # cancel_checkout succeeded and the business left the booking pending (USP 7.5), so a
     # repeat cancel must not cancel the booking itself.
     ucp_checkout_abandoned: bool = False
+    # Checkout prepared at buyer resolve, before the summary. The fingerprint names the
+    # inputs it was created for; the snapshot is the terms the summary showed.
+    prepared_checkout_fingerprint: Optional[str] = None
+    checkout_create_idempotency_key: Optional[str] = None  # saved before create_checkout
+    prepared_checkout_snapshot: Optional[Dict[str, Any]] = None
+    prepared_checkout_digest: Optional[str] = None
+    prepared_checkout_expires_at: Optional[str] = None
+    prepared_checkout_consumed: bool = False  # flow book took it for the pay steps
+    # The checkout's booking id, kept off ``booking.id`` until flow book takes the checkout,
+    # so an unconfirmed checkout is never listed as a booking.
+    prepared_booking_id: Optional[str] = None
+    # Last cancel of a checkout the user did not complete: {checkout_id, reason, outcome, status}.
+    checkout_abandonment: Optional[Dict[str, Any]] = None
+    # Booking questions extension state (booking_questions_flow). Empty means not in use.
+    booking_questions: Dict[str, Any] = field(default_factory=dict)
+    # The person the booking is for, when not the buyer: only what the user typed.
+    recipient: Optional[Dict[str, Any]] = None
+    # A new recipient for a placed booking, shown to the user and awaiting their yes.
+    recipient_pending: Optional[Dict[str, Any]] = None
 
 
 # Fields of the confirmation gates that describe one selection (business, service, slot).
@@ -313,6 +332,46 @@ SELECTION_CONFIRMATION_FIELDS = (
     "mismatch_surfaced",
     "mismatch_digest",
 )
+
+
+_PREPARED_CHECKOUT_FIELDS = (
+    "ucp_checkout_session_id",
+    "ucp_checkout_amount_minor",
+    "ucp_merchant_quote",
+    "ucp_checkout_links",
+    "ucp_checkout_policies",
+    "ucp_checkout_messages",
+    "ucp_spt_network_id",
+    "selected_term_id",
+    "payment_schedules",
+    "due_now_amount_minor",
+    "payment_disclosures",
+    "disclosures_user_confirmed",
+    "total_confirmed_amount_minor",
+    "accepted_term",
+    "complete_checkout_idempotency_key",
+    "prepared_checkout_fingerprint",
+    "checkout_create_idempotency_key",
+    "prepared_checkout_snapshot",
+    "prepared_checkout_digest",
+    "prepared_checkout_expires_at",
+    "prepared_checkout_consumed",
+    "prepared_booking_id",
+)
+
+
+def has_open_prepared_checkout(session: "Session") -> bool:
+    """True when buyer resolve created a checkout that flow book has not taken yet."""
+    return bool(session.ucp_checkout_session_id and session.prepared_checkout_fingerprint
+                and not session.prepared_checkout_consumed)
+
+
+def clear_prepared_checkout(session: "Session") -> None:
+    """Forget a checkout the business confirmed as canceled; never call it before that."""
+    defaults = {f.name: f.default for f in fields(Session)}
+    for name in _PREPARED_CHECKOUT_FIELDS:
+        setattr(session, name, defaults[name])
+    session.booking = BookingRef()
 
 
 def reset_selection_confirmations(session: "Session", *, keep_mismatch: bool = False) -> None:
@@ -994,6 +1053,27 @@ def _session_from_dict(raw: Dict[str, Any]) -> Session:
         desired_time_ranges=list(raw.get("desired_time_ranges") or []) or None,
         link_auth_url_surfaced=bool(raw.get("link_auth_url_surfaced", False)),
         ucp_checkout_abandoned=bool(raw.get("ucp_checkout_abandoned", False)),
+        prepared_checkout_fingerprint=raw.get("prepared_checkout_fingerprint"),
+        checkout_create_idempotency_key=raw.get("checkout_create_idempotency_key"),
+        prepared_checkout_snapshot=(
+            raw["prepared_checkout_snapshot"]
+            if isinstance(raw.get("prepared_checkout_snapshot"), dict)
+            else None
+        ),
+        prepared_checkout_digest=raw.get("prepared_checkout_digest"),
+        prepared_checkout_expires_at=raw.get("prepared_checkout_expires_at"),
+        prepared_checkout_consumed=bool(raw.get("prepared_checkout_consumed", False)),
+        prepared_booking_id=raw.get("prepared_booking_id"),
+        checkout_abandonment=(
+            raw["checkout_abandonment"] if isinstance(raw.get("checkout_abandonment"), dict) else None
+        ),
+        booking_questions=(
+            raw["booking_questions"] if isinstance(raw.get("booking_questions"), dict) else {}
+        ),
+        recipient=raw["recipient"] if isinstance(raw.get("recipient"), dict) else None,
+        recipient_pending=(
+            raw["recipient_pending"] if isinstance(raw.get("recipient_pending"), dict) else None
+        ),
     )
     return _remember_unknown(session, raw, _SESSION_KEYS)
 

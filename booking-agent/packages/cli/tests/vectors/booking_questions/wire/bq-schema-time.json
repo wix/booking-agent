@@ -1,0 +1,62 @@
+{
+  "id": "bq-schema-time",
+  "section": "11.4.3",
+  "requirement": "time-not-elicitation",
+  "kind": "wire",
+  "binding": [
+    "rest",
+    "mcp"
+  ],
+  "expect": "accept",
+  "schema": "booking_questions.json#/$defs/BookingQuestion",
+  "notes": "format: time is a wall-clock time in the business's time zone. MCP elicitation primitives stop at email, uri, date, and date-time, so a time question is collected in chat or a platform-native control and never routed to an elicitation form (Section 11.4.10).",
+  "case": "preferred arrival time",
+  "instance": {
+    "kind": "question",
+    "id": "arrival",
+    "label": {
+      "plain": "Preferred arrival time"
+    },
+    "schema": {
+      "type": "string",
+      "format": "time"
+    },
+    "required": true
+  },
+  "then": {
+    "conforming": true,
+    "schema_valid": true,
+    "member_name_violations": []
+  },
+  "answer_cases": [
+    {
+      "value": "14:30",
+      "valid": true
+    },
+    {
+      "value": "14:30:00",
+      "valid": true
+    },
+    {
+      "value": "2:30 PM",
+      "valid": false,
+      "errors": [
+        "format"
+      ]
+    },
+    {
+      "value": "24:00",
+      "valid": false,
+      "errors": [
+        "format"
+      ]
+    }
+  ],
+  "wrong_answers": [
+    {
+      "behaviour": "send the question as an elicitation string with format time",
+      "violates": "11.4.10 Privacy and Safety",
+      "why": "Elicitation clients do not implement the format and accept free text the business then rejects."
+    }
+  ]
+}

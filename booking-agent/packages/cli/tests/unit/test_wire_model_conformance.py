@@ -32,6 +32,7 @@ import pytest
 from pydantic import BaseModel
 
 from booking_agent import discovery, ucp_profile
+from booking_agent.models import booking_questions as bq
 from booking_agent.models import platform as platform_models
 from booking_agent.models import wire
 
@@ -79,13 +80,51 @@ MODEL_TO_SCHEMA: Dict[type, Tuple[str, str]] = {
     wire.USPPaymentContext: ("booking.json", "PaymentContext"),
     # -- Profile / discovery ----------------------------------------------
     discovery.USPBusinessInfo: ("usp.json", "BusinessInfo"),
+    # -- Paid bookings -----------------------------------------------------
+    wire.PaidBookingContext: ("paid_bookings.json", "BookingContext"),
+    # -- Booking questions extension --------------------------------------
+    bq.BookingQuestionLabel: ("booking_questions.json", "BookingQuestionLabel"),
+    bq.BookingQuestionConditionLeaf: ("booking_questions.json", "BookingQuestionConditionLeaf"),
+    bq.BookingQuestionOption: ("booking_questions.json", "BookingQuestionOption"),
+    bq.BookingQuestionStringSchema: ("booking_questions.json", "BookingQuestionStringSchema"),
+    bq.BookingQuestionNumberSchema: ("booking_questions.json", "BookingQuestionNumberSchema"),
+    bq.BookingQuestionBooleanSchema: ("booking_questions.json", "BookingQuestionBooleanSchema"),
+    bq.BookingQuestionSingleChoiceSchema: (
+        "booking_questions.json", "BookingQuestionSingleChoiceSchema",
+    ),
+    bq.BookingQuestionMultipleChoiceSchema: (
+        "booking_questions.json", "BookingQuestionMultipleChoiceSchema",
+    ),
+    bq.BookingQuestionSection: ("booking_questions.json", "BookingQuestionSection"),
+    bq.BookingQuestionNotice: ("booking_questions.json", "BookingQuestionNotice"),
+    bq.BookingQuestion: ("booking_questions.json", "BookingQuestion"),
+    bq.BookingQuestionExternalTask: ("booking_questions.json", "BookingQuestionExternalTask"),
+    bq.BookingQuestionSet: ("booking_questions.json", "BookingQuestionSet"),
+    bq.BookingQuestionSubmission: ("booking_questions.json", "BookingQuestionSubmission"),
+    bq.BookingQuestionSetRef: ("booking_questions.json", "BookingQuestionSetRef"),
+    bq.BookingQuestionState: ("booking_questions.json", "BookingQuestionState"),
+    bq.BookingEligibilityCheckRequest: (
+        "booking_questions.json", "BookingEligibilityCheckRequest",
+    ),
+    bq.BookingEligibilityCheckResult: (
+        "booking_questions.json", "BookingEligibilityCheckResult",
+    ),
+    bq.BookingQuestionsSummary: ("booking_questions.json", "BookingQuestionsSummary"),
+    bq.BuyerInputActionConfig: ("booking_questions.json", "BuyerInputActionConfig"),
+    bq.BuyerInputAction: ("booking_questions.json", "BuyerInputAction"),
+    platform_models.ServiceSearchResult: ("registry.json", "ServiceSearchResult"),
 }
 
 #: (model, property) -> why this client does not carry it.
 #:
 #: Every entry is a decision someone has to defend, not a way to silence the
 #: test.  Prefer adding the field.
-KNOWN_DIVERGENCES: Dict[Tuple[type, str], str] = {}
+KNOWN_DIVERGENCES: Dict[Tuple[type, str], str] = {
+    (platform_models.ServiceSearchResult, "pricing"): (
+        "Declared as field `price` with validation_alias AliasChoices('price', 'pricing'), "
+        "which this check cannot see."
+    ),
+}
 
 
 def _load(schema_file: str) -> dict:

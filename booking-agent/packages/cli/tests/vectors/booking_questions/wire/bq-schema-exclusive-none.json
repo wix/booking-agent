@@ -1,0 +1,81 @@
+{
+  "id": "bq-schema-exclusive-none",
+  "section": "11.4.3",
+  "requirement": "exclusive-option",
+  "kind": "wire",
+  "binding": [
+    "rest",
+    "mcp"
+  ],
+  "expect": "accept",
+  "schema": "booking_questions.json#/$defs/BookingQuestion",
+  "notes": "An exclusive option such as none-of-the-above cannot be combined with any other option.",
+  "case": "allergies with none",
+  "instance": {
+    "kind": "question",
+    "id": "allergies",
+    "label": {
+      "plain": "Any allergies?"
+    },
+    "schema": {
+      "type": "array",
+      "items": {
+        "anyOf": [
+          {
+            "const": "none",
+            "title": "None",
+            "exclusive": true
+          },
+          {
+            "const": "peanuts",
+            "title": "Peanuts"
+          },
+          {
+            "const": "shellfish",
+            "title": "Shellfish"
+          }
+        ]
+      },
+      "uniqueItems": true,
+      "minItems": 1
+    },
+    "required": true
+  },
+  "then": {
+    "conforming": true,
+    "schema_valid": true,
+    "member_name_violations": []
+  },
+  "answer_cases": [
+    {
+      "value": [
+        "none"
+      ],
+      "valid": true
+    },
+    {
+      "value": [
+        "peanuts",
+        "shellfish"
+      ],
+      "valid": true
+    },
+    {
+      "value": [
+        "none",
+        "peanuts"
+      ],
+      "valid": false,
+      "errors": [
+        "exclusive"
+      ]
+    }
+  ],
+  "wrong_answers": [
+    {
+      "behaviour": "accept [none, peanuts] and keep peanuts",
+      "violates": "11.4.3 Answer Schema",
+      "why": "The business silently guesses which part of a contradictory answer the buyer meant."
+    }
+  ]
+}

@@ -3065,14 +3065,19 @@ def test_book_blocks_mandatory_acceptance_pending(
     slot_id = slots["data"]["slots"][0]["slot_id"]
     _invoke(runner, "flow", "slots", "select", "--slot-id", slot_id, "--user-confirmed")
     _satisfy_link_auth_gate()
-    _invoke(runner, "flow", "buyer", "resolve")
+    resolved = _invoke(runner, "flow", "buyer", "resolve")
+    assert resolved.exit_code == 0, resolved.stdout
+    body = _stdout_json(resolved)
+    assert body["awaiting_user"] == "merchant_acceptance"
+    assert body["data"]["continue_url"] == "https://merchant.test/accept"
+    assert body["data"]["links"][0]["href"] == "https://merchant.test/terms"
+    assert "https://merchant.test/accept" in body["user_message"]
+    assert "booking_recap_lines" not in body["data"]
+    assert body["next_command"] == "booking-agent flow buyer resolve"
 
     r = _invoke(runner, *_BOOK)
     assert r.exit_code == 1, r.stdout
-    body = _stdout_json(r)
-    assert body["data"]["error"]["code"] == "mandatory_acceptance_pending"
-    assert body["data"]["continue_url"] == "https://merchant.test/accept"
-    assert body["data"]["links"][0]["href"] == "https://merchant.test/terms"
+    assert _stdout_json(r)["data"]["error"]["code"] == "booking_confirmation_required"
 
     r_pay = _invoke(
         runner,

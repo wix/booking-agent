@@ -1,0 +1,112 @@
+{
+  "id": "bq-schema-completion-requirement",
+  "section": "11.4.3",
+  "requirement": "completion-requirement-intake-only",
+  "kind": "wire",
+  "binding": [
+    "rest",
+    "mcp"
+  ],
+  "expect": "accept",
+  "schema": "booking_questions.json#/$defs/BookingQuestionSet",
+  "notes": "completion_requirement is valid only on intake sets. Eligibility and configuration sets are implicitly required.",
+  "case": "optional intake",
+  "instance": {
+    "id": "goals",
+    "revision": "r1",
+    "purpose": "intake",
+    "completion_timing": "before_confirmation",
+    "frequency": "every_booking",
+    "items": [
+      {
+        "kind": "question",
+        "id": "goals",
+        "label": {
+          "plain": "Goals for the session"
+        },
+        "schema": {
+          "type": "string",
+          "maxLength": 300
+        },
+        "required": false
+      }
+    ],
+    "completion_requirement": "optional"
+  },
+  "then": {
+    "conforming": true,
+    "schema_valid": true,
+    "member_name_violations": []
+  },
+  "variants": [
+    {
+      "case": "optional eligibility",
+      "expect": "reject",
+      "instance": {
+        "id": "goals",
+        "revision": "r1",
+        "purpose": "eligibility",
+        "completion_timing": "preflight",
+        "frequency": "every_booking",
+        "items": [
+          {
+            "kind": "question",
+            "id": "goals",
+            "label": {
+              "plain": "Goals for the session"
+            },
+            "schema": {
+              "type": "string",
+              "maxLength": 300
+            },
+            "required": false
+          }
+        ],
+        "completion_requirement": "optional"
+      },
+      "then": {
+        "conforming": false,
+        "schema_valid": false,
+        "member_name_violations": []
+      }
+    },
+    {
+      "case": "optional configuration",
+      "expect": "reject",
+      "instance": {
+        "id": "goals",
+        "revision": "r1",
+        "purpose": "configuration",
+        "completion_timing": "preflight",
+        "frequency": "every_booking",
+        "items": [
+          {
+            "kind": "question",
+            "id": "goals",
+            "label": {
+              "plain": "Goals for the session"
+            },
+            "schema": {
+              "type": "string",
+              "maxLength": 300
+            },
+            "required": false
+          }
+        ],
+        "completion_requirement": "optional"
+      },
+      "then": {
+        "conforming": false,
+        "schema_valid": false,
+        "member_name_violations": []
+      }
+    }
+  ],
+  "wrong_answers": [
+    {
+      "behaviour": "let an eligibility gate be skipped",
+      "violates": "11.4.3 Question Set Definitions",
+      "why": "An optional gate is not a gate; the business learns of ineligibility after capacity was held."
+    }
+  ]
+}

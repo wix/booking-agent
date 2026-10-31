@@ -1,0 +1,365 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://usp-protocol.dev/schemas/services/esp.json",
+  "title": "USP Embedded Scheduling Protocol (ESP) Messages",
+  "description": "Canonical wire schemas for the Embedded Scheduling Protocol defined in specification.md Section 9.5. ESP carries JSON-RPC 2.0 messages over a MessageChannel (web) or injected globals (native), between a host application and an embedded business scheduling UI. Section 9.5.3 requires every ESP message to be validated against its schema before processing; these $defs are the artifact that requirement refers to. ESP frames are neither HTTP responses nor USP transport-binding calls, so ESP failures use the esp.error frame codes defined here rather than the Section 9.4 error families. Every message shares the same JSON-RPC 2.0 framing: jsonrpc is exactly \"2.0\", method is one of the twelve registered esp.* names, params carries the message-specific payload, and id is present only on frames that expect a correlated reply.",
+  "$defs": {
+    "Delegation": {
+      "type": "string",
+      "title": "Delegation",
+      "enum": ["slot_selection", "party_details", "payment"],
+      "description": "A step the host can perform on the business's behalf. slot_selection: host renders the time slot picker. party_details: host supplies buyer and optional recipient information. payment: host acquires the payment credential. See specification.md Section 9.5.2."
+    },
+    "EspParticipant": {
+      "type": "object",
+      "title": "EspParticipant",
+      "description": "A buyer or recipient as carried over ESP. Deliberately a subset of booking.json Buyer: an embedded UI negotiates identity progressively, so no field is required at the envelope level and the business validates completeness for its own flow.",
+      "properties": {
+        "first_name": { "type": "string" },
+        "last_name": { "type": "string" },
+        "email": { "type": "string", "format": "email" },
+        "phone_number": { "type": "string" }
+      }
+    },
+    "EspReady": {
+      "type": "object",
+      "title": "esp.ready",
+      "description": "Business to Host. The embedded UI has loaded and is ready. Declares which delegations the business supports.",
+      "required": ["jsonrpc", "method", "params"],
+      "properties": {
+        "jsonrpc": { "type": "string", "const": "2.0" },
+        "method": { "type": "string", "const": "esp.ready" },
+        "id": { "type": ["string", "integer"] },
+        "params": {
+          "type": "object",
+          "required": ["delegations", "version"],
+          "properties": {
+            "delegations": {
+              "type": "array",
+              "items": { "$ref": "#/$defs/Delegation" },
+              "description": "Delegations the business is willing to hand to the host. MAY be empty, meaning the business handles every step itself."
+            },
+            "service_id": {
+              "type": "string",
+              "description": "The service the embedded UI was opened for, when the host addressed a specific service."
+            },
+            "version": {
+              "type": "string",
+              "description": "USP protocol version the embedded UI implements."
+            }
+          }
+        }
+      }
+    },
+    "EspStart": {
+      "type": "object",
+      "title": "esp.start",
+      "description": "Host to Business. Starts the scheduling flow and accepts a subset of the offered delegations. A delegation not listed in accepted_delegations is handled by the business internally.",
+      "required": ["jsonrpc", "method", "params"],
+      "properties": {
+        "jsonrpc": { "type": "string", "const": "2.0" },
+        "method": { "type": "string", "const": "esp.start" },
+        "id": { "type": ["string", "integer"] },
+        "params": {
+          "type": "object",
+          "required": ["accepted_delegations"],
+          "properties": {
+            "buyer": { "$ref": "#/$defs/EspParticipant" },
+            "recipient": {
+              "$ref": "#/$defs/EspParticipant",
+              "description": "The person receiving the service when that is not the buyer."
+            },
+            "preferences": {
+              "type": "object",
+              "description": "Non-binding hints to pre-filter what the embedded UI shows.",
+              "properties": {
+                "date": { "type": "string", "format": "date", "description": "Preferred service-local date, YYYY-MM-DD." },
+                "time_of_day": { "type": "string", "enum": ["morning", "afternoon", "evening"] }
+              }
+            },
+            "accepted_delegations": {
+              "type": "array",
+              "items": { "$ref": "#/$defs/Delegation" },
+              "description": "MUST be a subset of the delegations array from esp.ready. A host MUST NOT accept a delegation the business did not offer."
+            }
+          }
+        }
+      }
+    },
+    "EspSlotSelectionRequest": {
+      "type": "object",
+      "title": "esp.slot_selection.request",
+      "description": "Business to Host. Asks the host to render its own slot picker. Sent only when slot_selection is an accepted delegation.",
+      "required": ["jsonrpc", "method", "params"],
+      "properties": {
+        "jsonrpc": { "type": "string", "const": "2.0" },
+        "method": { "type": "string", "const": "esp.slot_selection.request" },
+        "id": { "type": ["string", "integer"] },
+        "params": {
+          "type": "object",
+          "required": ["service_id"],
+          "properties": {
+            "service_id": { "type": "string" },
+            "slots": {
+              "type": "array",
+              "items": { "$ref": "availability.json#/$defs/TimeSlot" },
+              "description": "Candidate slots for the host to render. When absent, the host queries availability itself."
+            },
+            "duration": { "type": "string", "description": "ISO 8601 duration of the booking being scheduled." }
+          }
+        }
+      }
+    },
+    "EspSlotSelectionResponse": {
+      "type": "object",
+      "title": "esp.slot_selection.response",
+      "description": "Host to Business. Returns the slot the user selected.",
+      "required": ["jsonrpc", "method", "params"],
+      "properties": {
+        "jsonrpc": { "type": "string", "const": "2.0" },
+        "method": { "type": "string", "const": "esp.slot_selection.response" },
+        "id": { "type": ["string", "integer"] },
+        "params": {
+          "type": "object",
+          "required": ["slot"],
+          "properties": {
+            "slot": {
+              "$ref": "booking.json#/$defs/SlotReference",
+              "description": "The selected slot. MUST be one the business can still honour; the business revalidates availability regardless."
+            },
+            "resources": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "id": { "type": "string" },
+                  "type": { "type": "string" },
+                  "name": { "type": "string" }
+                }
+              },
+              "description": "Resources bound to the selected slot, when the host offered a resource choice."
+            }
+          }
+        }
+      }
+    },
+    "EspPartyDetailsRequest": {
+      "type": "object",
+      "title": "esp.party_details.request",
+      "description": "Business to Host. Asks the host to supply participant details. Sent only when party_details is an accepted delegation.",
+      "required": ["jsonrpc", "method", "params"],
+      "properties": {
+        "jsonrpc": { "type": "string", "const": "2.0" },
+        "method": { "type": "string", "const": "esp.party_details.request" },
+        "id": { "type": ["string", "integer"] },
+        "params": {
+          "type": "object",
+          "properties": {
+            "required_fields": {
+              "type": "array",
+              "items": { "type": "string" },
+              "description": "Field names the business needs before it can proceed (e.g. first_name, email, phone_number)."
+            },
+            "party_size": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "Number of participants the business expects details for."
+            }
+          }
+        }
+      }
+    },
+    "EspPartyDetailsResponse": {
+      "type": "object",
+      "title": "esp.party_details.response",
+      "description": "Host to Business. Returns participant information.",
+      "required": ["jsonrpc", "method", "params"],
+      "properties": {
+        "jsonrpc": { "type": "string", "const": "2.0" },
+        "method": { "type": "string", "const": "esp.party_details.response" },
+        "id": { "type": ["string", "integer"] },
+        "params": {
+          "type": "object",
+          "required": ["buyer"],
+          "properties": {
+            "buyer": { "$ref": "#/$defs/EspParticipant" },
+            "recipient": { "$ref": "#/$defs/EspParticipant" },
+            "party_size": { "type": "integer", "minimum": 1 },
+            "notes": { "type": "string", "description": "Buyer-provided special requests." }
+          }
+        }
+      }
+    },
+    "EspPaymentCredentialRequest": {
+      "type": "object",
+      "title": "esp.payment.credential_request",
+      "description": "Business to Host. Asks the host to acquire a payment credential for the stated amount. Sent only when payment is an accepted delegation.",
+      "required": ["jsonrpc", "method", "params"],
+      "properties": {
+        "jsonrpc": { "type": "string", "const": "2.0" },
+        "method": { "type": "string", "const": "esp.payment.credential_request" },
+        "id": { "type": ["string", "integer"] },
+        "params": {
+          "type": "object",
+          "required": ["amount", "currency"],
+          "properties": {
+            "amount": {
+              "type": ["integer", "string"],
+              "pattern": "^[1-9][0-9]*$",
+              "exclusiveMinimum": 0,
+              "description": "Amount to authorize, in minor currency units."
+            },
+            "currency": { "type": "string", "description": "ISO 4217 currency code." },
+            "booking_id": {
+              "type": "string",
+              "description": "The pending booking the payment applies to, when the business has already created one."
+            },
+            "accepted_handlers": {
+              "type": "array",
+              "items": { "type": "string" },
+              "description": "Reverse-domain payment handler identifiers the business accepts. The host MUST return a credential for one of these."
+            }
+          }
+        }
+      }
+    },
+    "EspPaymentCredentialResponse": {
+      "type": "object",
+      "title": "esp.payment.credential_response",
+      "description": "Host to Business. Returns the acquired payment credential. The credential is opaque to USP: its shape is defined by the payment handler specification in use.",
+      "required": ["jsonrpc", "method", "params"],
+      "properties": {
+        "jsonrpc": { "type": "string", "const": "2.0" },
+        "method": { "type": "string", "const": "esp.payment.credential_response" },
+        "id": { "type": ["string", "integer"] },
+        "params": {
+          "type": "object",
+          "required": ["handler_id", "credential"],
+          "properties": {
+            "handler_id": {
+              "type": "string",
+              "description": "The payment handler that issued the credential. MUST be one of accepted_handlers when that array was supplied."
+            },
+            "credential": {
+              "type": "object",
+              "description": "Handler-defined credential payload. USP does not constrain its members, and implementations MUST NOT log it."
+            }
+          }
+        }
+      }
+    },
+    "EspComplete": {
+      "type": "object",
+      "title": "esp.complete",
+      "description": "Business to Host. Terminal success frame: the booking reached its final state for this session.",
+      "required": ["jsonrpc", "method", "params"],
+      "properties": {
+        "jsonrpc": { "type": "string", "const": "2.0" },
+        "method": { "type": "string", "const": "esp.complete" },
+        "id": { "type": ["string", "integer"] },
+        "params": {
+          "type": "object",
+          "required": ["booking_id", "status"],
+          "properties": {
+            "booking_id": { "type": "string" },
+            "status": {
+              "type": "string",
+              "enum": ["pending", "requires_action", "confirmed", "canceled"],
+              "description": "Terminal booking status for this ESP session. canceled is the frame sent in response to esp.cancel when the business chooses to complete rather than error."
+            },
+            "booking": {
+              "$ref": "booking.json#/$defs/Booking",
+              "description": "Full booking object, when the business returns it inline."
+            }
+          }
+        }
+      }
+    },
+    "EspErrorCode": {
+      "type": "string",
+      "title": "EspErrorCode",
+      "enum": ["canceled", "payment_failed", "slot_unavailable", "internal_error"],
+      "description": "Well-known esp.error codes. These are ESP frame codes, a family distinct from the Section 9.4 business outcome codes and protocol errors: an ESP frame is neither an HTTP response nor a JSON-RPC transport error. Implementations MAY send other codes, which hosts MUST treat as unrecoverable unless recoverable says otherwise."
+    },
+    "EspError": {
+      "type": "object",
+      "title": "esp.error",
+      "description": "Business to Host. An error occurred during a delegation step.",
+      "required": ["jsonrpc", "method", "params"],
+      "properties": {
+        "jsonrpc": { "type": "string", "const": "2.0" },
+        "method": { "type": "string", "const": "esp.error" },
+        "id": { "type": ["string", "integer"] },
+        "params": {
+          "type": "object",
+          "required": ["code", "message", "recoverable"],
+          "properties": {
+            "code": { "$ref": "#/$defs/EspErrorCode" },
+            "message": { "type": "string", "description": "Human-readable description." },
+            "recoverable": {
+              "type": "boolean",
+              "description": "Whether the host may retry the step. Required, because a host cannot otherwise tell a declined card from a dead session."
+            }
+          }
+        }
+      }
+    },
+    "EspCancel": {
+      "type": "object",
+      "title": "esp.cancel",
+      "description": "Host to Business. Cancels the in-progress flow. The business MUST release any held slots and reply with esp.error code canceled, or esp.complete with status canceled.",
+      "required": ["jsonrpc", "method", "params"],
+      "properties": {
+        "jsonrpc": { "type": "string", "const": "2.0" },
+        "method": { "type": "string", "const": "esp.cancel" },
+        "id": { "type": ["string", "integer"] },
+        "params": {
+          "type": "object",
+          "properties": {
+            "reason": { "type": "string", "description": "Optional host-supplied reason, for diagnostics only." }
+          }
+        }
+      }
+    },
+    "EspTimeout": {
+      "type": "object",
+      "title": "esp.timeout",
+      "description": "Business to Host. The session expired with no messages exchanged inside the timeout window. Pending holds are released and partial booking state is discarded.",
+      "required": ["jsonrpc", "method", "params"],
+      "properties": {
+        "jsonrpc": { "type": "string", "const": "2.0" },
+        "method": { "type": "string", "const": "esp.timeout" },
+        "id": { "type": ["string", "integer"] },
+        "params": {
+          "type": "object",
+          "properties": {
+            "message": { "type": "string" },
+            "timeout_seconds": {
+              "type": "integer",
+              "description": "The window that elapsed. Default is 1800 (30 minutes)."
+            }
+          }
+        }
+      }
+    },
+    "EspMessage": {
+      "title": "EspMessage",
+      "description": "Any ESP message. Validators dispatch on the method const. Section 9.5.3 requires both peers to validate an incoming frame against this schema before acting on it.",
+      "oneOf": [
+        { "$ref": "#/$defs/EspReady" },
+        { "$ref": "#/$defs/EspStart" },
+        { "$ref": "#/$defs/EspSlotSelectionRequest" },
+        { "$ref": "#/$defs/EspSlotSelectionResponse" },
+        { "$ref": "#/$defs/EspPartyDetailsRequest" },
+        { "$ref": "#/$defs/EspPartyDetailsResponse" },
+        { "$ref": "#/$defs/EspPaymentCredentialRequest" },
+        { "$ref": "#/$defs/EspPaymentCredentialResponse" },
+        { "$ref": "#/$defs/EspComplete" },
+        { "$ref": "#/$defs/EspError" },
+        { "$ref": "#/$defs/EspCancel" },
+        { "$ref": "#/$defs/EspTimeout" }
+      ]
+    }
+  },
+  "$ref": "#/$defs/EspMessage"
+}

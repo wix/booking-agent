@@ -1,0 +1,144 @@
+{
+  "id": "bq-flow-medspa-intake-review",
+  "section": "11.4.6",
+  "requirement": "external-document-and-signature-tasks",
+  "kind": "flow",
+  "expect": "accept",
+  "evidence": "external-document-and-signature-tasks",
+  "notes": "A medical spa intake with a photo upload and a face-markup task, reviewed by staff before the visit. The set moves through under_review to completed.",
+  "given": {
+    "service": {
+      "id": "svc_peel",
+      "type": "appointment",
+      "booking_question_sets": [
+        {
+          "id": "medical",
+          "revision": "r1",
+          "purpose": "intake",
+          "completion_timing": "before_service",
+          "frequency": "every_booking",
+          "items": [
+            {
+              "kind": "question",
+              "id": "concerns",
+              "label": {
+                "plain": "What would you like to treat?"
+              },
+              "schema": {
+                "type": "string",
+                "maxLength": 500
+              },
+              "required": true,
+              "sensitive": true
+            },
+            {
+              "kind": "external_task",
+              "id": "photo",
+              "label": {
+                "plain": "Upload a photo of the area"
+              },
+              "task_type": "file",
+              "required": true,
+              "collection": "business_surface"
+            },
+            {
+              "kind": "external_task",
+              "id": "face_chart",
+              "label": {
+                "plain": "Mark the areas on the face chart"
+              },
+              "task_type": "markup",
+              "required": true,
+              "collection": "business_surface"
+            }
+          ]
+        }
+      ]
+    },
+    "booking": {
+      "id": "bkg_bq_3",
+      "status": "confirmed"
+    }
+  },
+  "when": [
+    {
+      "at": "2026-10-26T09:00:00Z",
+      "step": "update_booking",
+      "with": {
+        "booking_id": "bkg_bq_1",
+        "booking_question_submissions": [
+          {
+            "set_id": "medical",
+            "revision": "r1",
+            "answers": {
+              "concerns": "Sun spots on cheeks"
+            }
+          }
+        ]
+      },
+      "booking_status": "confirmed",
+      "result": {
+        "accepted": true,
+        "messages": [],
+        "booking_question_state": [
+          {
+            "set_id": "medical",
+            "revision": "r1",
+            "status": "pending",
+            "completion_timing": "before_service",
+            "continue_url": "https://studio.example.com/forms/sess_46"
+          }
+        ]
+      }
+    },
+    {
+      "at": "2026-10-26T12:00:00Z",
+      "step": "business_observes",
+      "with": {
+        "tasks": [
+          "photo",
+          "face_chart"
+        ]
+      },
+      "result": {
+        "booking_question_state": [
+          {
+            "set_id": "medical",
+            "revision": "r1",
+            "status": "under_review",
+            "completion_timing": "before_service"
+          }
+        ]
+      }
+    },
+    {
+      "at": "2026-10-26T17:00:00Z",
+      "step": "business_reviews",
+      "with": {
+        "set_id": "medical"
+      },
+      "result": {
+        "booking_question_state": [
+          {
+            "set_id": "medical",
+            "revision": "r1",
+            "status": "completed",
+            "completion_timing": "before_service"
+          }
+        ]
+      }
+    }
+  ],
+  "then": {
+    "final_status": "completed",
+    "sensitive_echoed": false,
+    "http_status": 200
+  },
+  "wrong_answers": [
+    {
+      "behaviour": "upload the photo through the platform as base64",
+      "violates": "11.4.11 business item 9",
+      "why": "Medical photos would pass through agent context."
+    }
+  ]
+}

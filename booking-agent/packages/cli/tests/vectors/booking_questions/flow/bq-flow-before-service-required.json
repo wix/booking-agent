@@ -1,0 +1,136 @@
+{
+  "id": "bq-flow-before-service-required",
+  "section": "11.4.7",
+  "requirement": "before-service-state",
+  "kind": "flow",
+  "expect": "accept",
+  "notes": "The booking confirms while a required before_service set is pending. The set lives in booking_question_state, never in Booking.actions, and is later completed through PUT /bookings/{booking_id}.",
+  "given": {
+    "service": {
+      "id": "svc_cut_45",
+      "type": "appointment",
+      "booking_question_sets": [
+        {
+          "id": "prep",
+          "revision": "r1",
+          "purpose": "intake",
+          "completion_timing": "before_service",
+          "frequency": "every_booking",
+          "items": [
+            {
+              "kind": "question",
+              "id": "skin_type",
+              "label": {
+                "plain": "Skin type"
+              },
+              "schema": {
+                "type": "string",
+                "oneOf": [
+                  {
+                    "const": "dry",
+                    "title": "Dry"
+                  },
+                  {
+                    "const": "oily",
+                    "title": "Oily"
+                  },
+                  {
+                    "const": "mixed",
+                    "title": "Combination"
+                  }
+                ]
+              },
+              "required": true
+            }
+          ],
+          "due_at": "2026-10-28T08:00:00-04:00"
+        }
+      ]
+    },
+    "hold": {
+      "id": "hold_bq_1",
+      "slot_id": "slot_20261028_1000",
+      "service_id": "svc_cut_45",
+      "spots": 1,
+      "expires_at": "2026-10-25T10:10:00Z",
+      "status": "active"
+    }
+  },
+  "when": [
+    {
+      "at": "2026-10-25T10:00:00Z",
+      "step": "create_booking",
+      "with": {
+        "hold_id": "hold_bq_1",
+        "buyer": {
+          "first_name": "Dana",
+          "last_name": "Levi",
+          "email": "dana@example.com",
+          "phone_number": "+14155550123"
+        },
+        "booking_question_submissions": []
+      },
+      "result": {
+        "accepted": true,
+        "booking_id": "bkg_bq_1",
+        "booking_status": "confirmed",
+        "messages": [],
+        "actions": [],
+        "booking_question_state": [
+          {
+            "set_id": "prep",
+            "revision": "r1",
+            "status": "pending",
+            "completion_timing": "before_service",
+            "due_at": "2026-10-28T08:00:00-04:00",
+            "continue_url": "https://studio.example.com/forms/sess_43"
+          }
+        ]
+      }
+    },
+    {
+      "at": "2026-10-26T18:00:00Z",
+      "step": "update_booking",
+      "with": {
+        "booking_id": "bkg_bq_1",
+        "booking_question_submissions": [
+          {
+            "set_id": "prep",
+            "revision": "r1",
+            "answers": {
+              "skin_type": "dry"
+            }
+          }
+        ]
+      },
+      "booking_status": "confirmed",
+      "result": {
+        "accepted": true,
+        "messages": [],
+        "booking_question_state": [
+          {
+            "set_id": "prep",
+            "revision": "r1",
+            "status": "completed",
+            "completion_timing": "before_service",
+            "answers": {
+              "skin_type": "dry"
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "then": {
+    "booking_status": "confirmed",
+    "requires_action_at_any_point": false,
+    "http_status": 200
+  },
+  "wrong_answers": [
+    {
+      "behaviour": "put the before_service set in Booking.actions",
+      "violates": "5.2 actions invariant",
+      "why": "actions are permitted only while status is requires_action; a confirmed booking would violate the core invariant."
+    }
+  ]
+}

@@ -1,0 +1,132 @@
+{
+  "id": "bq-flow-token-expired-missing",
+  "section": "11.4.4",
+  "requirement": "assessment-token-required",
+  "kind": "flow",
+  "expect": "reject",
+  "outcome_code": "booking_eligibility_required",
+  "notes": "A missing token is booking_eligibility_required; an expired one is booking_eligibility_expired. Both are recoverable with a fresh check.",
+  "given": {
+    "service": {
+      "id": "svc_color_90",
+      "type": "appointment",
+      "booking_question_sets": [
+        {
+          "id": "eligibility",
+          "revision": "r1",
+          "purpose": "eligibility",
+          "completion_timing": "preflight",
+          "frequency": "every_booking",
+          "items": [
+            {
+              "kind": "question",
+              "id": "prior_reaction",
+              "label": {
+                "plain": "Have you ever reacted to hair dye?"
+              },
+              "schema": {
+                "type": "boolean"
+              },
+              "required": true
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "when": [
+    {
+      "at": "2026-10-25T10:00:00Z",
+      "step": "hold_slot",
+      "with": {
+        "slot_id": "slot_20261028_1000",
+        "spots": 1
+      },
+      "result": {
+        "accepted": false,
+        "messages": [
+          {
+            "type": "error",
+            "code": "booking_eligibility_required",
+            "content": "Check eligibility for this service before reserving a time.",
+            "severity": "recoverable"
+          }
+        ]
+      }
+    },
+    {
+      "at": "2026-10-25T10:20:00Z",
+      "step": "hold_slot",
+      "with": {
+        "slot_id": "slot_20261028_1000",
+        "spots": 1,
+        "booking_question_assessment_token": "bqat_7Hc2kQ"
+      },
+      "result": {
+        "accepted": false,
+        "messages": [
+          {
+            "type": "error",
+            "code": "booking_eligibility_expired",
+            "content": "The eligibility check expired. Please check again.",
+            "severity": "recoverable"
+          }
+        ]
+      }
+    },
+    {
+      "at": "2026-10-25T10:20:30Z",
+      "step": "check_eligibility",
+      "with": {
+        "service_id": "svc_cut_45",
+        "buyer": {
+          "first_name": "Dana",
+          "last_name": "Levi",
+          "email": "dana@example.com",
+          "phone_number": "+14155550123"
+        },
+        "booking_question_submissions": [
+          {
+            "set_id": "eligibility",
+            "revision": "r1",
+            "answers": {
+              "prior_reaction": false
+            }
+          }
+        ]
+      },
+      "result": {
+        "eligibility": {
+          "decision": "eligible",
+          "assessment_token": "bqat_Rz81p",
+          "expires_at": "2026-10-25T10:35:00Z"
+        }
+      }
+    },
+    {
+      "at": "2026-10-25T10:21:00Z",
+      "step": "hold_slot",
+      "with": {
+        "slot_id": "slot_20261028_1000",
+        "spots": 1,
+        "booking_question_assessment_token": "bqat_Rz81p"
+      },
+      "result": {
+        "accepted": true,
+        "hold_id": "hold_bq_10",
+        "messages": []
+      }
+    }
+  ],
+  "then": {
+    "hold_created": true,
+    "http_status": 200
+  },
+  "wrong_answers": [
+    {
+      "behaviour": "carry the old decision forward",
+      "violates": "11.4.4 The assessment token",
+      "why": "A changed answer or revision would never be re-evaluated."
+    }
+  ]
+}

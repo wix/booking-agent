@@ -1,0 +1,186 @@
+{
+  "id": "bq-flow-ucp-action-authoritative",
+  "section": "11.4.8",
+  "requirement": "ucp-action-authoritative",
+  "kind": "flow",
+  "expect": "accept",
+  "notes": "The checkout response lists a buyer-input Action under the actions map. A bare true in the answers without action_id resolves nothing. The submission naming the Action id resolves it once the business reports so in its next checkout response.",
+  "given": {
+    "service": {
+      "id": "svc_cut_45",
+      "type": "appointment",
+      "booking_question_sets": [
+        {
+          "id": "intake",
+          "revision": "r1",
+          "purpose": "intake",
+          "completion_timing": "before_confirmation",
+          "frequency": "every_booking",
+          "items": [
+            {
+              "kind": "question",
+              "id": "hair_notes",
+              "label": {
+                "plain": "Anything the stylist should know?"
+              },
+              "schema": {
+                "type": "string",
+                "maxLength": 500
+              },
+              "required": true
+            },
+            {
+              "kind": "question",
+              "id": "no_show_fee",
+              "label": {
+                "plain": "I agree to the no-show fee of $30."
+              },
+              "schema": {
+                "type": "boolean",
+                "const": true
+              },
+              "required": true,
+              "rendering": "checkbox",
+              "collection": "platform_surface"
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "when": [
+    {
+      "at": "2026-10-25T10:00:00Z",
+      "step": "create_checkout",
+      "with": {
+        "booking": {
+          "service_id": "svc_cut_45",
+          "slot": {
+            "id": "slot_20261028_1000"
+          },
+          "booking_question_submissions": [
+            {
+              "set_id": "intake",
+              "revision": "r1",
+              "answers": {
+                "hair_notes": "Fine hair"
+              }
+            }
+          ]
+        }
+      },
+      "result": {
+        "checkout_status": "incomplete",
+        "actions": {
+          "dev.usp-protocol.services.booking_questions.buyer_input": [
+            {
+              "id": "act_bq_1",
+              "config": {
+                "mode": "acknowledge",
+                "sets": [
+                  {
+                    "set_id": "intake",
+                    "revision": "r1"
+                  }
+                ],
+                "item_ids": [
+                  "no_show_fee"
+                ],
+                "presentation": "verbatim"
+              },
+              "continue_url": "https://studio.example.com/forms/sess_42"
+            }
+          ]
+        },
+        "messages": []
+      }
+    },
+    {
+      "at": "2026-10-25T10:00:20Z",
+      "step": "update_checkout",
+      "with": {
+        "booking": {
+          "service_id": "svc_cut_45",
+          "slot": {
+            "id": "slot_20261028_1000"
+          },
+          "booking_question_submissions": [
+            {
+              "set_id": "intake",
+              "revision": "r1",
+              "answers": {
+                "hair_notes": "Fine hair",
+                "no_show_fee": true
+              }
+            }
+          ]
+        }
+      },
+      "result": {
+        "checkout_status": "incomplete",
+        "actions": {
+          "dev.usp-protocol.services.booking_questions.buyer_input": [
+            {
+              "id": "act_bq_1",
+              "config": {
+                "mode": "acknowledge",
+                "sets": [
+                  {
+                    "set_id": "intake",
+                    "revision": "r1"
+                  }
+                ],
+                "item_ids": [
+                  "no_show_fee"
+                ],
+                "presentation": "verbatim"
+              },
+              "continue_url": "https://studio.example.com/forms/sess_42"
+            }
+          ]
+        },
+        "acceptance_recorded": false,
+        "messages": []
+      }
+    },
+    {
+      "at": "2026-10-25T10:00:40Z",
+      "step": "update_checkout",
+      "with": {
+        "booking": {
+          "service_id": "svc_cut_45",
+          "slot": {
+            "id": "slot_20261028_1000"
+          },
+          "booking_question_submissions": [
+            {
+              "set_id": "intake",
+              "revision": "r1",
+              "answers": {
+                "hair_notes": "Fine hair",
+                "no_show_fee": true
+              },
+              "action_id": "act_bq_1"
+            }
+          ]
+        }
+      },
+      "result": {
+        "checkout_status": "ready_for_complete",
+        "messages": []
+      }
+    }
+  ],
+  "then": {
+    "checkout_status": "ready_for_complete",
+    "resolved_by": "business_response",
+    "http_status": 200
+  },
+  "wrong_answers": [
+    {
+      "behaviour": "treat accepted: true as acceptance",
+      "violates": "11.4.8 Authority",
+      "why": "An agent-asserted flag would stand in for a buyer response."
+    }
+  ]
+}

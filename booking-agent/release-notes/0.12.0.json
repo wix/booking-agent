@@ -1,0 +1,18 @@
+{
+  "change_type": "breaking",
+  "cli_version": "0.12.0",
+  "details_url": "https://github.com/wix/booking-agent/releases/tag/v0.12.0",
+  "ecosystem_ready": false,
+  "readiness_evidence": [
+    "Hosted replay: pending. Not run yet. The general replay must show that buyer resolve opens the checkout before the summary, the summary shows the business's real total and terms, the user is asked once, a lost create reuses the same key, and payment completes only after the yes. A second throwaway run must say no at the summary and show, outside the chat, no confirmed booking and no checkout left open at the business.",
+    "Breaking for the skill: buyer resolve now opens the paid checkout and its summary carries the policies, deposit terms and total that flow book used to ask about afterwards, so a skill older than 0.59.0 asks questions the CLI no longer expects. The new flow book decline, flow questions and flow recipient commands are additions.",
+    "Booking questions are inactive: the hosted platform profile does not declare the extension, so no business negotiates it and every request is byte-identical to 0.11.2 for every business today (dormant-path tests). They stay off until the profile declares the extension and the rest of that work, including a staging run against a business that publishes questions, is done.",
+    "Booking for someone else sends the USP recipient on booking create, booking update and the UCP checkout booking context, and warns when the business does not echo it back. Wix businesses do not show the other person yet, so the booking may appear under the buyer's name until the business side forwards it.",
+    "Existing businesses stay compatible: no USP, UCP or platform profile version changed, and the checkout body is unchanged unless a recipient is set. The registry is not touched. Saved session files gain only optional fields and keep their format version; older BUYER_RESOLVED and PAYMENT_PENDING sessions load and continue (test_session_compat.py)."
+  ],
+  "relevant_capabilities": ["booking", "payment"],
+  "schema_version": 1,
+  "skill_version": "0.59.0",
+  "update_status": "deferred",
+  "user_summary": "The booking summary now shows the business's real total and terms, so you are asked to confirm only once."
+}

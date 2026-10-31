@@ -1,0 +1,116 @@
+{
+  "id": "bq-flow-recipient-eligibility",
+  "section": "11.4.4",
+  "requirement": "recipient-subject-eligibility",
+  "kind": "flow",
+  "expect": "accept",
+  "notes": "subject: recipient is evaluated against the effective recipient. The question only rules out a future date; the 18-or-over rule is the business's eligibility decision, so a child's birth date is a valid answer that yields ineligible rather than an invalid answer. An adult buyer booking for a 12-year-old is ineligible for an adults-only service; the same buyer booking for themselves is eligible, so self-bookings never lack a subject.",
+  "given": {
+    "service": {
+      "id": "svc_peel",
+      "type": "appointment",
+      "booking_question_sets": [
+        {
+          "id": "participant",
+          "revision": "r1",
+          "purpose": "eligibility",
+          "completion_timing": "preflight",
+          "frequency": "every_booking",
+          "items": [
+            {
+              "kind": "question",
+              "id": "birth_date",
+              "label": {
+                "plain": "Participant date of birth"
+              },
+              "schema": {
+                "type": "string",
+                "format": "date",
+                "not_after": "P0D"
+              },
+              "required": true
+            }
+          ],
+          "subject": "recipient"
+        }
+      ]
+    }
+  },
+  "when": [
+    {
+      "at": "2026-10-25T10:00:00Z",
+      "step": "check_eligibility",
+      "with": {
+        "service_id": "svc_peel",
+        "buyer": {
+          "first_name": "Dana",
+          "last_name": "Levi",
+          "email": "dana@example.com",
+          "phone_number": "+14155550123"
+        },
+        "booking_question_submissions": [
+          {
+            "set_id": "participant",
+            "revision": "r1",
+            "answers": {
+              "birth_date": "2014-05-02"
+            }
+          }
+        ],
+        "recipient": {
+          "first_name": "Noa",
+          "last_name": "Levi",
+          "email": "dana@example.com"
+        }
+      },
+      "result": {
+        "eligibility": {
+          "decision": "ineligible"
+        }
+      }
+    },
+    {
+      "at": "2026-10-25T10:01:00Z",
+      "step": "check_eligibility",
+      "with": {
+        "service_id": "svc_peel",
+        "buyer": {
+          "first_name": "Dana",
+          "last_name": "Levi",
+          "email": "dana@example.com",
+          "phone_number": "+14155550123"
+        },
+        "booking_question_submissions": [
+          {
+            "set_id": "participant",
+            "revision": "r1",
+            "answers": {
+              "birth_date": "1990-03-14"
+            }
+          }
+        ]
+      },
+      "result": {
+        "eligibility": {
+          "decision": "eligible",
+          "assessment_token": "bqat_7Hc2kQ",
+          "expires_at": "2026-10-25T10:15:00Z"
+        }
+      }
+    }
+  ],
+  "then": {
+    "evaluated_against": [
+      "recipient",
+      "buyer"
+    ],
+    "http_status": 200
+  },
+  "wrong_answers": [
+    {
+      "behaviour": "use the buyer's profile age when a recipient exists",
+      "violates": "11.4.11 platform item 2",
+      "why": "A parent's eligibility would unlock an adults-only treatment for a child."
+    }
+  ]
+}

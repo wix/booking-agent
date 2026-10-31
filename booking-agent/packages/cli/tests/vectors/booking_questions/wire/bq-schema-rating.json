@@ -1,0 +1,92 @@
+{
+  "id": "bq-schema-rating",
+  "section": "11.4.3",
+  "requirement": "rating-is-integer-hint",
+  "kind": "wire",
+  "binding": [
+    "rest",
+    "mcp"
+  ],
+  "expect": "accept",
+  "schema": "booking_questions.json#/$defs/BookingQuestion",
+  "notes": "A rating is an integer question with rendering: rating. The hint changes presentation only; validation is the integer bounds.",
+  "case": "integer 1 to 5 rendered as a rating",
+  "instance": {
+    "kind": "question",
+    "id": "pressure",
+    "label": {
+      "plain": "Preferred pressure"
+    },
+    "schema": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 5
+    },
+    "required": true,
+    "rendering": "rating"
+  },
+  "then": {
+    "conforming": true,
+    "schema_valid": true,
+    "member_name_violations": []
+  },
+  "answer_cases": [
+    {
+      "value": 4,
+      "valid": true
+    },
+    {
+      "value": 0,
+      "valid": false,
+      "errors": [
+        "minimum"
+      ]
+    },
+    {
+      "value": 6,
+      "valid": false,
+      "errors": [
+        "maximum"
+      ]
+    },
+    {
+      "value": 4.5,
+      "valid": false,
+      "errors": [
+        "type"
+      ]
+    }
+  ],
+  "variants": [
+    {
+      "case": "undefined rendering hint",
+      "expect": "reject",
+      "instance": {
+        "kind": "question",
+        "id": "pressure",
+        "label": {
+          "plain": "Preferred pressure"
+        },
+        "schema": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 5
+        },
+        "required": true,
+        "rendering": "stars"
+      },
+      "then": {
+        "conforming": false,
+        "schema_valid": false,
+        "member_name_violations": []
+      }
+    }
+  ],
+  "wrong_answers": [
+    {
+      "behaviour": "accept 4.5 because the widget showed half stars",
+      "violates": "11.4.3 Answer Schema",
+      "why": "rendering never changes validation; the business receives only integers."
+    }
+  ]
+}

@@ -14,7 +14,7 @@ def _parse_iso(s: str) -> datetime:
     """Parse an ISO8601 datetime string, handling the Z suffix for Python 3.10."""
     return datetime.fromisoformat(s.replace("Z", "+00:00"))
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from ..authorization import BookingScopedCredential
 from ..discovery import USPBusinessProfile
@@ -79,8 +79,13 @@ class USPBackend(ABC):
         start_date: str,
         end_date: str,
         timezone: Optional[str] = None,
+        **booking_questions: Any,
     ) -> List[TimeSlot]:
         """Slots for the window. ``timezone`` is sent as ``date_bounds_timezone``.
+
+        ``booking_questions`` carries ``booking_question_assessment_token`` only when
+        the booking questions extension is active, so callers that never negotiated
+        it send exactly what they did before.
 
         Live backends return an ``AvailabilityResult`` carrying the response's
         ``business_timezone`` and ``applied_date_bounds_timezone``.
@@ -122,6 +127,7 @@ class USPBackend(ABC):
         slot_id: str,
         service_id: str,
         spots: int = 1,
+        **booking_questions: Any,
     ) -> Hold: ...
 
     @abstractmethod
@@ -147,7 +153,33 @@ class USPBackend(ABC):
         notes: Optional[str] = None,
         delivery_address: Optional[Dict[str, Any]] = None,
         idempotency_key: Optional[str] = None,
-    ) -> Booking: ...
+        **extensions: Any,
+    ) -> Booking:
+        """``extensions`` carries ``recipient`` and the booking-questions fields, set
+        only when they have values."""
+
+    async def check_eligibility(
+        self,
+        profile: USPBusinessProfile,
+        service_id: str,
+        *,
+        buyer: Optional[Dict[str, Any]] = None,
+        recipient: Optional[Dict[str, Any]] = None,
+        submissions: Optional[List[Dict[str, Any]]] = None,
+    ) -> Tuple[Any, List[Dict[str, Any]]]:
+        raise NotImplementedError("this backend has no eligibility checks")
+
+    async def update_booking(
+        self,
+        profile: USPBusinessProfile,
+        booking_id: str,
+        *,
+        credential: Optional[BookingScopedCredential] = None,
+        credential_endpoint: Optional[str] = None,
+        if_match: Optional[str] = None,
+        **changes: Any,
+    ) -> Booking:
+        raise NotImplementedError("this backend cannot update bookings")
 
     @abstractmethod
     async def get_booking(

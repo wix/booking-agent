@@ -1,0 +1,270 @@
+{
+  "id": "bq-cond-combinators",
+  "section": "11.4.3",
+  "requirement": "condition-combinators",
+  "kind": "eval",
+  "notes": "all, any, and not over leaf conditions. all and any contain at least one condition: an empty combinator has no agreed truth value across implementations, so the schema rejects it rather than defining one.",
+  "given": {
+    "set": {
+      "id": "c",
+      "revision": "r1",
+      "purpose": "intake",
+      "completion_timing": "before_confirmation",
+      "frequency": "every_booking",
+      "items": [
+        {
+          "kind": "question",
+          "id": "a",
+          "label": {
+            "plain": "A"
+          },
+          "schema": {
+            "type": "boolean"
+          },
+          "required": true
+        },
+        {
+          "kind": "question",
+          "id": "b",
+          "label": {
+            "plain": "B"
+          },
+          "schema": {
+            "type": "boolean"
+          },
+          "required": true
+        },
+        {
+          "kind": "question",
+          "id": "all_ab",
+          "label": {
+            "plain": "all"
+          },
+          "schema": {
+            "type": "string",
+            "maxLength": 10
+          },
+          "required": false,
+          "when": {
+            "all": [
+              {
+                "question": "a",
+                "op": "equals",
+                "value": true
+              },
+              {
+                "question": "b",
+                "op": "equals",
+                "value": true
+              }
+            ]
+          }
+        },
+        {
+          "kind": "question",
+          "id": "any_ab",
+          "label": {
+            "plain": "any"
+          },
+          "schema": {
+            "type": "string",
+            "maxLength": 10
+          },
+          "required": false,
+          "when": {
+            "any": [
+              {
+                "question": "a",
+                "op": "equals",
+                "value": true
+              },
+              {
+                "question": "b",
+                "op": "equals",
+                "value": true
+              }
+            ]
+          }
+        },
+        {
+          "kind": "question",
+          "id": "not_a",
+          "label": {
+            "plain": "not"
+          },
+          "schema": {
+            "type": "string",
+            "maxLength": 10
+          },
+          "required": false,
+          "when": {
+            "not": {
+              "question": "a",
+              "op": "equals",
+              "value": true
+            }
+          }
+        }
+      ]
+    }
+  },
+  "cases": [
+    {
+      "case": "both true",
+      "answers": {
+        "a": true,
+        "b": true
+      },
+      "then": {
+        "definition_valid": true,
+        "applicable": [
+          "a",
+          "b",
+          "all_ab",
+          "any_ab"
+        ]
+      }
+    },
+    {
+      "case": "one true",
+      "answers": {
+        "a": true,
+        "b": false
+      },
+      "then": {
+        "definition_valid": true,
+        "applicable": [
+          "a",
+          "b",
+          "any_ab"
+        ]
+      }
+    },
+    {
+      "case": "both false",
+      "answers": {
+        "a": false,
+        "b": false
+      },
+      "then": {
+        "definition_valid": true,
+        "applicable": [
+          "a",
+          "b",
+          "not_a"
+        ]
+      }
+    },
+    {
+      "case": "empty all",
+      "set": {
+        "id": "c",
+        "revision": "r1",
+        "purpose": "intake",
+        "completion_timing": "before_confirmation",
+        "frequency": "every_booking",
+        "items": [
+          {
+            "kind": "question",
+            "id": "a",
+            "label": {
+              "plain": "A"
+            },
+            "schema": {
+              "type": "boolean"
+            },
+            "required": true
+          },
+          {
+            "kind": "question",
+            "id": "b",
+            "label": {
+              "plain": "B"
+            },
+            "schema": {
+              "type": "boolean"
+            },
+            "required": true
+          },
+          {
+            "kind": "question",
+            "id": "x",
+            "label": {
+              "plain": "x"
+            },
+            "schema": {
+              "type": "string",
+              "maxLength": 10
+            },
+            "required": false,
+            "when": {
+              "all": []
+            }
+          }
+        ]
+      },
+      "then": {
+        "definition_valid": false
+      }
+    },
+    {
+      "case": "empty any",
+      "set": {
+        "id": "c",
+        "revision": "r1",
+        "purpose": "intake",
+        "completion_timing": "before_confirmation",
+        "frequency": "every_booking",
+        "items": [
+          {
+            "kind": "question",
+            "id": "a",
+            "label": {
+              "plain": "A"
+            },
+            "schema": {
+              "type": "boolean"
+            },
+            "required": true
+          },
+          {
+            "kind": "question",
+            "id": "b",
+            "label": {
+              "plain": "B"
+            },
+            "schema": {
+              "type": "boolean"
+            },
+            "required": true
+          },
+          {
+            "kind": "question",
+            "id": "x",
+            "label": {
+              "plain": "x"
+            },
+            "schema": {
+              "type": "string",
+              "maxLength": 10
+            },
+            "required": false,
+            "when": {
+              "any": []
+            }
+          }
+        ]
+      },
+      "then": {
+        "definition_valid": false
+      }
+    }
+  ],
+  "wrong_answers": [
+    {
+      "behaviour": "treat an empty all as true",
+      "violates": "11.4.3 Conditions item 2",
+      "why": "Implementations disagree on vacuous truth; the schema removes the question."
+    }
+  ]
+}

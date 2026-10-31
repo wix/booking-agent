@@ -1,0 +1,200 @@
+{
+  "id": "bq-schema-section-pages",
+  "section": "11.4.3",
+  "requirement": "section-groups-items",
+  "kind": "wire",
+  "binding": [
+    "rest",
+    "mcp"
+  ],
+  "expect": "accept",
+  "schema": "booking_questions.json#/$defs/BookingQuestionSet",
+  "notes": "Sections group the following items until the next section and keep page order. A section with nothing to group is rejected.",
+  "case": "two pages",
+  "instance": {
+    "id": "intake",
+    "revision": "r1",
+    "purpose": "intake",
+    "completion_timing": "before_confirmation",
+    "frequency": "every_booking",
+    "items": [
+      {
+        "kind": "section",
+        "id": "about_you",
+        "title": {
+          "plain": "About you"
+        }
+      },
+      {
+        "kind": "question",
+        "id": "first_visit",
+        "label": {
+          "plain": "Is this your first visit?"
+        },
+        "schema": {
+          "type": "boolean"
+        },
+        "required": true
+      },
+      {
+        "kind": "section",
+        "id": "your_hair",
+        "title": {
+          "plain": "Your hair"
+        }
+      },
+      {
+        "kind": "question",
+        "id": "hair_length",
+        "label": {
+          "plain": "Hair length"
+        },
+        "schema": {
+          "type": "string",
+          "oneOf": [
+            {
+              "const": "short",
+              "title": "Short"
+            },
+            {
+              "const": "medium",
+              "title": "Medium"
+            },
+            {
+              "const": "long",
+              "title": "Long"
+            }
+          ]
+        },
+        "required": true
+      }
+    ]
+  },
+  "then": {
+    "conforming": true,
+    "schema_valid": true,
+    "member_name_violations": []
+  },
+  "variants": [
+    {
+      "case": "section followed by section",
+      "expect": "reject",
+      "instance": {
+        "id": "intake",
+        "revision": "r1",
+        "purpose": "intake",
+        "completion_timing": "before_confirmation",
+        "frequency": "every_booking",
+        "items": [
+          {
+            "kind": "section",
+            "id": "about_you",
+            "title": {
+              "plain": "About you"
+            }
+          },
+          {
+            "kind": "section",
+            "id": "your_hair",
+            "title": {
+              "plain": "Your hair"
+            }
+          },
+          {
+            "kind": "question",
+            "id": "hair_length",
+            "label": {
+              "plain": "Hair length"
+            },
+            "schema": {
+              "type": "string",
+              "oneOf": [
+                {
+                  "const": "short",
+                  "title": "Short"
+                },
+                {
+                  "const": "medium",
+                  "title": "Medium"
+                },
+                {
+                  "const": "long",
+                  "title": "Long"
+                }
+              ]
+            },
+            "required": true
+          }
+        ]
+      },
+      "then": {
+        "conforming": false,
+        "schema_valid": true,
+        "member_name_violations": [],
+        "semantic_errors": [
+          "empty_section:about_you"
+        ]
+      }
+    },
+    {
+      "case": "trailing section",
+      "expect": "reject",
+      "instance": {
+        "id": "intake",
+        "revision": "r1",
+        "purpose": "intake",
+        "completion_timing": "before_confirmation",
+        "frequency": "every_booking",
+        "items": [
+          {
+            "kind": "question",
+            "id": "hair_length",
+            "label": {
+              "plain": "Hair length"
+            },
+            "schema": {
+              "type": "string",
+              "oneOf": [
+                {
+                  "const": "short",
+                  "title": "Short"
+                },
+                {
+                  "const": "medium",
+                  "title": "Medium"
+                },
+                {
+                  "const": "long",
+                  "title": "Long"
+                }
+              ]
+            },
+            "required": true
+          },
+          {
+            "kind": "section",
+            "id": "end",
+            "title": {
+              "plain": "Thank you"
+            }
+          }
+        ]
+      },
+      "then": {
+        "conforming": false,
+        "schema_valid": true,
+        "member_name_violations": [],
+        "semantic_errors": [
+          "empty_section:end"
+        ]
+      }
+    }
+  ],
+  "wrong_answers": [
+    {
+      "behaviour": "render an empty section as a blank page",
+      "violates": "11.4.3 Items",
+      "why": "The buyer sees a step with nothing to do and abandons the form."
+    }
+  ]
+}

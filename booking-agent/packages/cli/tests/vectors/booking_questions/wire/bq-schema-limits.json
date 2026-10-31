@@ -1,0 +1,1601 @@
+{
+  "id": "bq-schema-limits",
+  "section": "11.4.3",
+  "requirement": "schema-limits",
+  "kind": "wire",
+  "binding": [
+    "rest",
+    "mcp"
+  ],
+  "expect": "reject",
+  "schema": "booking_questions.json#/$defs/BookingQuestionSets",
+  "notes": "Schema-enforced maximums: 20 sets per service, 50 items per set, label.plain 300 characters, description.plain 2000 characters.",
+  "case": "21 sets",
+  "instance": [
+    {
+      "id": "s0",
+      "revision": "r1",
+      "purpose": "intake",
+      "completion_timing": "before_confirmation",
+      "frequency": "every_booking",
+      "items": [
+        {
+          "kind": "question",
+          "id": "q",
+          "label": {
+            "plain": "Q"
+          },
+          "schema": {
+            "type": "string",
+            "maxLength": 10
+          },
+          "required": false
+        }
+      ]
+    },
+    {
+      "id": "s1",
+      "revision": "r1",
+      "purpose": "intake",
+      "completion_timing": "before_confirmation",
+      "frequency": "every_booking",
+      "items": [
+        {
+          "kind": "question",
+          "id": "q",
+          "label": {
+            "plain": "Q"
+          },
+          "schema": {
+            "type": "string",
+            "maxLength": 10
+          },
+          "required": false
+        }
+      ]
+    },
+    {
+      "id": "s2",
+      "revision": "r1",
+      "purpose": "intake",
+      "completion_timing": "before_confirmation",
+      "frequency": "every_booking",
+      "items": [
+        {
+          "kind": "question",
+          "id": "q",
+          "label": {
+            "plain": "Q"
+          },
+          "schema": {
+            "type": "string",
+            "maxLength": 10
+          },
+          "required": false
+        }
+      ]
+    },
+    {
+      "id": "s3",
+      "revision": "r1",
+      "purpose": "intake",
+      "completion_timing": "before_confirmation",
+      "frequency": "every_booking",
+      "items": [
+        {
+          "kind": "question",
+          "id": "q",
+          "label": {
+            "plain": "Q"
+          },
+          "schema": {
+            "type": "string",
+            "maxLength": 10
+          },
+          "required": false
+        }
+      ]
+    },
+    {
+      "id": "s4",
+      "revision": "r1",
+      "purpose": "intake",
+      "completion_timing": "before_confirmation",
+      "frequency": "every_booking",
+      "items": [
+        {
+          "kind": "question",
+          "id": "q",
+          "label": {
+            "plain": "Q"
+          },
+          "schema": {
+            "type": "string",
+            "maxLength": 10
+          },
+          "required": false
+        }
+      ]
+    },
+    {
+      "id": "s5",
+      "revision": "r1",
+      "purpose": "intake",
+      "completion_timing": "before_confirmation",
+      "frequency": "every_booking",
+      "items": [
+        {
+          "kind": "question",
+          "id": "q",
+          "label": {
+            "plain": "Q"
+          },
+          "schema": {
+            "type": "string",
+            "maxLength": 10
+          },
+          "required": false
+        }
+      ]
+    },
+    {
+      "id": "s6",
+      "revision": "r1",
+      "purpose": "intake",
+      "completion_timing": "before_confirmation",
+      "frequency": "every_booking",
+      "items": [
+        {
+          "kind": "question",
+          "id": "q",
+          "label": {
+            "plain": "Q"
+          },
+          "schema": {
+            "type": "string",
+            "maxLength": 10
+          },
+          "required": false
+        }
+      ]
+    },
+    {
+      "id": "s7",
+      "revision": "r1",
+      "purpose": "intake",
+      "completion_timing": "before_confirmation",
+      "frequency": "every_booking",
+      "items": [
+        {
+          "kind": "question",
+          "id": "q",
+          "label": {
+            "plain": "Q"
+          },
+          "schema": {
+            "type": "string",
+            "maxLength": 10
+          },
+          "required": false
+        }
+      ]
+    },
+    {
+      "id": "s8",
+      "revision": "r1",
+      "purpose": "intake",
+      "completion_timing": "before_confirmation",
+      "frequency": "every_booking",
+      "items": [
+        {
+          "kind": "question",
+          "id": "q",
+          "label": {
+            "plain": "Q"
+          },
+          "schema": {
+            "type": "string",
+            "maxLength": 10
+          },
+          "required": false
+        }
+      ]
+    },
+    {
+      "id": "s9",
+      "revision": "r1",
+      "purpose": "intake",
+      "completion_timing": "before_confirmation",
+      "frequency": "every_booking",
+      "items": [
+        {
+          "kind": "question",
+          "id": "q",
+          "label": {
+            "plain": "Q"
+          },
+          "schema": {
+            "type": "string",
+            "maxLength": 10
+          },
+          "required": false
+        }
+      ]
+    },
+    {
+      "id": "s10",
+      "revision": "r1",
+      "purpose": "intake",
+      "completion_timing": "before_confirmation",
+      "frequency": "every_booking",
+      "items": [
+        {
+          "kind": "question",
+          "id": "q",
+          "label": {
+            "plain": "Q"
+          },
+          "schema": {
+            "type": "string",
+            "maxLength": 10
+          },
+          "required": false
+        }
+      ]
+    },
+    {
+      "id": "s11",
+      "revision": "r1",
+      "purpose": "intake",
+      "completion_timing": "before_confirmation",
+      "frequency": "every_booking",
+      "items": [
+        {
+          "kind": "question",
+          "id": "q",
+          "label": {
+            "plain": "Q"
+          },
+          "schema": {
+            "type": "string",
+            "maxLength": 10
+          },
+          "required": false
+        }
+      ]
+    },
+    {
+      "id": "s12",
+      "revision": "r1",
+      "purpose": "intake",
+      "completion_timing": "before_confirmation",
+      "frequency": "every_booking",
+      "items": [
+        {
+          "kind": "question",
+          "id": "q",
+          "label": {
+            "plain": "Q"
+          },
+          "schema": {
+            "type": "string",
+            "maxLength": 10
+          },
+          "required": false
+        }
+      ]
+    },
+    {
+      "id": "s13",
+      "revision": "r1",
+      "purpose": "intake",
+      "completion_timing": "before_confirmation",
+      "frequency": "every_booking",
+      "items": [
+        {
+          "kind": "question",
+          "id": "q",
+          "label": {
+            "plain": "Q"
+          },
+          "schema": {
+            "type": "string",
+            "maxLength": 10
+          },
+          "required": false
+        }
+      ]
+    },
+    {
+      "id": "s14",
+      "revision": "r1",
+      "purpose": "intake",
+      "completion_timing": "before_confirmation",
+      "frequency": "every_booking",
+      "items": [
+        {
+          "kind": "question",
+          "id": "q",
+          "label": {
+            "plain": "Q"
+          },
+          "schema": {
+            "type": "string",
+            "maxLength": 10
+          },
+          "required": false
+        }
+      ]
+    },
+    {
+      "id": "s15",
+      "revision": "r1",
+      "purpose": "intake",
+      "completion_timing": "before_confirmation",
+      "frequency": "every_booking",
+      "items": [
+        {
+          "kind": "question",
+          "id": "q",
+          "label": {
+            "plain": "Q"
+          },
+          "schema": {
+            "type": "string",
+            "maxLength": 10
+          },
+          "required": false
+        }
+      ]
+    },
+    {
+      "id": "s16",
+      "revision": "r1",
+      "purpose": "intake",
+      "completion_timing": "before_confirmation",
+      "frequency": "every_booking",
+      "items": [
+        {
+          "kind": "question",
+          "id": "q",
+          "label": {
+            "plain": "Q"
+          },
+          "schema": {
+            "type": "string",
+            "maxLength": 10
+          },
+          "required": false
+        }
+      ]
+    },
+    {
+      "id": "s17",
+      "revision": "r1",
+      "purpose": "intake",
+      "completion_timing": "before_confirmation",
+      "frequency": "every_booking",
+      "items": [
+        {
+          "kind": "question",
+          "id": "q",
+          "label": {
+            "plain": "Q"
+          },
+          "schema": {
+            "type": "string",
+            "maxLength": 10
+          },
+          "required": false
+        }
+      ]
+    },
+    {
+      "id": "s18",
+      "revision": "r1",
+      "purpose": "intake",
+      "completion_timing": "before_confirmation",
+      "frequency": "every_booking",
+      "items": [
+        {
+          "kind": "question",
+          "id": "q",
+          "label": {
+            "plain": "Q"
+          },
+          "schema": {
+            "type": "string",
+            "maxLength": 10
+          },
+          "required": false
+        }
+      ]
+    },
+    {
+      "id": "s19",
+      "revision": "r1",
+      "purpose": "intake",
+      "completion_timing": "before_confirmation",
+      "frequency": "every_booking",
+      "items": [
+        {
+          "kind": "question",
+          "id": "q",
+          "label": {
+            "plain": "Q"
+          },
+          "schema": {
+            "type": "string",
+            "maxLength": 10
+          },
+          "required": false
+        }
+      ]
+    },
+    {
+      "id": "s20",
+      "revision": "r1",
+      "purpose": "intake",
+      "completion_timing": "before_confirmation",
+      "frequency": "every_booking",
+      "items": [
+        {
+          "kind": "question",
+          "id": "q",
+          "label": {
+            "plain": "Q"
+          },
+          "schema": {
+            "type": "string",
+            "maxLength": 10
+          },
+          "required": false
+        }
+      ]
+    }
+  ],
+  "then": {
+    "conforming": false,
+    "schema_valid": false,
+    "member_name_violations": []
+  },
+  "variants": [
+    {
+      "case": "51 items in one set",
+      "expect": "reject",
+      "instance": [
+        {
+          "id": "big",
+          "revision": "r1",
+          "purpose": "intake",
+          "completion_timing": "before_confirmation",
+          "frequency": "every_booking",
+          "items": [
+            {
+              "kind": "question",
+              "id": "q0",
+              "label": {
+                "plain": "Question 0"
+              },
+              "schema": {
+                "type": "string",
+                "maxLength": 10
+              },
+              "required": false
+            },
+            {
+              "kind": "question",
+              "id": "q1",
+              "label": {
+                "plain": "Question 1"
+              },
+              "schema": {
+                "type": "string",
+                "maxLength": 10
+              },
+              "required": false
+            },
+            {
+              "kind": "question",
+              "id": "q2",
+              "label": {
+                "plain": "Question 2"
+              },
+              "schema": {
+                "type": "string",
+                "maxLength": 10
+              },
+              "required": false
+            },
+            {
+              "kind": "question",
+              "id": "q3",
+              "label": {
+                "plain": "Question 3"
+              },
+              "schema": {
+                "type": "string",
+                "maxLength": 10
+              },
+              "required": false
+            },
+            {
+              "kind": "question",
+              "id": "q4",
+              "label": {
+                "plain": "Question 4"
+              },
+              "schema": {
+                "type": "string",
+                "maxLength": 10
+              },
+              "required": false
+            },
+            {
+              "kind": "question",
+              "id": "q5",
+              "label": {
+                "plain": "Question 5"
+              },
+              "schema": {
+                "type": "string",
+                "maxLength": 10
+              },
+              "required": false
+            },
+            {
+              "kind": "question",
+              "id": "q6",
+              "label": {
+                "plain": "Question 6"
+              },
+              "schema": {
+                "type": "string",
+                "maxLength": 10
+              },
+              "required": false
+            },
+            {
+              "kind": "question",
+              "id": "q7",
+              "label": {
+                "plain": "Question 7"
+              },
+              "schema": {
+                "type": "string",
+                "maxLength": 10
+              },
+              "required": false
+            },
+            {
+              "kind": "question",
+              "id": "q8",
+              "label": {
+                "plain": "Question 8"
+              },
+              "schema": {
+                "type": "string",
+                "maxLength": 10
+              },
+              "required": false
+            },
+            {
+              "kind": "question",
+              "id": "q9",
+              "label": {
+                "plain": "Question 9"
+              },
+              "schema": {
+                "type": "string",
+                "maxLength": 10
+              },
+              "required": false
+            },
+            {
+              "kind": "question",
+              "id": "q10",
+              "label": {
+                "plain": "Question 10"
+              },
+              "schema": {
+                "type": "string",
+                "maxLength": 10
+              },
+              "required": false
+            },
+            {
+              "kind": "question",
+              "id": "q11",
+              "label": {
+                "plain": "Question 11"
+              },
+              "schema": {
+                "type": "string",
+                "maxLength": 10
+              },
+              "required": false
+            },
+            {
+              "kind": "question",
+              "id": "q12",
+              "label": {
+                "plain": "Question 12"
+              },
+              "schema": {
+                "type": "string",
+                "maxLength": 10
+              },
+              "required": false
+            },
+            {
+              "kind": "question",
+              "id": "q13",
+              "label": {
+                "plain": "Question 13"
+              },
+              "schema": {
+                "type": "string",
+                "maxLength": 10
+              },
+              "required": false
+            },
+            {
+              "kind": "question",
+              "id": "q14",
+              "label": {
+                "plain": "Question 14"
+              },
+              "schema": {
+                "type": "string",
+                "maxLength": 10
+              },
+              "required": false
+            },
+            {
+              "kind": "question",
+              "id": "q15",
+              "label": {
+                "plain": "Question 15"
+              },
+              "schema": {
+                "type": "string",
+                "maxLength": 10
+              },
+              "required": false
+            },
+            {
+              "kind": "question",
+              "id": "q16",
+              "label": {
+                "plain": "Question 16"
+              },
+              "schema": {
+                "type": "string",
+                "maxLength": 10
+              },
+              "required": false
+            },
+            {
+              "kind": "question",
+              "id": "q17",
+              "label": {
+                "plain": "Question 17"
+              },
+              "schema": {
+                "type": "string",
+                "maxLength": 10
+              },
+              "required": false
+            },
+            {
+              "kind": "question",
+              "id": "q18",
+              "label": {
+                "plain": "Question 18"
+              },
+              "schema": {
+                "type": "string",
+                "maxLength": 10
+              },
+              "required": false
+            },
+            {
+              "kind": "question",
+              "id": "q19",
+              "label": {
+                "plain": "Question 19"
+              },
+              "schema": {
+                "type": "string",
+                "maxLength": 10
+              },
+              "required": false
+            },
+            {
+              "kind": "question",
+              "id": "q20",
+              "label": {
+                "plain": "Question 20"
+              },
+              "schema": {
+                "type": "string",
+                "maxLength": 10
+              },
+              "required": false
+            },
+            {
+              "kind": "question",
+              "id": "q21",
+              "label": {
+                "plain": "Question 21"
+              },
+              "schema": {
+                "type": "string",
+                "maxLength": 10
+              },
+              "required": false
+            },
+            {
+              "kind": "question",
+              "id": "q22",
+              "label": {
+                "plain": "Question 22"
+              },
+              "schema": {
+                "type": "string",
+                "maxLength": 10
+              },
+              "required": false
+            },
+            {
+              "kind": "question",
+              "id": "q23",
+              "label": {
+                "plain": "Question 23"
+              },
+              "schema": {
+                "type": "string",
+                "maxLength": 10
+              },
+              "required": false
+            },
+            {
+              "kind": "question",
+              "id": "q24",
+              "label": {
+                "plain": "Question 24"
+              },
+              "schema": {
+                "type": "string",
+                "maxLength": 10
+              },
+              "required": false
+            },
+            {
+              "kind": "question",
+              "id": "q25",
+              "label": {
+                "plain": "Question 25"
+              },
+              "schema": {
+                "type": "string",
+                "maxLength": 10
+              },
+              "required": false
+            },
+            {
+              "kind": "question",
+              "id": "q26",
+              "label": {
+                "plain": "Question 26"
+              },
+              "schema": {
+                "type": "string",
+                "maxLength": 10
+              },
+              "required": false
+            },
+            {
+              "kind": "question",
+              "id": "q27",
+              "label": {
+                "plain": "Question 27"
+              },
+              "schema": {
+                "type": "string",
+                "maxLength": 10
+              },
+              "required": false
+            },
+            {
+              "kind": "question",
+              "id": "q28",
+              "label": {
+                "plain": "Question 28"
+              },
+              "schema": {
+                "type": "string",
+                "maxLength": 10
+              },
+              "required": false
+            },
+            {
+              "kind": "question",
+              "id": "q29",
+              "label": {
+                "plain": "Question 29"
+              },
+              "schema": {
+                "type": "string",
+                "maxLength": 10
+              },
+              "required": false
+            },
+            {
+              "kind": "question",
+              "id": "q30",
+              "label": {
+                "plain": "Question 30"
+              },
+              "schema": {
+                "type": "string",
+                "maxLength": 10
+              },
+              "required": false
+            },
+            {
+              "kind": "question",
+              "id": "q31",
+              "label": {
+                "plain": "Question 31"
+              },
+              "schema": {
+                "type": "string",
+                "maxLength": 10
+              },
+              "required": false
+            },
+            {
+              "kind": "question",
+              "id": "q32",
+              "label": {
+                "plain": "Question 32"
+              },
+              "schema": {
+                "type": "string",
+                "maxLength": 10
+              },
+              "required": false
+            },
+            {
+              "kind": "question",
+              "id": "q33",
+              "label": {
+                "plain": "Question 33"
+              },
+              "schema": {
+                "type": "string",
+                "maxLength": 10
+              },
+              "required": false
+            },
+            {
+              "kind": "question",
+              "id": "q34",
+              "label": {
+                "plain": "Question 34"
+              },
+              "schema": {
+                "type": "string",
+                "maxLength": 10
+              },
+              "required": false
+            },
+            {
+              "kind": "question",
+              "id": "q35",
+              "label": {
+                "plain": "Question 35"
+              },
+              "schema": {
+                "type": "string",
+                "maxLength": 10
+              },
+              "required": false
+            },
+            {
+              "kind": "question",
+              "id": "q36",
+              "label": {
+                "plain": "Question 36"
+              },
+              "schema": {
+                "type": "string",
+                "maxLength": 10
+              },
+              "required": false
+            },
+            {
+              "kind": "question",
+              "id": "q37",
+              "label": {
+                "plain": "Question 37"
+              },
+              "schema": {
+                "type": "string",
+                "maxLength": 10
+              },
+              "required": false
+            },
+            {
+              "kind": "question",
+              "id": "q38",
+              "label": {
+                "plain": "Question 38"
+              },
+              "schema": {
+                "type": "string",
+                "maxLength": 10
+              },
+              "required": false
+            },
+            {
+              "kind": "question",
+              "id": "q39",
+              "label": {
+                "plain": "Question 39"
+              },
+              "schema": {
+                "type": "string",
+                "maxLength": 10
+              },
+              "required": false
+            },
+            {
+              "kind": "question",
+              "id": "q40",
+              "label": {
+                "plain": "Question 40"
+              },
+              "schema": {
+                "type": "string",
+                "maxLength": 10
+              },
+              "required": false
+            },
+            {
+              "kind": "question",
+              "id": "q41",
+              "label": {
+                "plain": "Question 41"
+              },
+              "schema": {
+                "type": "string",
+                "maxLength": 10
+              },
+              "required": false
+            },
+            {
+              "kind": "question",
+              "id": "q42",
+              "label": {
+                "plain": "Question 42"
+              },
+              "schema": {
+                "type": "string",
+                "maxLength": 10
+              },
+              "required": false
+            },
+            {
+              "kind": "question",
+              "id": "q43",
+              "label": {
+                "plain": "Question 43"
+              },
+              "schema": {
+                "type": "string",
+                "maxLength": 10
+              },
+              "required": false
+            },
+            {
+              "kind": "question",
+              "id": "q44",
+              "label": {
+                "plain": "Question 44"
+              },
+              "schema": {
+                "type": "string",
+                "maxLength": 10
+              },
+              "required": false
+            },
+            {
+              "kind": "question",
+              "id": "q45",
+              "label": {
+                "plain": "Question 45"
+              },
+              "schema": {
+                "type": "string",
+                "maxLength": 10
+              },
+              "required": false
+            },
+            {
+              "kind": "question",
+              "id": "q46",
+              "label": {
+                "plain": "Question 46"
+              },
+              "schema": {
+                "type": "string",
+                "maxLength": 10
+              },
+              "required": false
+            },
+            {
+              "kind": "question",
+              "id": "q47",
+              "label": {
+                "plain": "Question 47"
+              },
+              "schema": {
+                "type": "string",
+                "maxLength": 10
+              },
+              "required": false
+            },
+            {
+              "kind": "question",
+              "id": "q48",
+              "label": {
+                "plain": "Question 48"
+              },
+              "schema": {
+                "type": "string",
+                "maxLength": 10
+              },
+              "required": false
+            },
+            {
+              "kind": "question",
+              "id": "q49",
+              "label": {
+                "plain": "Question 49"
+              },
+              "schema": {
+                "type": "string",
+                "maxLength": 10
+              },
+              "required": false
+            },
+            {
+              "kind": "question",
+              "id": "q50",
+              "label": {
+                "plain": "Question 50"
+              },
+              "schema": {
+                "type": "string",
+                "maxLength": 10
+              },
+              "required": false
+            }
+          ]
+        }
+      ],
+      "then": {
+        "conforming": false,
+        "schema_valid": false,
+        "member_name_violations": []
+      }
+    },
+    {
+      "case": "label of 301 characters",
+      "expect": "reject",
+      "instance": [
+        {
+          "id": "s",
+          "revision": "r1",
+          "purpose": "intake",
+          "completion_timing": "before_confirmation",
+          "frequency": "every_booking",
+          "items": [
+            {
+              "kind": "question",
+              "id": "q",
+              "label": {
+                "plain": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+              },
+              "schema": {
+                "type": "string",
+                "maxLength": 10
+              },
+              "required": true
+            }
+          ]
+        }
+      ],
+      "then": {
+        "conforming": false,
+        "schema_valid": false,
+        "member_name_violations": []
+      }
+    },
+    {
+      "case": "description of 2001 characters",
+      "expect": "reject",
+      "instance": [
+        {
+          "id": "s",
+          "revision": "r1",
+          "purpose": "intake",
+          "completion_timing": "before_confirmation",
+          "frequency": "every_booking",
+          "items": [
+            {
+              "kind": "question",
+              "id": "q",
+              "label": {
+                "plain": "Q"
+              },
+              "schema": {
+                "type": "string",
+                "maxLength": 10
+              },
+              "required": true,
+              "description": {
+                "plain": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+              }
+            }
+          ]
+        }
+      ],
+      "then": {
+        "conforming": false,
+        "schema_valid": false,
+        "member_name_violations": []
+      }
+    },
+    {
+      "case": "control: 20 sets of one item",
+      "expect": "accept",
+      "instance": [
+        {
+          "id": "s0",
+          "revision": "r1",
+          "purpose": "intake",
+          "completion_timing": "before_confirmation",
+          "frequency": "every_booking",
+          "items": [
+            {
+              "kind": "question",
+              "id": "q",
+              "label": {
+                "plain": "Q"
+              },
+              "schema": {
+                "type": "string",
+                "maxLength": 10
+              },
+              "required": false
+            }
+          ]
+        },
+        {
+          "id": "s1",
+          "revision": "r1",
+          "purpose": "intake",
+          "completion_timing": "before_confirmation",
+          "frequency": "every_booking",
+          "items": [
+            {
+              "kind": "question",
+              "id": "q",
+              "label": {
+                "plain": "Q"
+              },
+              "schema": {
+                "type": "string",
+                "maxLength": 10
+              },
+              "required": false
+            }
+          ]
+        },
+        {
+          "id": "s2",
+          "revision": "r1",
+          "purpose": "intake",
+          "completion_timing": "before_confirmation",
+          "frequency": "every_booking",
+          "items": [
+            {
+              "kind": "question",
+              "id": "q",
+              "label": {
+                "plain": "Q"
+              },
+              "schema": {
+                "type": "string",
+                "maxLength": 10
+              },
+              "required": false
+            }
+          ]
+        },
+        {
+          "id": "s3",
+          "revision": "r1",
+          "purpose": "intake",
+          "completion_timing": "before_confirmation",
+          "frequency": "every_booking",
+          "items": [
+            {
+              "kind": "question",
+              "id": "q",
+              "label": {
+                "plain": "Q"
+              },
+              "schema": {
+                "type": "string",
+                "maxLength": 10
+              },
+              "required": false
+            }
+          ]
+        },
+        {
+          "id": "s4",
+          "revision": "r1",
+          "purpose": "intake",
+          "completion_timing": "before_confirmation",
+          "frequency": "every_booking",
+          "items": [
+            {
+              "kind": "question",
+              "id": "q",
+              "label": {
+                "plain": "Q"
+              },
+              "schema": {
+                "type": "string",
+                "maxLength": 10
+              },
+              "required": false
+            }
+          ]
+        },
+        {
+          "id": "s5",
+          "revision": "r1",
+          "purpose": "intake",
+          "completion_timing": "before_confirmation",
+          "frequency": "every_booking",
+          "items": [
+            {
+              "kind": "question",
+              "id": "q",
+              "label": {
+                "plain": "Q"
+              },
+              "schema": {
+                "type": "string",
+                "maxLength": 10
+              },
+              "required": false
+            }
+          ]
+        },
+        {
+          "id": "s6",
+          "revision": "r1",
+          "purpose": "intake",
+          "completion_timing": "before_confirmation",
+          "frequency": "every_booking",
+          "items": [
+            {
+              "kind": "question",
+              "id": "q",
+              "label": {
+                "plain": "Q"
+              },
+              "schema": {
+                "type": "string",
+                "maxLength": 10
+              },
+              "required": false
+            }
+          ]
+        },
+        {
+          "id": "s7",
+          "revision": "r1",
+          "purpose": "intake",
+          "completion_timing": "before_confirmation",
+          "frequency": "every_booking",
+          "items": [
+            {
+              "kind": "question",
+              "id": "q",
+              "label": {
+                "plain": "Q"
+              },
+              "schema": {
+                "type": "string",
+                "maxLength": 10
+              },
+              "required": false
+            }
+          ]
+        },
+        {
+          "id": "s8",
+          "revision": "r1",
+          "purpose": "intake",
+          "completion_timing": "before_confirmation",
+          "frequency": "every_booking",
+          "items": [
+            {
+              "kind": "question",
+              "id": "q",
+              "label": {
+                "plain": "Q"
+              },
+              "schema": {
+                "type": "string",
+                "maxLength": 10
+              },
+              "required": false
+            }
+          ]
+        },
+        {
+          "id": "s9",
+          "revision": "r1",
+          "purpose": "intake",
+          "completion_timing": "before_confirmation",
+          "frequency": "every_booking",
+          "items": [
+            {
+              "kind": "question",
+              "id": "q",
+              "label": {
+                "plain": "Q"
+              },
+              "schema": {
+                "type": "string",
+                "maxLength": 10
+              },
+              "required": false
+            }
+          ]
+        },
+        {
+          "id": "s10",
+          "revision": "r1",
+          "purpose": "intake",
+          "completion_timing": "before_confirmation",
+          "frequency": "every_booking",
+          "items": [
+            {
+              "kind": "question",
+              "id": "q",
+              "label": {
+                "plain": "Q"
+              },
+              "schema": {
+                "type": "string",
+                "maxLength": 10
+              },
+              "required": false
+            }
+          ]
+        },
+        {
+          "id": "s11",
+          "revision": "r1",
+          "purpose": "intake",
+          "completion_timing": "before_confirmation",
+          "frequency": "every_booking",
+          "items": [
+            {
+              "kind": "question",
+              "id": "q",
+              "label": {
+                "plain": "Q"
+              },
+              "schema": {
+                "type": "string",
+                "maxLength": 10
+              },
+              "required": false
+            }
+          ]
+        },
+        {
+          "id": "s12",
+          "revision": "r1",
+          "purpose": "intake",
+          "completion_timing": "before_confirmation",
+          "frequency": "every_booking",
+          "items": [
+            {
+              "kind": "question",
+              "id": "q",
+              "label": {
+                "plain": "Q"
+              },
+              "schema": {
+                "type": "string",
+                "maxLength": 10
+              },
+              "required": false
+            }
+          ]
+        },
+        {
+          "id": "s13",
+          "revision": "r1",
+          "purpose": "intake",
+          "completion_timing": "before_confirmation",
+          "frequency": "every_booking",
+          "items": [
+            {
+              "kind": "question",
+              "id": "q",
+              "label": {
+                "plain": "Q"
+              },
+              "schema": {
+                "type": "string",
+                "maxLength": 10
+              },
+              "required": false
+            }
+          ]
+        },
+        {
+          "id": "s14",
+          "revision": "r1",
+          "purpose": "intake",
+          "completion_timing": "before_confirmation",
+          "frequency": "every_booking",
+          "items": [
+            {
+              "kind": "question",
+              "id": "q",
+              "label": {
+                "plain": "Q"
+              },
+              "schema": {
+                "type": "string",
+                "maxLength": 10
+              },
+              "required": false
+            }
+          ]
+        },
+        {
+          "id": "s15",
+          "revision": "r1",
+          "purpose": "intake",
+          "completion_timing": "before_confirmation",
+          "frequency": "every_booking",
+          "items": [
+            {
+              "kind": "question",
+              "id": "q",
+              "label": {
+                "plain": "Q"
+              },
+              "schema": {
+                "type": "string",
+                "maxLength": 10
+              },
+              "required": false
+            }
+          ]
+        },
+        {
+          "id": "s16",
+          "revision": "r1",
+          "purpose": "intake",
+          "completion_timing": "before_confirmation",
+          "frequency": "every_booking",
+          "items": [
+            {
+              "kind": "question",
+              "id": "q",
+              "label": {
+                "plain": "Q"
+              },
+              "schema": {
+                "type": "string",
+                "maxLength": 10
+              },
+              "required": false
+            }
+          ]
+        },
+        {
+          "id": "s17",
+          "revision": "r1",
+          "purpose": "intake",
+          "completion_timing": "before_confirmation",
+          "frequency": "every_booking",
+          "items": [
+            {
+              "kind": "question",
+              "id": "q",
+              "label": {
+                "plain": "Q"
+              },
+              "schema": {
+                "type": "string",
+                "maxLength": 10
+              },
+              "required": false
+            }
+          ]
+        },
+        {
+          "id": "s18",
+          "revision": "r1",
+          "purpose": "intake",
+          "completion_timing": "before_confirmation",
+          "frequency": "every_booking",
+          "items": [
+            {
+              "kind": "question",
+              "id": "q",
+              "label": {
+                "plain": "Q"
+              },
+              "schema": {
+                "type": "string",
+                "maxLength": 10
+              },
+              "required": false
+            }
+          ]
+        },
+        {
+          "id": "s19",
+          "revision": "r1",
+          "purpose": "intake",
+          "completion_timing": "before_confirmation",
+          "frequency": "every_booking",
+          "items": [
+            {
+              "kind": "question",
+              "id": "q",
+              "label": {
+                "plain": "Q"
+              },
+              "schema": {
+                "type": "string",
+                "maxLength": 10
+              },
+              "required": false
+            }
+          ]
+        }
+      ],
+      "then": {
+        "conforming": true,
+        "schema_valid": true,
+        "member_name_violations": []
+      }
+    }
+  ],
+  "wrong_answers": [
+    {
+      "behaviour": "truncate an oversize label",
+      "violates": "11.4.3 Limits and Localization",
+      "why": "Truncated text is no longer the business's wording; the excess stays on business-surface handoff instead."
+    }
+  ]
+}

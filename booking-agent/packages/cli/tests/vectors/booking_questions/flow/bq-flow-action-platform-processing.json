@@ -1,0 +1,166 @@
+{
+  "id": "bq-flow-action-platform-processing",
+  "section": "11.4.8",
+  "requirement": "buyer-input-action-processed",
+  "kind": "flow",
+  "expect": "accept",
+  "notes": "Standalone. Create returns requires_action with a negotiated buyer-input Action. The platform renders the exact label verbatim with no preselection, the buyer ticks it, and the platform submits the answer with action_id. The business's next response is authoritative and confirms.",
+  "given": {
+    "service": {
+      "id": "svc_cut_45",
+      "type": "appointment",
+      "booking_question_sets": [
+        {
+          "id": "intake",
+          "revision": "r1",
+          "purpose": "intake",
+          "completion_timing": "before_confirmation",
+          "frequency": "every_booking",
+          "items": [
+            {
+              "kind": "question",
+              "id": "hair_notes",
+              "label": {
+                "plain": "Anything the stylist should know?"
+              },
+              "schema": {
+                "type": "string",
+                "maxLength": 500
+              },
+              "required": true
+            },
+            {
+              "kind": "question",
+              "id": "no_show_fee",
+              "label": {
+                "plain": "I agree to the no-show fee of $30."
+              },
+              "schema": {
+                "type": "boolean",
+                "const": true
+              },
+              "required": true,
+              "rendering": "checkbox",
+              "collection": "platform_surface"
+            }
+          ]
+        }
+      ]
+    },
+    "hold": {
+      "id": "hold_bq_1",
+      "slot_id": "slot_20261028_1000",
+      "service_id": "svc_cut_45",
+      "spots": 1,
+      "expires_at": "2026-10-25T10:10:00Z",
+      "status": "active"
+    }
+  },
+  "when": [
+    {
+      "at": "2026-10-25T10:00:00Z",
+      "step": "create_booking",
+      "with": {
+        "hold_id": "hold_bq_1",
+        "buyer": {
+          "first_name": "Dana",
+          "last_name": "Levi",
+          "email": "dana@example.com",
+          "phone_number": "+14155550123"
+        },
+        "booking_question_submissions": [
+          {
+            "set_id": "intake",
+            "revision": "r1",
+            "answers": {
+              "hair_notes": "Fine hair"
+            }
+          }
+        ]
+      },
+      "result": {
+        "accepted": true,
+        "booking_id": "bkg_bq_1",
+        "booking_status": "requires_action",
+        "actions": [
+          {
+            "type": "dev.usp-protocol.services.booking_questions.buyer_input",
+            "id": "act_bq_1",
+            "status": "pending",
+            "config": {
+              "mode": "acknowledge",
+              "sets": [
+                {
+                  "set_id": "intake",
+                  "revision": "r1"
+                }
+              ],
+              "item_ids": [
+                "no_show_fee"
+              ],
+              "presentation": "verbatim"
+            },
+            "continue_url": "https://studio.example.com/forms/sess_42"
+          }
+        ],
+        "messages": []
+      }
+    },
+    {
+      "at": "2026-10-25T10:00:05Z",
+      "step": "platform_renders",
+      "with": {
+        "action_id": "act_bq_1"
+      },
+      "result": {
+        "label_shown": "I agree to the no-show fee of $30.",
+        "preselected": false,
+        "explicit_buyer_response": true
+      }
+    },
+    {
+      "at": "2026-10-25T10:00:30Z",
+      "step": "update_booking",
+      "with": {
+        "booking_id": "bkg_bq_1",
+        "booking_question_submissions": [
+          {
+            "set_id": "intake",
+            "revision": "r1",
+            "answers": {
+              "no_show_fee": true
+            },
+            "action_id": "act_bq_1",
+            "collected_via": {
+              "no_show_fee": "platform_surface"
+            }
+          }
+        ]
+      },
+      "booking_status": "requires_action",
+      "result": {
+        "accepted": true,
+        "booking_status": "confirmed",
+        "actions": [],
+        "messages": []
+      }
+    }
+  ],
+  "then": {
+    "booking_status": "confirmed",
+    "redirect_required": false,
+    "http_status": 200
+  },
+  "wrong_answers": [
+    {
+      "behaviour": "force a business redirect for every acknowledgment",
+      "violates": "11.4.11 business item 10",
+      "why": "The negotiated contract permits platform processing; a forced handoff adds a context switch for nothing."
+    },
+    {
+      "behaviour": "confirm when the platform UI closes",
+      "violates": "11.4.11 platform item 6",
+      "why": "A closed surface is not a buyer response."
+    }
+  ]
+}

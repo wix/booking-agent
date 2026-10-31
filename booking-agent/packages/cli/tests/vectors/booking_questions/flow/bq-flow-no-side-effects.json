@@ -1,0 +1,89 @@
+{
+  "id": "bq-flow-no-side-effects",
+  "section": "11.4.4",
+  "requirement": "preflight-no-side-effects",
+  "kind": "flow",
+  "expect": "accept",
+  "notes": "The eligibility check creates no hold, booking, checkout, or capacity change, whatever the decision.",
+  "given": {
+    "service": {
+      "id": "svc_color_90",
+      "type": "appointment",
+      "booking_question_sets": [
+        {
+          "id": "eligibility",
+          "revision": "r1",
+          "purpose": "eligibility",
+          "completion_timing": "preflight",
+          "frequency": "every_booking",
+          "items": [
+            {
+              "kind": "question",
+              "id": "prior_reaction",
+              "label": {
+                "plain": "Have you ever reacted to hair dye?"
+              },
+              "schema": {
+                "type": "boolean"
+              },
+              "required": true
+            }
+          ]
+        }
+      ]
+    },
+    "slot": {
+      "id": "slot_20261028_1000",
+      "capacity": {
+        "total": 1,
+        "remaining": 1,
+        "held": 0
+      }
+    }
+  },
+  "when": [
+    {
+      "at": "2026-10-25T10:00:00Z",
+      "step": "check_eligibility",
+      "with": {
+        "service_id": "svc_cut_45",
+        "buyer": {
+          "first_name": "Dana",
+          "last_name": "Levi",
+          "email": "dana@example.com",
+          "phone_number": "+14155550123"
+        },
+        "booking_question_submissions": [
+          {
+            "set_id": "eligibility",
+            "revision": "r1",
+            "answers": {
+              "prior_reaction": false
+            }
+          }
+        ]
+      },
+      "result": {
+        "eligibility": {
+          "decision": "eligible",
+          "assessment_token": "bqat_7Hc2kQ",
+          "expires_at": "2026-10-25T10:15:00Z"
+        }
+      }
+    }
+  ],
+  "then": {
+    "holds_created": 0,
+    "bookings_created": 0,
+    "checkouts_created": 0,
+    "slot_capacity_remaining": 1,
+    "http_status": 200
+  },
+  "wrong_answers": [
+    {
+      "behaviour": "place a provisional hold during the check",
+      "violates": "11.4.4 Preflight Eligibility Check",
+      "why": "Browsing buyers would lock capacity they never intended to book."
+    }
+  ]
+}

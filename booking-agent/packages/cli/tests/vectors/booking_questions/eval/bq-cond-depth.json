@@ -1,0 +1,147 @@
+{
+  "id": "bq-cond-depth",
+  "section": "11.4.3",
+  "requirement": "condition-depth-3",
+  "kind": "eval",
+  "notes": "Combinator nesting depth is at most 3. all > any > not > leaf is depth 3 and valid; one more combinator level is rejected by the schema.",
+  "given": {
+    "set": {
+      "id": "d",
+      "revision": "r1",
+      "purpose": "intake",
+      "completion_timing": "before_confirmation",
+      "frequency": "every_booking",
+      "items": [
+        {
+          "kind": "question",
+          "id": "a",
+          "label": {
+            "plain": "A"
+          },
+          "schema": {
+            "type": "boolean"
+          },
+          "required": true
+        },
+        {
+          "kind": "question",
+          "id": "x",
+          "label": {
+            "plain": "x"
+          },
+          "schema": {
+            "type": "string",
+            "maxLength": 10
+          },
+          "required": false,
+          "when": {
+            "all": [
+              {
+                "any": [
+                  {
+                    "not": {
+                      "question": "a",
+                      "op": "equals",
+                      "value": true
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ]
+    }
+  },
+  "cases": [
+    {
+      "case": "depth 3, a false",
+      "answers": {
+        "a": false
+      },
+      "then": {
+        "definition_valid": true,
+        "applicable": [
+          "a",
+          "x"
+        ]
+      }
+    },
+    {
+      "case": "depth 3, a true",
+      "answers": {
+        "a": true
+      },
+      "then": {
+        "definition_valid": true,
+        "applicable": [
+          "a"
+        ]
+      }
+    },
+    {
+      "case": "depth 4",
+      "set": {
+        "id": "d",
+        "revision": "r1",
+        "purpose": "intake",
+        "completion_timing": "before_confirmation",
+        "frequency": "every_booking",
+        "items": [
+          {
+            "kind": "question",
+            "id": "a",
+            "label": {
+              "plain": "A"
+            },
+            "schema": {
+              "type": "boolean"
+            },
+            "required": true
+          },
+          {
+            "kind": "question",
+            "id": "x",
+            "label": {
+              "plain": "x"
+            },
+            "schema": {
+              "type": "string",
+              "maxLength": 10
+            },
+            "required": false,
+            "when": {
+              "all": [
+                {
+                  "any": [
+                    {
+                      "not": {
+                        "all": [
+                          {
+                            "question": "a",
+                            "op": "equals",
+                            "value": true
+                          }
+                        ]
+                      }
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "then": {
+        "definition_valid": false
+      }
+    }
+  ],
+  "wrong_answers": [
+    {
+      "behaviour": "accept arbitrary nesting",
+      "violates": "11.4.3 Conditions item 2",
+      "why": "Unbounded trees cannot be rendered as a guided conversation."
+    }
+  ]
+}

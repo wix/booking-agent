@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import shlex
 from types import SimpleNamespace
 
 import pytest
@@ -123,8 +124,12 @@ def _stub_link_spend_request(monkeypatch, spend_request_id: str, captured: dict)
     fake_shared_payment_token(monkeypatch, "spt_from_link_cli")
 
 
-def _drive_offline_ucp_to_payment_pending(runner, offline_stack):
-    """Init through book on loopback UCP-native merchant; return (service_id, book_json)."""
+def _drive_offline_ucp_to_payment_pending(runner, offline_stack, captured=None):
+    """Init through book on loopback UCP-native merchant; return (service_id, book_json).
+
+    The book step runs buyer resolve's own next_command, so the summary yes covers the
+    checkout terms. *captured* receives the buyer resolve output under ``resolve``.
+    """
     base_url = offline_stack.base_url
     r = _invoke(
         runner,
@@ -185,8 +190,14 @@ def _drive_offline_ucp_to_payment_pending(runner, offline_stack):
     store = load_store()
     store.sessions[0].link_auth_gate_completed = True
     save_store(store)
-    _invoke(runner, "flow", "buyer", "resolve")
-    r = _invoke(runner, "flow", "book", "--service-id", service_id, "--user-confirmed")
+    r = _invoke(runner, "flow", "buyer", "resolve")
+    assert r.exit_code == 0, r.stdout + r.stderr
+    resolved = _stdout_json(r)
+    if captured is not None:
+        captured["resolve"] = resolved
+    assert resolved["awaiting_user"] == "booking_confirmation"
+    book_args = shlex.split(resolved["next_command"])[1:]
+    r = _invoke(runner, *book_args, "--service-id", service_id)
     assert r.exit_code == 0, r.stdout + r.stderr
     book = _stdout_json(r)
     assert book["data"]["checkout_path"] == "ucp"
@@ -257,14 +268,17 @@ def test_checkout_terms_and_privacy_links_are_shown_without_a_second_question(
         {"type": "privacy_policy", "url": "https://merchant.test/privacy"},
         {"rel": "continue", "url": "https://merchant.test/checkout/continue"},
     ])
-    _service_id, book = _drive_offline_ucp_to_payment_pending(runner, offline_http_env)
+    captured_resolve: dict = {}
+    _service_id, book = _drive_offline_ucp_to_payment_pending(
+        runner, offline_http_env, captured=captured_resolve,
+    )
 
-    assert book.get("awaiting_user") is None
-    urls = [link["url"] for link in book["data"]["policy_links"]]
+    resolved = captured_resolve["resolve"]
+    urls = [link["url"] for link in resolved["data"]["policy_links"]]
     assert urls == ["https://merchant.test/terms", "https://merchant.test/privacy"]
-    assert "https://merchant.test/terms" in book["user_message"]
-    assert "https://merchant.test/privacy" in book["user_message"]
-    assert "https://merchant.test/checkout/continue" not in book["user_message"]
+    assert "every data.policy_links URL" in resolved["prompt"]
+    assert book.get("awaiting_user") is None
+    assert book.get("user_message") is None
     assert "--policies-accepted" not in book["next_command"]
 
     captured: dict = {}
@@ -459,31 +473,37 @@ def test_pay_at_service_books_through_checkout_with_no_instrument(
     from booking_agent_cli.session import load_session
 
     _no_link_payment(monkeypatch)
-    _service_id, book = _drive_offline_ucp_to_payment_pending(runner, pay_at_service_env)
+    captured: dict = {}
+    _service_id, book = _drive_offline_ucp_to_payment_pending(
+        runner, pay_at_service_env, captured=captured,
+    )
+    # The disclosure is shown with the summary, before anything completes (USP 11.3.5 S8).
+    resolved = captured["resolve"]
+    assert any("Nothing is charged" in line for line in resolved["data"]["policy_lines"])
+    assert [link["url"] for link in resolved["data"]["policy_links"]] == ["https://example.com/terms"]
+    assert resolved["next_command"] == "booking-agent flow book --user-confirmed --policies-accepted"
+    checkout = resolved["data"]["checkout"]
+    assert [d["code"] for d in checkout["payment_disclosures"]] == ["payment_due_at_service"]
+    assert checkout["payment_schedules"][0]["type"] == "at_service"
+    assert any(
+        line.startswith("Price: ") and "nothing is charged now" in line
+        for line in resolved["data"]["booking_recap_lines"]
+    )
+
     assert book["data"]["payment_route"] == "pay_at_service"
     assert book["data"]["payment_due"] == "at_service"
     assert book["data"]["ucp_spt_network_id"] is None
-    assert book["next_command"] == "booking-agent flow pay ucp-complete --policies-accepted"
-    assert book["awaiting_user"] == "policy_acceptance"
-    assert any("https://example.com/terms" in line for line in book["user_message"].splitlines())
-    assert any("Nothing is charged" in line for line in book["data"]["policy_lines"])
-    disclosures = book["data"]["payment_disclosures"]
-    assert [d["code"] for d in disclosures] == ["payment_due_at_service"]
-    assert disclosures[0]["presentation"] == "disclosure"
-    assert book["data"]["payment_schedules"][0]["type"] == "at_service"
+    assert book["next_command"] == "booking-agent flow pay ucp-complete"
+    assert book.get("awaiting_user") is None
+    assert pay_at_service_env.checkout_store.complete_bodies == []
 
     # No Link payment is requested for a booking paid at the appointment.
     r = _invoke(runner, "flow", "pay", "request", "--payment-method-id", "pm_test", "--policies-accepted")
     assert r.exit_code == 1
     assert _stdout_json(r)["data"]["error"]["code"] == "pay_not_required"
 
-    # The disclosure must be shown before anything completes (USP 11.3.5 S8).
+    # The summary yes covers completion: no second policy question.
     r = _invoke(runner, "flow", "pay", "ucp-complete")
-    assert r.exit_code == 1
-    assert _stdout_json(r)["data"]["error"]["code"] == "policies_not_accepted"
-    assert pay_at_service_env.checkout_store.complete_bodies == []
-
-    r = _invoke(runner, "flow", "pay", "ucp-complete", "--policies-accepted")
     assert r.exit_code == 0, r.stdout + r.stderr
     final = _stdout_json(r)
     assert final["phase"] == "CONFIRMED"
@@ -635,8 +655,8 @@ def test_pay_at_service_fails_closed_when_the_checkout_has_no_settlement(
     store = pay_at_service_env.checkout_store
     original = store.create_checkout
 
-    def without_settlement(body):
-        session = original(body)
+    def without_settlement(body, **kwargs):
+        session = original(body, **kwargs)
         session.pop("settlement", None)
         return session
 

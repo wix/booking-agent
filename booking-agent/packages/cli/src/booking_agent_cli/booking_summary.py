@@ -98,11 +98,47 @@ def when_text(session: Any, slot: Any, *, dual: bool, with_calendar: bool = True
     return f"{text} ({'; '.join(extras)})" if extras else text
 
 
+def _checkout_price_text(session: Any, route: str) -> Optional[str]:
+    """The Price line from the prepared checkout: the business's own total, tax, and deposit."""
+    snapshot = getattr(session, "prepared_checkout_snapshot", None)
+    if not isinstance(snapshot, dict) or route in ("free", "at_service"):
+        return None
+    from .catalog import _format_price_display
+
+    currency = snapshot.get("currency")
+
+    def show(key: str) -> Optional[str]:
+        value = snapshot.get(key)
+        return _format_price_display(int(value), currency) if value is not None else None
+
+    total = show("total_minor_units")
+    if total is None:
+        return None
+    tax = show("tax_minor_units")
+    base = show("line_item_minor_units") or show("subtotal_minor_units")
+    breakdown = f" ({base} plus {tax} tax)" if tax and base else ""
+    if route == "pay_at_service":
+        return (
+            f"{total}{breakdown}, paid to the business at the appointment "
+            "(nothing is charged now)"
+        )
+    if route == "deposit_required":
+        due_now = show("due_now_minor_units")
+        balance = show("balance_minor_units")
+        if due_now:
+            text = f"{total} total{breakdown}. {due_now} deposit charged now to your Link wallet"
+            return f"{text}; {balance} due later" if balance else text
+    return f"{total}{breakdown}, charged now to your Link wallet"
+
+
 def price_text(session: Any, price_info: Dict[str, Any]) -> Optional[str]:
     route = session.payment_route or "at_booking"
     price = price_info.get("price_display")
     if route == "free":
         return "Free"
+    checkout = _checkout_price_text(session, route)
+    if checkout:
+        return checkout
     if not price:
         return None
     if route in ("at_service", "pay_at_service"):
@@ -286,25 +322,40 @@ def collect_provider_policies(session: Any) -> Dict[str, Any]:
 def booking_recap_lines(
     session: Any, price_info: Dict[str, Any], *, dual: bool,
 ) -> List[str]:
+    from . import booking_questions_flow as bq_flow
+
     slot = selected_slot(session)
     buyer = session.buyer
+    overrides = bq_flow.buyer_overrides(session)
+    phone = overrides.get("phone_number") or (buyer.phone if buyer else None)
+    recipient = recipient_name(session)
+    buyer_name = buyer.name if buyer else None
     lines = [f"Service: {service_and_business(session)}"]
     for label, value in (
         ("When", when_text(session, slot, dual=dual)),
         ("Where", where_text(session)),
         ("Price", price_text(session, price_info)),
-        ("Name", buyer.name if buyer else None),
+        ("For", f"{recipient}. Booked by: {buyer_name}" if recipient and buyer_name else recipient),
+        ("Name", None if recipient else buyer_name),
         ("Email", buyer.email if buyer else None),
-        ("Phone", buyer.phone if buyer else None),
+        ("Phone", phone),
         ("Note for the business", session.booking_notes),
     ):
         if value:
             lines.append(f"{label}: {value}")
+    lines.extend(bq_flow.recap_lines(session))
     mismatch = getattr(session, "selection_mismatch", None)
     if mismatch:
         lines.append(f"Differs from your request: {mismatch}")
     lines.extend(service_policy_lines(session.live_service))
     return lines
+
+
+def recipient_name(session: Any) -> Optional[str]:
+    """The person the appointment is for, when it is not the buyer."""
+    r = getattr(session, "recipient", None) or {}
+    name = " ".join(p for p in (r.get("first_name"), r.get("last_name")) if p)
+    return name or None
 
 
 def payment_context_text(session: Any, total_display: Optional[str]) -> str:
@@ -352,6 +403,10 @@ def booked_message(session: Any) -> str:
     where = where_text(session)
     if where:
         text += f". {where}"
+    recipient = recipient_name(session)
+    if recipient:
+        buyer_name = getattr(getattr(session, "buyer", None), "name", None)
+        text += f". For: {recipient}" + (f". Booked by: {buyer_name}" if buyer_name else "")
     text = text.rstrip(".") + "."
     link = getattr(session, "calendar_event_html_link", None)
     if link:

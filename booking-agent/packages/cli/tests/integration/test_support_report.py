@@ -85,6 +85,8 @@ def _rebook_fails(runner, monkeypatch, exc: Exception | None = None, before=None
         raise exc or RuntimeError("upstream exploded")
 
     monkeypatch.setattr(flow, "create_booking_sync", boom)
+    monkeypatch.setattr(flow, "prepare_ucp_checkout_sync", boom)
+    monkeypatch.setattr(flow, "_checkout_needs_abandonment", lambda _s: False)
     return _invoke(runner, "flow", "pay", "rebook", "--service-id", "svc_1")
 
 
@@ -823,7 +825,11 @@ def test_handled_exception_records_frames(runner, checkout, monkeypatch):
     _offer(runner, monkeypatch, exc=ConnectionError("down"))
     frames = _stored()["exception"]["frames"]
 
-    assert any(f["file"] == "booking_agent_cli/commands/flow.py" and f["function"] == "pay_rebook" for f in frames)
+    assert any(
+        f["file"] == "booking_agent_cli/commands/flow.py"
+        and f["function"] in ("pay_rebook", "_take_checkout_or_reask")
+        for f in frames
+    )
 
 
 # ---------------------------------------------------------------------------

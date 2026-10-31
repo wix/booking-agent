@@ -139,31 +139,85 @@ def test_negotiate_accepts_business_2026_04_08_when_platform_lists_both():
     assert negotiate_ucp_protocol_version(plat, bus) == "2026-04-08"
 
 
-def test_intersect_prunes_extension_when_any_parent_missing():
-    plat = {
-        "ucp": {
-            "capabilities": {
-                "dev.ucp.shopping.checkout": [{"version": "2026-08-25"}],
-                "dev.ucp.common.payment.terms": [{"version": "2026-08-25"}],
-            }
-        }
+def _payment_terms_docs(*, platform_order: bool, business_order: bool):
+    plat_caps = {
+        "dev.ucp.shopping.checkout": [{"version": "2026-08-25"}],
+        "dev.ucp.common.payment.terms": [{"version": "2026-08-25"}],
     }
-    bus = {
-        "ucp": {
-            "capabilities": {
-                "dev.ucp.shopping.checkout": [{"version": "2026-08-25"}],
-                "dev.ucp.common.payment.terms": [
-                    {
-                        "version": "2026-08-25",
-                        "extends": [
-                            "dev.ucp.shopping.checkout",
-                            "dev.ucp.shopping.order",
-                        ],
-                    }
-                ],
+    bus_caps = {
+        "dev.ucp.shopping.checkout": [{"version": "2026-08-25"}],
+        "dev.ucp.common.payment.terms": [
+            {
+                "version": "2026-08-25",
+                "extends": ["dev.ucp.shopping.checkout", "dev.ucp.shopping.order"],
             }
-        }
+        ],
     }
+    if platform_order:
+        plat_caps["dev.ucp.shopping.order"] = [{"version": "2026-08-25"}]
+    if business_order:
+        bus_caps["dev.ucp.shopping.order"] = [{"version": "2026-08-25"}]
+    return {"ucp": {"capabilities": plat_caps}}, {"ucp": {"capabilities": bus_caps}}
+
+
+def test_intersect_keeps_multi_parent_extension_when_one_parent_present():
+    plat, bus = _payment_terms_docs(platform_order=False, business_order=False)
     result = intersect_ucp_capabilities(plat, bus)
     assert "dev.ucp.shopping.checkout" in result
+    assert "dev.ucp.common.payment.terms" in result
+
+
+def test_intersect_keeps_payment_terms_with_both_parents():
+    plat, bus = _payment_terms_docs(platform_order=True, business_order=True)
+    result = intersect_ucp_capabilities(plat, bus)
+    assert {"dev.ucp.shopping.checkout", "dev.ucp.shopping.order",
+            "dev.ucp.common.payment.terms"} <= set(result)
+
+
+def test_intersect_prunes_multi_parent_extension_when_no_parent_present():
+    plat = {"ucp": {"capabilities": {
+        "dev.ucp.shopping.checkout": [{"version": "2026-08-25"}],
+        "dev.usp-protocol.services.catalog": [{"version": "2026-08-20"}],
+        "dev.ucp.common.payment.terms": [{"version": "2026-08-25"}],
+    }}}
+    bus = {"ucp": {"capabilities": {
+        "dev.usp-protocol.services.catalog": [{"version": "2026-08-20"}],
+        "dev.ucp.common.payment.terms": [{
+            "version": "2026-08-25",
+            "extends": ["dev.ucp.shopping.checkout", "dev.ucp.shopping.order"],
+        }],
+    }}}
+    result = intersect_ucp_capabilities(plat, bus)
     assert "dev.ucp.common.payment.terms" not in result
+
+
+def test_intersect_booking_questions_active_for_checkout_only():
+    """Mirrors bq-flow-ucp-multi-parent-pruning: only paid_bookings is shared."""
+    bq = "dev.usp-protocol.services.booking_questions"
+    plat = {"ucp": {"capabilities": {
+        "dev.ucp.shopping.checkout": [{"version": "2026-08-25"}],
+        "dev.usp-protocol.services.paid_bookings": [{"version": "2026-08-20"}],
+        bq: [{"version": "2026-08-20"}],
+    }}}
+    bus = {"ucp": {"capabilities": {
+        "dev.ucp.shopping.checkout": [{"version": "2026-08-25"}],
+        "dev.usp-protocol.services.paid_bookings": [
+            {"version": "2026-08-20", "extends": "dev.ucp.shopping.checkout"},
+        ],
+        "dev.usp-protocol.services.catalog": [{"version": "2026-08-20"}],
+        bq: [{
+            "version": "2026-08-20",
+            "extends": [
+                "dev.usp-protocol.services.catalog",
+                "dev.usp-protocol.services.paid_bookings",
+            ],
+        }],
+    }}}
+    result = intersect_ucp_capabilities(plat, bus)
+    assert bq in result
+    assert "dev.usp-protocol.services.catalog" not in result
+
+    from booking_agent.booking_questions_negotiation import ucp_active_surfaces
+
+    surfaces = ucp_active_surfaces(result, bus)
+    assert surfaces == {"paid_bookings"}

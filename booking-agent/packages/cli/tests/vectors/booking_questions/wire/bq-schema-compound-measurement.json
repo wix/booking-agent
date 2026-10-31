@@ -1,0 +1,119 @@
+{
+  "id": "bq-schema-compound-measurement",
+  "section": "11.4.3",
+  "requirement": "compound-measurement-flattened",
+  "kind": "wire",
+  "binding": [
+    "rest",
+    "mcp"
+  ],
+  "expect": "accept",
+  "schema": "booking_questions.json#/$defs/BookingQuestionSet",
+  "notes": "A compound measurement is length, width, and unit as sibling questions in one section.",
+  "case": "rug size",
+  "instance": {
+    "id": "rug",
+    "revision": "r1",
+    "purpose": "intake",
+    "completion_timing": "before_confirmation",
+    "frequency": "every_booking",
+    "items": [
+      {
+        "kind": "section",
+        "id": "rug_size",
+        "title": {
+          "plain": "Rug size"
+        }
+      },
+      {
+        "kind": "question",
+        "id": "length",
+        "label": {
+          "plain": "Length"
+        },
+        "schema": {
+          "type": "number",
+          "minimum": 0
+        },
+        "required": true
+      },
+      {
+        "kind": "question",
+        "id": "width",
+        "label": {
+          "plain": "Width"
+        },
+        "schema": {
+          "type": "number",
+          "minimum": 0
+        },
+        "required": true
+      },
+      {
+        "kind": "question",
+        "id": "unit",
+        "label": {
+          "plain": "Unit"
+        },
+        "schema": {
+          "type": "string",
+          "oneOf": [
+            {
+              "const": "ft",
+              "title": "Feet"
+            },
+            {
+              "const": "m",
+              "title": "Meters"
+            }
+          ]
+        },
+        "required": true
+      }
+    ]
+  },
+  "then": {
+    "conforming": true,
+    "schema_valid": true,
+    "member_name_violations": []
+  },
+  "variants": [
+    {
+      "case": "unit smuggled into a number schema",
+      "expect": "reject",
+      "instance": {
+        "id": "rug",
+        "revision": "r1",
+        "purpose": "intake",
+        "completion_timing": "before_confirmation",
+        "frequency": "every_booking",
+        "items": [
+          {
+            "kind": "question",
+            "id": "length",
+            "label": {
+              "plain": "Length"
+            },
+            "schema": {
+              "type": "number",
+              "unit": "ft"
+            },
+            "required": true
+          }
+        ]
+      },
+      "then": {
+        "conforming": false,
+        "schema_valid": false,
+        "member_name_violations": []
+      }
+    }
+  ],
+  "wrong_answers": [
+    {
+      "behaviour": "accept \"12x9 ft\" as one text answer",
+      "violates": "11.4.3 Answer Schema",
+      "why": "Every business parses the string differently, and validation of each dimension is lost."
+    }
+  ]
+}

@@ -1,0 +1,102 @@
+{
+  "id": "bq-flow-marketing-not-preticked",
+  "section": "11.4.3",
+  "requirement": "marketing-not-preticked",
+  "kind": "flow",
+  "expect": "accept",
+  "notes": "A marketing-consent question is never defaulted to accepted, and its channel-specific answer is not merged into core buyer.consent.marketing.",
+  "given": {
+    "service": {
+      "id": "svc_cut_45",
+      "type": "appointment",
+      "booking_question_sets": [
+        {
+          "id": "intake",
+          "revision": "r1",
+          "purpose": "intake",
+          "completion_timing": "before_confirmation",
+          "frequency": "every_booking",
+          "items": [
+            {
+              "kind": "question",
+              "id": "sms_offers",
+              "label": {
+                "plain": "Send me offers by text message"
+              },
+              "schema": {
+                "type": "boolean"
+              },
+              "required": false,
+              "consent_purpose": "marketing",
+              "consent_channel": "sms"
+            }
+          ]
+        }
+      ]
+    },
+    "hold": {
+      "id": "hold_bq_1",
+      "slot_id": "slot_20261028_1000",
+      "service_id": "svc_cut_45",
+      "spots": 1,
+      "expires_at": "2026-10-25T10:10:00Z",
+      "status": "active"
+    }
+  },
+  "when": [
+    {
+      "at": "2026-10-25T09:59:00Z",
+      "step": "platform_asks",
+      "with": {
+        "question": "sms_offers"
+      },
+      "result": {
+        "preselected": false
+      }
+    },
+    {
+      "at": "2026-10-25T10:00:00Z",
+      "step": "create_booking",
+      "with": {
+        "hold_id": "hold_bq_1",
+        "buyer": {
+          "first_name": "Dana",
+          "last_name": "Levi",
+          "email": "dana@example.com",
+          "phone_number": "+14155550123"
+        },
+        "booking_question_submissions": [
+          {
+            "set_id": "intake",
+            "revision": "r1",
+            "answers": {
+              "sms_offers": false
+            }
+          }
+        ]
+      },
+      "result": {
+        "accepted": true,
+        "booking_id": "bkg_bq_1",
+        "booking_status": "confirmed",
+        "messages": []
+      }
+    }
+  ],
+  "then": {
+    "core_marketing_flag_changed": false,
+    "http_status": 200
+  },
+  "wrong_answers": [
+    {
+      "behaviour": "publish default: true",
+      "violates": "11.4.3 default",
+      "why": "A subscribe option would be pre-ticked; the schema rejects it."
+    },
+    {
+      "behaviour": "set buyer.consent.marketing from the SMS answer",
+      "violates": "11.4.3 Question Fields",
+      "why": "One channel's consent becomes consent for every channel."
+    }
+  ]
+}

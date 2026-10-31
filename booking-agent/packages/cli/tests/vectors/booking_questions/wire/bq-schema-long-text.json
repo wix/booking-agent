@@ -1,0 +1,69 @@
+{
+  "id": "bq-schema-long-text",
+  "section": "11.4.3",
+  "requirement": "text-answer-limit-5000",
+  "kind": "wire",
+  "binding": [
+    "rest",
+    "mcp"
+  ],
+  "expect": "accept",
+  "schema": "booking_questions.json#/$defs/BookingQuestion",
+  "notes": "Long text is still a bounded string. 5000 characters is the schema maximum for maxLength; a business that needs more keeps the question on business-surface handoff.",
+  "case": "multi-line textarea at the 5000 maximum",
+  "instance": {
+    "kind": "question",
+    "id": "history",
+    "label": {
+      "plain": "Tell us about previous treatments"
+    },
+    "schema": {
+      "type": "string",
+      "maxLength": 5000
+    },
+    "required": true,
+    "rendering": "textarea"
+  },
+  "then": {
+    "conforming": true,
+    "schema_valid": true,
+    "member_name_violations": []
+  },
+  "answer_cases": [
+    {
+      "value": "Line one.\nLine two.\nLine three.",
+      "valid": true
+    }
+  ],
+  "variants": [
+    {
+      "case": "maxLength 5001",
+      "expect": "reject",
+      "instance": {
+        "kind": "question",
+        "id": "history",
+        "label": {
+          "plain": "Tell us about previous treatments"
+        },
+        "schema": {
+          "type": "string",
+          "maxLength": 5001
+        },
+        "required": true,
+        "rendering": "textarea"
+      },
+      "then": {
+        "conforming": false,
+        "schema_valid": false,
+        "member_name_violations": []
+      }
+    }
+  ],
+  "wrong_answers": [
+    {
+      "behaviour": "raise maxLength for one business",
+      "violates": "11.4.3 Limits and Localization",
+      "why": "Limits are schema-enforced so every platform can budget prompt and form space the same way."
+    }
+  ]
+}

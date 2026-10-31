@@ -1,0 +1,31 @@
+{
+  "id": "bq-fx-q-ack-action",
+  "kind": "fixture",
+  "schema": "booking_questions.json#/$defs/BookingQuestion",
+  "parameters": {
+    "id": {
+      "default": "policy_ack"
+    },
+    "label": {
+      "default": {
+        "plain": "I agree to the studio policy."
+      }
+    }
+  },
+  "body": {
+    "kind": "question",
+    "id": {
+      "$param": "id"
+    },
+    "label": {
+      "$param": "label"
+    },
+    "schema": {
+      "type": "boolean",
+      "const": true
+    },
+    "required": true,
+    "rendering": "checkbox",
+    "collection": "platform_surface"
+  }
+}

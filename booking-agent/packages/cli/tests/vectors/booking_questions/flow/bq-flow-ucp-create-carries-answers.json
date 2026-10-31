@@ -1,0 +1,101 @@
+{
+  "id": "bq-flow-ucp-create-carries-answers",
+  "section": "7.4",
+  "requirement": "ucp-create-carries-answers",
+  "kind": "flow",
+  "expect": "accept",
+  "notes": "Paid UCP-Native. Create Checkout carries the answers inside the booking context.",
+  "given": {
+    "service": {
+      "id": "svc_cut_45",
+      "type": "appointment",
+      "booking_question_sets": [
+        {
+          "id": "intake",
+          "revision": "r1",
+          "purpose": "intake",
+          "completion_timing": "before_confirmation",
+          "frequency": "every_booking",
+          "items": [
+            {
+              "kind": "question",
+              "id": "hair_notes",
+              "label": {
+                "plain": "Anything the stylist should know?"
+              },
+              "schema": {
+                "type": "string",
+                "maxLength": 500
+              },
+              "required": true
+            },
+            {
+              "kind": "question",
+              "id": "hair_length",
+              "label": {
+                "plain": "Hair length"
+              },
+              "schema": {
+                "type": "string",
+                "oneOf": [
+                  {
+                    "const": "short",
+                    "title": "Short"
+                  },
+                  {
+                    "const": "medium",
+                    "title": "Medium"
+                  },
+                  {
+                    "const": "long",
+                    "title": "Long"
+                  }
+                ]
+              },
+              "required": true
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "when": [
+    {
+      "at": "2026-10-25T10:00:00Z",
+      "step": "create_checkout",
+      "with": {
+        "booking": {
+          "service_id": "svc_cut_45",
+          "slot": {
+            "id": "slot_20261028_1000"
+          },
+          "booking_question_submissions": [
+            {
+              "set_id": "intake",
+              "revision": "r1",
+              "answers": {
+                "hair_notes": "Fine hair, sensitive scalp",
+                "hair_length": "medium"
+              }
+            }
+          ]
+        }
+      },
+      "result": {
+        "checkout_status": "ready_for_complete",
+        "messages": []
+      }
+    }
+  ],
+  "then": {
+    "checkout_status": "ready_for_complete",
+    "http_status": 200
+  },
+  "wrong_answers": [
+    {
+      "behaviour": "send answers as checkout line-item metadata",
+      "violates": "7.4 BookingContext",
+      "why": "The business cannot find them where the schema says they live."
+    }
+  ]
+}

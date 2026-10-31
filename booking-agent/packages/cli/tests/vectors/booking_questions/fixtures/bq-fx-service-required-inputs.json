@@ -1,0 +1,73 @@
+{
+  "id": "bq-fx-service-required-inputs",
+  "kind": "fixture",
+  "schema": "catalog.json#/$defs/Service",
+  "parameters": {
+    "required_buyer_fields": {
+      "default": [
+        "phone_number"
+      ]
+    },
+    "items": {
+      "default": [
+        {
+          "kind": "question",
+          "id": "hair_notes",
+          "label": {
+            "plain": "Anything the stylist should know?"
+          },
+          "schema": {
+            "type": "string",
+            "maxLength": 500
+          },
+          "required": true
+        }
+      ]
+    }
+  },
+  "body": {
+    "id": "svc_cut_45",
+    "business_id": "biz_downtown_studio",
+    "name": "Haircut - 45 min",
+    "type": "appointment",
+    "duration": {
+      "fixed": "PT45M"
+    },
+    "pricing": {
+      "model": "fixed",
+      "amount": 6500,
+      "currency": "USD"
+    },
+    "channel": {
+      "type": "at_business_location"
+    },
+    "policies": {
+      "cancellation": {
+        "allowed": true,
+        "free_cancellation_until": "PT24H"
+      },
+      "rescheduling": {
+        "allowed": true,
+        "free_reschedule_until": "PT24H"
+      },
+      "confirmation_mode": "auto",
+      "requires_payment": true,
+      "payment_timing": "at_service"
+    },
+    "required_buyer_fields": {
+      "$param": "required_buyer_fields"
+    },
+    "booking_question_sets": [
+      {
+        "id": "intake",
+        "revision": "r1",
+        "purpose": "intake",
+        "completion_timing": "before_confirmation",
+        "frequency": "every_booking",
+        "items": {
+          "$param": "items"
+        }
+      }
+    ]
+  }
+}

@@ -1,0 +1,160 @@
+{
+  "id": "bq-schema-other-free-text",
+  "section": "11.4.3",
+  "requirement": "other-option-follow-up",
+  "kind": "wire",
+  "binding": [
+    "rest",
+    "mcp"
+  ],
+  "expect": "accept",
+  "schema": "booking_questions.json#/$defs/BookingQuestionSet",
+  "notes": "An other option pairs with a conditional free-text follow-up that applies only when other is selected (evaluated by bq-cond-other-free-text).",
+  "case": "other plus follow-up",
+  "instance": {
+    "id": "lead",
+    "revision": "r1",
+    "purpose": "intake",
+    "completion_timing": "before_confirmation",
+    "frequency": "every_booking",
+    "items": [
+      {
+        "kind": "question",
+        "id": "source",
+        "label": {
+          "plain": "How did you hear about us?"
+        },
+        "schema": {
+          "type": "array",
+          "items": {
+            "anyOf": [
+              {
+                "const": "friend",
+                "title": "A friend"
+              },
+              {
+                "const": "social",
+                "title": "Social media"
+              },
+              {
+                "const": "other",
+                "title": "Other"
+              }
+            ]
+          },
+          "uniqueItems": true,
+          "minItems": 1
+        },
+        "required": true
+      },
+      {
+        "kind": "question",
+        "id": "source_other",
+        "label": {
+          "plain": "Please tell us where"
+        },
+        "schema": {
+          "type": "string",
+          "maxLength": 200
+        },
+        "required": true,
+        "when": {
+          "question": "source",
+          "op": "contains",
+          "value": "other"
+        }
+      }
+    ]
+  },
+  "then": {
+    "conforming": true,
+    "schema_valid": true,
+    "member_name_violations": []
+  },
+  "answer_cases": [
+    {
+      "question": "source",
+      "value": [
+        "other"
+      ],
+      "valid": true
+    },
+    {
+      "question": "source_other",
+      "value": "Local radio",
+      "valid": true
+    }
+  ],
+  "variants": [
+    {
+      "case": "follow-up placed before the choice",
+      "expect": "reject",
+      "instance": {
+        "id": "lead",
+        "revision": "r1",
+        "purpose": "intake",
+        "completion_timing": "before_confirmation",
+        "frequency": "every_booking",
+        "items": [
+          {
+            "kind": "question",
+            "id": "source_other",
+            "label": {
+              "plain": "Please tell us where"
+            },
+            "schema": {
+              "type": "string",
+              "maxLength": 200
+            },
+            "required": true,
+            "when": {
+              "question": "source",
+              "op": "contains",
+              "value": "other"
+            }
+          },
+          {
+            "kind": "question",
+            "id": "source",
+            "label": {
+              "plain": "How did you hear about us?"
+            },
+            "schema": {
+              "type": "array",
+              "items": {
+                "anyOf": [
+                  {
+                    "const": "friend",
+                    "title": "A friend"
+                  },
+                  {
+                    "const": "other",
+                    "title": "Other"
+                  }
+                ]
+              },
+              "uniqueItems": true,
+              "minItems": 1
+            },
+            "required": true
+          }
+        ]
+      },
+      "then": {
+        "conforming": false,
+        "schema_valid": true,
+        "member_name_violations": [],
+        "semantic_errors": [
+          "forward_reference:source_other"
+        ]
+      }
+    }
+  ],
+  "wrong_answers": [
+    {
+      "behaviour": "free-text inside the option title",
+      "violates": "11.4.3 Answer Schema",
+      "why": "Option titles are fixed labels; free text needs its own question."
+    }
+  ]
+}

@@ -1,0 +1,118 @@
+{
+  "id": "bq-flow-set-level-path",
+  "section": "11.4.9",
+  "requirement": "booking-question-set-level-path",
+  "kind": "flow",
+  "expect": "reject",
+  "outcome_code": "booking_question_answer_invalid",
+  "notes": "A cross-answer business rule (the last day before the first day) cannot be attributed to one question. The business uses the set-level path, and the failure stays recoverable. The message is business policy, so the checker does not derive it.",
+  "given": {
+    "service": {
+      "id": "svc_cut_45",
+      "type": "appointment",
+      "booking_question_sets": [
+        {
+          "id": "intake",
+          "revision": "r1",
+          "purpose": "intake",
+          "completion_timing": "before_confirmation",
+          "frequency": "every_booking",
+          "items": [
+            {
+              "kind": "question",
+              "id": "start_date",
+              "label": {
+                "plain": "First day"
+              },
+              "schema": {
+                "type": "string",
+                "format": "date"
+              },
+              "required": true
+            },
+            {
+              "kind": "question",
+              "id": "end_date",
+              "label": {
+                "plain": "Last day"
+              },
+              "schema": {
+                "type": "string",
+                "format": "date"
+              },
+              "required": true
+            }
+          ]
+        }
+      ]
+    },
+    "hold": {
+      "id": "hold_bq_1",
+      "slot_id": "slot_20261028_1000",
+      "service_id": "svc_cut_45",
+      "spots": 1,
+      "expires_at": "2026-10-25T10:10:00Z",
+      "status": "active"
+    }
+  },
+  "when": [
+    {
+      "at": "2026-10-25T10:00:00Z",
+      "step": "create_booking",
+      "with": {
+        "hold_id": "hold_bq_1",
+        "buyer": {
+          "first_name": "Dana",
+          "last_name": "Levi",
+          "email": "dana@example.com",
+          "phone_number": "+14155550123"
+        },
+        "booking_question_submissions": [
+          {
+            "set_id": "intake",
+            "revision": "r1",
+            "answers": {
+              "start_date": "2026-11-10",
+              "end_date": "2026-11-03"
+            }
+          }
+        ]
+      },
+      "result": {
+        "accepted": false,
+        "booking_created": false,
+        "messages": [
+          {
+            "type": "error",
+            "code": "booking_question_answer_invalid",
+            "content": "The last day must be on or after the first day.",
+            "severity": "recoverable",
+            "path": "$.booking_question_submissions[?@.set_id=='intake']",
+            "policy": true
+          }
+        ]
+      }
+    }
+  ],
+  "then": {
+    "booking_created": false,
+    "hold": {
+      "id": "hold_bq_1",
+      "status": "active",
+      "expires_at": "2026-10-25T10:10:00Z"
+    },
+    "slot_capacity_held": 1,
+    "payment_authorized": false,
+    "actions_created": [],
+    "http_status": 200,
+    "outcome_code": "booking_question_answer_invalid",
+    "platform_may_retry": true
+  },
+  "wrong_answers": [
+    {
+      "behaviour": "use a set-level path when one question is at fault",
+      "violates": "11.4.9 Paths",
+      "why": "The platform has to re-ask the whole form instead of one field."
+    }
+  ]
+}

@@ -1,0 +1,81 @@
+{
+  "id": "bq-flow-ucp-ap2-mandate-exception",
+  "section": "11.4.8",
+  "requirement": "ucp-ap2-mandate",
+  "kind": "flow",
+  "expect": "accept",
+  "notes": "With dev.ucp.common.payment.ap2_mandate active, the agent may complete checkout under the buyer's mandate. The exception is UCP's own; this extension neither widens nor narrows it.",
+  "given": {
+    "service": {
+      "id": "svc_cut_45",
+      "type": "appointment",
+      "booking_question_sets": [
+        {
+          "id": "intake",
+          "revision": "r1",
+          "purpose": "intake",
+          "completion_timing": "before_confirmation",
+          "frequency": "every_booking",
+          "items": [
+            {
+              "kind": "question",
+              "id": "hair_notes",
+              "label": {
+                "plain": "Anything the stylist should know?"
+              },
+              "schema": {
+                "type": "string",
+                "maxLength": 500
+              },
+              "required": true
+            },
+            {
+              "kind": "question",
+              "id": "no_show_fee",
+              "label": {
+                "plain": "I agree to the no-show fee of $30."
+              },
+              "schema": {
+                "type": "boolean",
+                "const": true
+              },
+              "required": true,
+              "rendering": "checkbox",
+              "collection": "platform_surface"
+            }
+          ]
+        }
+      ]
+    },
+    "negotiated": [
+      "dev.usp-protocol.services.paid_bookings",
+      "dev.usp-protocol.services.booking_questions",
+      "dev.ucp.common.payment.ap2_mandate"
+    ]
+  },
+  "when": [
+    {
+      "at": "2026-10-25T10:01:30Z",
+      "step": "complete_checkout",
+      "with": {
+        "payment_token": "tok_test_001",
+        "ap2_mandate": "mandate_ref_1"
+      },
+      "actor": "agent",
+      "result": {
+        "checkout_status": "completed"
+      }
+    }
+  ],
+  "then": {
+    "completed_by": "agent",
+    "http_status": 200
+  },
+  "wrong_answers": [
+    {
+      "behaviour": "forbid agent completion even with a mandate",
+      "violates": "7.5.1 item 6",
+      "why": "USP would be stricter than the negotiated UCP rule it claims to follow."
+    }
+  ]
+}

@@ -1,0 +1,135 @@
+{
+  "id": "bq-cond-inapplicable-chain",
+  "section": "11.4.3",
+  "requirement": "condition-inapplicable-chain",
+  "kind": "eval",
+  "notes": "A reference to an inapplicable question behaves like an unanswered one, through any chain: A hides B, so B's stale answer is pruned and C, which depends on B, disappears too.",
+  "given": {
+    "set": {
+      "id": "chain",
+      "revision": "r1",
+      "purpose": "intake",
+      "completion_timing": "before_confirmation",
+      "frequency": "every_booking",
+      "items": [
+        {
+          "kind": "question",
+          "id": "a",
+          "label": {
+            "plain": "Do you color your hair?"
+          },
+          "schema": {
+            "type": "string",
+            "oneOf": [
+              {
+                "const": "yes",
+                "title": "Yes"
+              },
+              {
+                "const": "no",
+                "title": "No"
+              }
+            ]
+          },
+          "required": true
+        },
+        {
+          "kind": "question",
+          "id": "b",
+          "label": {
+            "plain": "Which brand?"
+          },
+          "schema": {
+            "type": "string",
+            "maxLength": 50
+          },
+          "required": true,
+          "when": {
+            "question": "a",
+            "op": "equals",
+            "value": "yes"
+          }
+        },
+        {
+          "kind": "question",
+          "id": "c",
+          "label": {
+            "plain": "Any reaction to it?"
+          },
+          "schema": {
+            "type": "boolean"
+          },
+          "required": true,
+          "when": {
+            "question": "b",
+            "op": "answered"
+          }
+        }
+      ]
+    }
+  },
+  "cases": [
+    {
+      "case": "a yes, b answered",
+      "answers": {
+        "a": "yes",
+        "b": "Brand X"
+      },
+      "then": {
+        "definition_valid": true,
+        "applicable": [
+          "a",
+          "b",
+          "c"
+        ],
+        "required_unanswered": [
+          "c"
+        ],
+        "pruned": []
+      }
+    },
+    {
+      "case": "a no, stale b",
+      "answers": {
+        "a": "no",
+        "b": "Brand X"
+      },
+      "then": {
+        "definition_valid": true,
+        "applicable": [
+          "a"
+        ],
+        "required_unanswered": [],
+        "pruned": [
+          "b"
+        ]
+      }
+    },
+    {
+      "case": "a no, stale b and c",
+      "answers": {
+        "a": "no",
+        "b": "Brand X",
+        "c": true
+      },
+      "then": {
+        "definition_valid": true,
+        "applicable": [
+          "a"
+        ],
+        "required_unanswered": [],
+        "pruned": [
+          "b",
+          "c"
+        ]
+      }
+    }
+  ],
+  "wrong_answers": [
+    {
+      "behaviour": "evaluate c against the stale b answer",
+      "violates": "11.4.3 Conditions item 3",
+      "why": "C reappears for a buyer whose earlier answer removed its premise."
+    }
+  ]
+}

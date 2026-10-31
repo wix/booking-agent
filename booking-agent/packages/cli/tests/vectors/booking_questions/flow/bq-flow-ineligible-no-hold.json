@@ -1,0 +1,110 @@
+{
+  "id": "bq-flow-ineligible-no-hold",
+  "section": "11.4.4",
+  "requirement": "preflight-ineligible-no-hold",
+  "kind": "flow",
+  "expect": "reject",
+  "outcome_code": "booking_eligibility_required",
+  "notes": "An ineligible decision returns a buyer-safe reason and no token. The platform shows no slots, and a hold attempted anyway is rejected because no token exists.",
+  "given": {
+    "service": {
+      "id": "svc_color_90",
+      "type": "appointment",
+      "booking_question_sets": [
+        {
+          "id": "eligibility",
+          "revision": "r1",
+          "purpose": "eligibility",
+          "completion_timing": "preflight",
+          "frequency": "every_booking",
+          "items": [
+            {
+              "kind": "question",
+              "id": "prior_reaction",
+              "label": {
+                "plain": "Have you ever reacted to hair dye?"
+              },
+              "schema": {
+                "type": "boolean"
+              },
+              "required": true
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "when": [
+    {
+      "at": "2026-10-25T10:00:00Z",
+      "step": "check_eligibility",
+      "with": {
+        "service_id": "svc_cut_45",
+        "buyer": {
+          "first_name": "Dana",
+          "last_name": "Levi",
+          "email": "dana@example.com",
+          "phone_number": "+14155550123"
+        },
+        "booking_question_submissions": [
+          {
+            "set_id": "eligibility",
+            "revision": "r1",
+            "answers": {
+              "prior_reaction": true
+            }
+          }
+        ]
+      },
+      "result": {
+        "eligibility": {
+          "decision": "ineligible"
+        },
+        "messages": [
+          {
+            "type": "info",
+            "code": "eligibility_reason",
+            "content": "This color service needs an in-person patch test first. A consultation is available."
+          }
+        ]
+      }
+    },
+    {
+      "at": "2026-10-25T10:01:00Z",
+      "step": "hold_slot",
+      "with": {
+        "slot_id": "slot_20261028_1000",
+        "spots": 1
+      },
+      "result": {
+        "accepted": false,
+        "messages": [
+          {
+            "type": "error",
+            "code": "booking_eligibility_required",
+            "content": "Check eligibility for this service before reserving a time.",
+            "severity": "recoverable"
+          }
+        ]
+      }
+    }
+  ],
+  "then": {
+    "slots_presented": false,
+    "hold_created": false,
+    "token_issued": false,
+    "http_status": 200
+  },
+  "wrong_answers": [
+    {
+      "behaviour": "let the buyer change the answer and retry until eligible",
+      "violates": "11.4.4 Decisions",
+      "why": "Probing turns a safety gate into a puzzle."
+    },
+    {
+      "behaviour": "offer slots and decline at booking",
+      "violates": "11.4.7 Preflight",
+      "why": "The buyer invests in slot selection for a booking that cannot happen."
+    }
+  ]
+}

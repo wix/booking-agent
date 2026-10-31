@@ -179,8 +179,23 @@ class _UcpHandler(BaseHTTPRequestHandler):
             if not self.checkout_store:
                 self.send_error(500)
                 return
-            session = self.checkout_store.create_checkout(body)
+            session = self.checkout_store.create_checkout(
+                body, idempotency_key=self.headers.get("Idempotency-Key"),
+            )
             self._send_json(200, session)
+            return
+        if "/checkout-sessions/" in path and path.endswith("/cancel"):
+            self._read_json()
+            if not self._proof_accepted("POST"):
+                return
+            if not self.checkout_store:
+                self.send_error(500)
+                return
+            status, payload = self.checkout_store.cancel_checkout(path.rsplit("/", 2)[-2])
+            if payload is None:
+                self.send_error(404)
+                return
+            self._send_json(status, payload)
             return
         if "/checkout-sessions/" in path and path.endswith("/complete"):
             complete_body = self._read_json()

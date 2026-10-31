@@ -42,6 +42,7 @@ PRIVILEGED_PLATFORM_METHODS: FrozenSet[str] = frozenset({
     "usp_services_feed_subscribe",
     "usp_availability_hold",
     "usp_bookings_create",
+    "usp_booking_questions_check_eligibility",
     "usp_waitlist_join",
     "usp_waitlist_list",
     "usp_registry_register",
@@ -89,6 +90,7 @@ CLIENT_METHODS: Dict[str, str] = {
     "usp_bookings_cancel": "cancel_booking",
     "usp_bookings_reschedule": "reschedule_booking",
     "usp_bookings_confirm_payment": "confirm_payment",
+    "usp_booking_questions_check_eligibility": "check_eligibility",
 }
 
 #: Specified by USP and reachable over REST, but not implemented in this client.

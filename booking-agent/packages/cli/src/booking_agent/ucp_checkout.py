@@ -859,6 +859,22 @@ def _mandatory_acceptance_pending(
     )
 
 
+def checkout_expires_at(checkout: Dict[str, Any]) -> Optional[str]:
+    """The checkout's ``expires_at`` as UTC RFC 3339, or None when absent or unreadable."""
+    from datetime import datetime, timezone
+
+    raw = checkout.get("expires_at")
+    if not isinstance(raw, str) or not raw.strip():
+        return None
+    try:
+        parsed = datetime.fromisoformat(raw.strip().replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc).isoformat()
+
+
 def validate_create_checkout_ready(checkout: Dict[str, Any]) -> None:
     """Gate after ``create_checkout`` (USP §7.5 step 4 / implementation-plan step 14).
 
@@ -1218,8 +1234,14 @@ def build_paid_bookings_create_body(
     line_item_amount_minor: Optional[int] = None,
     notes: Optional[str] = None,
     delivery_address: Optional[Dict[str, Any]] = None,
+    booking_extras: Optional[Dict[str, Any]] = None,
+    buyer_extras: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
-    """``create_checkout`` body with ``dev.usp-protocol.services.paid_bookings`` extension (USP §7.5 step 12)."""
+    """``create_checkout`` body with ``dev.usp-protocol.services.paid_bookings`` extension (USP §7.5 step 12).
+
+    ``booking_extras`` adds BookingContext members (``recipient``, the booking-questions
+    submissions and token) and ``buyer_extras`` adds buyer members, each only when set.
+    """
     if line_item_amount_minor is not None:
         price = int(line_item_amount_minor)
     else:
@@ -1240,13 +1262,16 @@ def build_paid_bookings_create_body(
         booking["notes"] = notes
     if delivery_address:
         booking["delivery_address"] = delivery_address
+    booking.update({k: v for k, v in (booking_extras or {}).items() if v})
+    buyer: Dict[str, Any] = {
+        "first_name": buyer_first,
+        "last_name": buyer_last,
+        "email": buyer_email,
+    }
+    buyer.update({k: v for k, v in (buyer_extras or {}).items() if v})
     return {
         "currency": currency,
-        "buyer": {
-            "first_name": buyer_first,
-            "last_name": buyer_last,
-            "email": buyer_email,
-        },
+        "buyer": buyer,
         "line_items": [
             {
                 "id": line_item_id,

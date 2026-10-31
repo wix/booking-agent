@@ -1,0 +1,262 @@
+{
+  "id": "bq-schema-localized-nested",
+  "section": "11.4.3",
+  "requirement": "localized-own-text-only",
+  "kind": "wire",
+  "binding": [
+    "rest",
+    "mcp"
+  ],
+  "expect": "accept",
+  "schema": "booking_questions.json#/$defs/BookingQuestionSet",
+  "notes": "Every set, section, question, option, notice, and task may carry localized overrides of its own text. Overrides never change ids, option const values, types, constraints, or conditions. A renderer asked for fr with no fr override falls back to the default text (Section 3.5).",
+  "case": "es overrides at every level",
+  "instance": {
+    "id": "intake",
+    "revision": "r1",
+    "purpose": "intake",
+    "completion_timing": "before_confirmation",
+    "frequency": "every_booking",
+    "items": [
+      {
+        "kind": "notice",
+        "id": "welcome",
+        "content": {
+          "plain": "Welcome to Downtown Studio."
+        },
+        "localized": {
+          "es": {
+            "content": {
+              "plain": "Bienvenido a Downtown Studio."
+            }
+          }
+        }
+      },
+      {
+        "kind": "question",
+        "id": "hair_length",
+        "label": {
+          "plain": "Hair length"
+        },
+        "schema": {
+          "type": "string",
+          "oneOf": [
+            {
+              "const": "short",
+              "title": "Short",
+              "localized": {
+                "es": {
+                  "title": "Corto"
+                }
+              }
+            },
+            {
+              "const": "long",
+              "title": "Long",
+              "localized": {
+                "es": {
+                  "title": "Largo"
+                }
+              }
+            }
+          ]
+        },
+        "required": true,
+        "localized": {
+          "es": {
+            "label": {
+              "plain": "Largo del cabello"
+            }
+          }
+        }
+      }
+    ],
+    "title": {
+      "plain": "Before your visit"
+    },
+    "language": "en",
+    "localized": {
+      "es": {
+        "title": {
+          "plain": "Antes de su visita"
+        }
+      }
+    }
+  },
+  "then": {
+    "conforming": true,
+    "schema_valid": true,
+    "member_name_violations": []
+  },
+  "localization_cases": [
+    {
+      "language": "es",
+      "case": "a declared locale overrides every text member that declares one",
+      "resolved": {
+        "set.title": "Antes de su visita",
+        "items.welcome.content": "Bienvenido a Downtown Studio.",
+        "items.hair_length.label": "Largo del cabello",
+        "items.hair_length.options.short.title": "Corto",
+        "items.hair_length.options.long.title": "Largo"
+      }
+    },
+    {
+      "language": "fr",
+      "case": "a locale the set never declares falls back to the default text",
+      "resolved": {
+        "set.title": "Before your visit",
+        "items.welcome.content": "Welcome to Downtown Studio.",
+        "items.hair_length.label": "Hair length",
+        "items.hair_length.options.short.title": "Short",
+        "items.hair_length.options.long.title": "Long"
+      }
+    }
+  ],
+  "variants": [
+    {
+      "case": "override changes a question id",
+      "expect": "reject",
+      "instance": {
+        "id": "intake",
+        "revision": "r1",
+        "purpose": "intake",
+        "completion_timing": "before_confirmation",
+        "frequency": "every_booking",
+        "items": [
+          {
+            "kind": "question",
+            "id": "hair_length",
+            "label": {
+              "plain": "Hair length"
+            },
+            "schema": {
+              "type": "string",
+              "oneOf": [
+                {
+                  "const": "short",
+                  "title": "Short"
+                },
+                {
+                  "const": "medium",
+                  "title": "Medium"
+                },
+                {
+                  "const": "long",
+                  "title": "Long"
+                }
+              ]
+            },
+            "required": true,
+            "localized": {
+              "es": {
+                "id": "largo"
+              }
+            }
+          }
+        ]
+      },
+      "then": {
+        "conforming": false,
+        "schema_valid": false,
+        "member_name_violations": []
+      }
+    },
+    {
+      "case": "override changes an option const",
+      "expect": "reject",
+      "instance": {
+        "id": "intake",
+        "revision": "r1",
+        "purpose": "intake",
+        "completion_timing": "before_confirmation",
+        "frequency": "every_booking",
+        "items": [
+          {
+            "kind": "question",
+            "id": "hair_length",
+            "label": {
+              "plain": "Hair length"
+            },
+            "schema": {
+              "type": "string",
+              "oneOf": [
+                {
+                  "const": "short",
+                  "title": "Short",
+                  "localized": {
+                    "es": {
+                      "const": "corto"
+                    }
+                  }
+                }
+              ]
+            },
+            "required": true
+          }
+        ]
+      },
+      "then": {
+        "conforming": false,
+        "schema_valid": false,
+        "member_name_violations": []
+      }
+    },
+    {
+      "case": "override changes the answer schema",
+      "expect": "reject",
+      "instance": {
+        "id": "intake",
+        "revision": "r1",
+        "purpose": "intake",
+        "completion_timing": "before_confirmation",
+        "frequency": "every_booking",
+        "items": [
+          {
+            "kind": "question",
+            "id": "hair_length",
+            "label": {
+              "plain": "Hair length"
+            },
+            "schema": {
+              "type": "string",
+              "oneOf": [
+                {
+                  "const": "short",
+                  "title": "Short"
+                },
+                {
+                  "const": "medium",
+                  "title": "Medium"
+                },
+                {
+                  "const": "long",
+                  "title": "Long"
+                }
+              ]
+            },
+            "required": true,
+            "localized": {
+              "es": {
+                "schema": {
+                  "type": "boolean"
+                }
+              }
+            }
+          }
+        ]
+      },
+      "then": {
+        "conforming": false,
+        "schema_valid": false,
+        "member_name_violations": []
+      }
+    }
+  ],
+  "wrong_answers": [
+    {
+      "behaviour": "translate option const values",
+      "violates": "11.4.3 Limits and Localization",
+      "why": "A Spanish-speaking buyer's answer would fail validation against the default definition."
+    }
+  ]
+}

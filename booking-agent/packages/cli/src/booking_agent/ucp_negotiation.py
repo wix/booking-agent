@@ -112,7 +112,9 @@ def intersect_ucp_capabilities(
     1. Build per-capability version lists for both sides.
     2. Keep only capabilities the platform declares; within those, keep only
        the version strings that appear in both lists.
-    3. Prune business capabilities whose ``extends`` parent was itself pruned.
+    3. Prune business capabilities none of whose ``extends`` parents survived.
+       A multi-parent extension stays while any one parent is negotiated, and it
+       applies only to the surfaces of the parents that are (Section 8.3).
     4. Raise :class:`UcpProfileValidationError` with an actionable message when
        the intersection is empty.
 
@@ -144,13 +146,18 @@ def intersect_ucp_capabilities(
         if common:
             intersection[cap_id] = common
 
-    # Step 2: prune extensions whose parent capability was pruned.
-    pruned: Dict[str, List[str]] = {}
-    for cap_id, versions in intersection.items():
-        parents = bus_extends.get(cap_id) or []
-        if parents and any(parent not in intersection for parent in parents):
-            continue
-        pruned[cap_id] = versions
+    # Step 2: prune extensions none of whose parents survived, until stable.
+    pruned: Dict[str, List[str]] = dict(intersection)
+    while True:
+        orphans = [
+            cap_id for cap_id in pruned
+            if (parents := bus_extends.get(cap_id))
+            and not any(parent in pruned for parent in parents)
+        ]
+        if not orphans:
+            break
+        for cap_id in orphans:
+            del pruned[cap_id]
 
     if not pruned:
         raise UcpProfileValidationError(

@@ -4,12 +4,13 @@
   "title": "USP Paid Bookings Extension",
   "description": "Extends dev.ucp.shopping.checkout with booking context. UCP assimilation artifact for integrating USP scheduling with UCP checkout. When complete_checkout succeeds, payment and booking are atomically finalized.",
   "requires": {
-    "dev.ucp.shopping.checkout": ">=2026-01-11",
+    "dev.ucp.shopping.checkout": ">=2026-08-25",
+    "dev.ucp.shopping.order": ">=2026-08-25",
     "dev.usp-protocol.services.bookings": ">=2026-08-20"
   },
   "allOf": [
     {
-      "$ref": "https://ucp.dev/schemas/shopping/checkout.json"
+      "$ref": "https://ucp.dev/latest/schemas/shopping/checkout.json"
     },
     {
       "$ref": "#/$defs/dev.ucp.shopping.checkout"
@@ -27,8 +28,28 @@
         "booking_scoped_credential": {
           "$ref": "https://usp-protocol.dev/schemas/profile.json#/$defs/BookingScopedCredential",
           "description": "CONDITIONAL, response-only. Sender-constrained capability credential authorizing continuation operations on the booking this checkout created, returned when the business accepts the booking_scoped_credential mechanism. This is where the credential rides in UCP-Native Mode. It is a SIBLING of booking rather than a member of it: BookingContext is scheduling data that platforms persist and re-display, and a credential must never flow there. It is also declared here, inside USP's own registered dev.usp-protocol.services.paid_bookings extension, rather than being added as an invented member of the UCP checkout root - the same composition by which this extension already contributes booking. A platform MUST NOT send this on a request, and a business MUST ignore it if received. See specification.md Section 10.1.6."
+        },
+        "signals": {
+          "$ref": "#/$defs/Signals",
+          "description": "Request-side. USP-defined keys in the UCP signals object. Composed with UCP's own signals schema through allOf, so dev.ucp.buyer_ip and dev.ucp.user_agent keep their UCP definitions. See specification.md Section 7.5.2."
         }
       }
+    },
+    "Signals": {
+      "type": "object",
+      "title": "Signals",
+      "description": "USP-defined environment signals carried in the UCP signals object on UCP-Native checkout requests. Values are platform observations, never buyer assertions.",
+      "properties": {
+        "dev.usp-protocol.agent_host_ip": {
+          "type": "string",
+          "anyOf": [
+            { "format": "ipv4" },
+            { "format": "ipv6" }
+          ],
+          "description": "Public IPv4 or IPv6 address of the machine the agent platform runs on, as observed by that platform. It identifies the agent host, not the buyer: a business MUST NOT use it as the buyer's IP address. See specification.md Section 7.5.2."
+        }
+      },
+      "additionalProperties": true
     },
     "BookingContext": {
       "type": "object",
@@ -98,7 +119,7 @@
             "confirmed",
             "canceled"
           ],
-          "description": "Checkout-scoped status: pending, confirmed, or canceled. Derived from UCP checkout status (see USP specification Section 7.5). Distinct from full Booking.status in booking.json. Response only."
+          "description": "Checkout-scoped status: pending, confirmed, or canceled. Derived from UCP checkout status (see USP specification Section 7.5). Distinct from full Booking.status in booking.json. Response only when the booking object is present. MUST NOT be pending when the enclosing checkout status is canceled; the business MAY omit the booking object entirely after cancel_checkout."
         },
         "actions": {
           "type": "array",
@@ -110,6 +131,10 @@
         "notes": {
           "type": "string",
           "description": "Buyer-provided special requests."
+        },
+        "delivery_address": {
+          "$ref": "booking.json#/$defs/DeliveryAddress",
+          "description": "The buyer's service delivery address. MUST be present when the service's channel.type is at_buyer_location. MAY be present for other channels. Same shape as Booking.delivery_address, so a UCP-Native checkout can carry the address that Standalone create_booking carries."
         },
         "recipient": {
           "type": "object",
@@ -129,6 +154,18 @@
               "type": "string"
             }
           }
+        },
+        "booking_question_submissions": {
+          "$ref": "booking_questions.json#/$defs/BookingQuestionSubmissions",
+          "description": "Request-side. Booking questions extension answers. Because UCP Update Checkout replaces the whole checkout body, the platform MUST resend every still-applicable submission on every update. See specification.md Section 11.4."
+        },
+        "booking_question_assessment_token": {
+          "$ref": "booking_questions.json#/$defs/BookingQuestionAssessmentToken",
+          "description": "Request-side. Assessment token from an eligible preflight check. REQUIRED when the service has an applicable required preflight set (Section 11.4)."
+        },
+        "booking_question_state": {
+          "$ref": "booking_questions.json#/$defs/BookingQuestionStates",
+          "description": "Response-only. Booking questions extension set state for this checkout, including the non-sensitive answer echo (Section 11.4)."
         }
       }
     },

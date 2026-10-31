@@ -1,5 +1,21 @@
 # Change Log
 
+## 31/10/26 at 17:44:44 by [Ran Yahalom](mailto:ranya@wix.com)
+
+- Fixed checkout and approval expiry times ending in `Z` being unreadable on Python 3.10, where `datetime.fromisoformat` rejects that suffix. The CLI treated such a checkout as never expiring, so on 3.10 a lapsed checkout was not recreated before booking. Part of 0.12.0
+
+---
+
+## 31/10/26 at 17:37:24 by [Ran Yahalom](mailto:ranya@wix.com)
+
+- Moved checkout creation into `flow buyer resolve` for paid UCP bookings, so the summary the user approves shows the business's own total, deposit, payment terms and policies, and every consent question is asked once. Before, the checkout was created only after the yes, and policies, deposit terms or a changed total meant a second question after the user had already agreed. `flow book` now takes the prepared checkout (recreating it with the same idempotency key if it lapsed, and asking again only when the business's terms changed)
+- Added `flow book decline` and a confirmed checkout cancel on every exit path (decline, reset, purge, forget, another business, another time, a changed address or note), so a checkout the user did not complete is never left open at the business. A cancel the business does not confirm stops with `checkout_cleanup_failed` and keeps the session instead of reporting a release that did not happen
+- Added booking-questions support (eligibility preflight, the question loop, buyer-input acknowledgements, business rejections, answer privacy and an opt-in calendar copy). It stays inactive until the hosted platform profile declares the extension, so requests to every business today are unchanged. Re-vendored the USP schemas to pick up the extension, which also brought in unrelated upstream schema changes
+- Added booking for someone else: `flow recipient set` and `flow recipient clear`, sent as the USP recipient on create, update and the UCP checkout, shown as "For: ... Booked by: ..." in the summary, confirmation and calendar event, and changed after booking only through `flow book update-recipient` with a yes. A warning says when the business does not echo the recipient, since Wix businesses do not show the other person yet
+- Updated the skill to 0.59.0 for the single summary question, decline, the question loop and the recipient, and trimmed instructions the CLI now enforces so the skill stays within its size budget. Released as 0.12.0, held back (deferred) until the hosted replay and a decline run are recorded
+
+---
+
 ## 25/10/26 at 10:02:22 by [Ran Yahalom](mailto:ranya@wix.com)
 
 - Ran the general hosted replay of CLI 0.11.2 and skill 0.58.2 in Cursor on macOS with no replay id set, and recorded every release from 0.8.0 to 0.11.2 as `recommended` on the general rollout. The general rollout had been deferred since 0.8.0, so unverified harnesses (OpenClaw, Claude Code, Cursor) were never offered anything newer than 0.7.0, and CLIs before 0.11.2 stop at the first deferred release. The replay resumed a paid $1 booking in a new conversation, charged once, added the calendar event, ran a fresh Link sign-in, booked a pay-at-appointment service after the business's terms with nothing charged, and cancelled both bookings with status saying cancelled. Caveats are in the evidence: the restart was a new chat on the same machine, and the CLI was installed from the release commit's source folder before publication

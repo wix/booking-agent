@@ -51,6 +51,10 @@ MOCK_CHECKOUT_PORT = 8099
 
 BOOKINGS: Dict[str, Booking] = {}
 _PAID: set = set()
+# Booking-questions members each call received, for tests: (method, kwargs).
+BQ_CALLS: List[tuple] = []
+# The next eligibility decisions ``check_eligibility`` returns, in order.
+ELIGIBILITY: List[Dict[str, Any]] = []
 
 
 def mark_booking_paid(booking_id: str) -> None:
@@ -63,6 +67,8 @@ def is_booking_paid(booking_id: str) -> bool:
 
 def reset_paid() -> None:
     _PAID.clear()
+    BQ_CALLS.clear()
+    ELIGIBILITY.clear()
 
 
 def _hostname(url: str) -> str:
@@ -217,7 +223,10 @@ class MockUSPBackend(USPBackend):
         start_date: str,
         end_date: str,
         timezone: Optional[str] = None,
+        **booking_questions: Any,
     ) -> AvailabilityResult:
+        if booking_questions:
+            BQ_CALLS.append(("query_availability", dict(booking_questions)))
         # Tests pin the business zone on the session, which the client sends as
         # date_bounds_timezone; the shared mock profile only says UTC.
         zone = timezone or profile.business.timezone
@@ -228,7 +237,8 @@ class MockUSPBackend(USPBackend):
         )
 
     async def hold_slot(
-        self, profile: USPBusinessProfile, slot_id: str, service_id: str, spots: int = 1
+        self, profile: USPBusinessProfile, slot_id: str, service_id: str, spots: int = 1,
+        **booking_questions: Any,
     ) -> Hold:
         return Hold(
             id=f"hold_{uuid.uuid4().hex[:8]}",
@@ -261,7 +271,10 @@ class MockUSPBackend(USPBackend):
         notes: Optional[str] = None,
         delivery_address: Optional[Dict[str, Any]] = None,
         idempotency_key: Optional[str] = None,
+        **extensions: Any,
     ) -> Booking:
+        if extensions:
+            BQ_CALLS.append(("create_booking", dict(extensions, buyer=dict(buyer))))
         service = SERVICE_BY_ID.get(service_id)
         if not service:
             raise RuntimeError(f"Mock service not found: {service_id}")
@@ -454,6 +467,47 @@ class MockUSPBackend(USPBackend):
         })
         BOOKINGS[booking_id] = updated
         return updated
+
+    async def update_booking(
+        self,
+        profile: USPBusinessProfile,
+        booking_id: str,
+        *,
+        credential: Optional[BookingScopedCredential] = None,
+        credential_endpoint: Optional[str] = None,
+        if_match: Optional[str] = None,
+        **changes: Any,
+    ) -> Booking:
+        BQ_CALLS.append(("update_booking", dict(changes, booking_id=booking_id)))
+        booking = BOOKINGS.get(booking_id)
+        if not booking:
+            raise RuntimeError(f"Mock booking not found: {booking_id}")
+        updated = booking.model_copy(update={"status": BookingStatus.CONFIRMED, "actions": []})
+        BOOKINGS[booking_id] = updated
+        return updated
+
+    async def check_eligibility(
+        self,
+        profile: USPBusinessProfile,
+        service_id: str,
+        *,
+        buyer: Optional[Dict[str, Any]] = None,
+        recipient: Optional[Dict[str, Any]] = None,
+        submissions: Optional[List[Dict[str, Any]]] = None,
+    ):
+        from booking_agent.models.booking_questions import BookingEligibilityCheckResult
+
+        BQ_CALLS.append(("check_eligibility", {
+            "service_id": service_id, "buyer": buyer, "recipient": recipient,
+            "submissions": submissions,
+        }))
+        decision = ELIGIBILITY.pop(0) if ELIGIBILITY else {
+            "decision": "eligible",
+            "assessment_token": "bqat_mock",
+            "expires_at": (datetime.now(timezone.utc) + timedelta(minutes=15)).isoformat(),
+        }
+        messages = decision.pop("messages", [])
+        return BookingEligibilityCheckResult.model_validate(decision), messages
 
     # -- helpers -------------------------------------------------------------
 

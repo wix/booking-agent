@@ -1,0 +1,107 @@
+{
+  "id": "bq-cond-age-threshold",
+  "section": "11.4.3",
+  "requirement": "condition-age-threshold",
+  "kind": "eval",
+  "notes": "Below 18 a guardian-contact question is required; at 18 or above a different required question appears instead.",
+  "given": {
+    "set": {
+      "id": "age",
+      "revision": "r1",
+      "purpose": "intake",
+      "completion_timing": "before_confirmation",
+      "frequency": "every_booking",
+      "items": [
+        {
+          "kind": "question",
+          "id": "age",
+          "label": {
+            "plain": "Participant age"
+          },
+          "schema": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 120
+          },
+          "required": true
+        },
+        {
+          "kind": "question",
+          "id": "guardian_phone",
+          "label": {
+            "plain": "Parent or guardian phone"
+          },
+          "schema": {
+            "type": "string",
+            "format": "phone"
+          },
+          "required": true,
+          "when": {
+            "question": "age",
+            "op": "lt",
+            "value": 18
+          }
+        },
+        {
+          "kind": "question",
+          "id": "emergency_contact",
+          "label": {
+            "plain": "Emergency contact name"
+          },
+          "schema": {
+            "type": "string",
+            "maxLength": 100
+          },
+          "required": true,
+          "when": {
+            "question": "age",
+            "op": "gte",
+            "value": 18
+          }
+        }
+      ],
+      "subject": "recipient"
+    }
+  },
+  "cases": [
+    {
+      "case": "17",
+      "answers": {
+        "age": 17
+      },
+      "then": {
+        "definition_valid": true,
+        "applicable": [
+          "age",
+          "guardian_phone"
+        ],
+        "required_unanswered": [
+          "guardian_phone"
+        ]
+      }
+    },
+    {
+      "case": "18",
+      "answers": {
+        "age": 18
+      },
+      "then": {
+        "definition_valid": true,
+        "applicable": [
+          "age",
+          "emergency_contact"
+        ],
+        "required_unanswered": [
+          "emergency_contact"
+        ]
+      }
+    }
+  ],
+  "wrong_answers": [
+    {
+      "behaviour": "evaluate the threshold against the buyer's own age",
+      "violates": "11.4.4 Preflight Eligibility Check",
+      "why": "subject: recipient means the participant, so a parent's age never satisfies the child's gate."
+    }
+  ]
+}
