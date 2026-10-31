@@ -1,0 +1,130 @@
+{
+  "id": "bq-flow-unknown-question",
+  "section": "11.4.5",
+  "requirement": "booking-question-unknown",
+  "kind": "flow",
+  "expect": "reject",
+  "outcome_code": "booking_question_unknown",
+  "notes": "A submission names a question id the set does not define. The business reports that key only; the rest of the submission is still evaluated.",
+  "given": {
+    "service": {
+      "id": "svc_cut_45",
+      "type": "appointment",
+      "booking_question_sets": [
+        {
+          "id": "intake",
+          "revision": "r1",
+          "purpose": "intake",
+          "completion_timing": "before_confirmation",
+          "frequency": "every_booking",
+          "items": [
+            {
+              "kind": "question",
+              "id": "hair_notes",
+              "label": {
+                "plain": "Anything the stylist should know?"
+              },
+              "schema": {
+                "type": "string",
+                "maxLength": 500
+              },
+              "required": true
+            },
+            {
+              "kind": "question",
+              "id": "hair_length",
+              "label": {
+                "plain": "Hair length"
+              },
+              "schema": {
+                "type": "string",
+                "oneOf": [
+                  {
+                    "const": "short",
+                    "title": "Short"
+                  },
+                  {
+                    "const": "medium",
+                    "title": "Medium"
+                  },
+                  {
+                    "const": "long",
+                    "title": "Long"
+                  }
+                ]
+              },
+              "required": true
+            }
+          ]
+        }
+      ]
+    },
+    "hold": {
+      "id": "hold_bq_1",
+      "slot_id": "slot_20261028_1000",
+      "service_id": "svc_cut_45",
+      "spots": 1,
+      "expires_at": "2026-10-25T10:10:00Z",
+      "status": "active"
+    }
+  },
+  "when": [
+    {
+      "at": "2026-10-25T10:00:00Z",
+      "step": "create_booking",
+      "with": {
+        "hold_id": "hold_bq_1",
+        "buyer": {
+          "first_name": "Dana",
+          "last_name": "Levi",
+          "email": "dana@example.com",
+          "phone_number": "+14155550123"
+        },
+        "booking_question_submissions": [
+          {
+            "set_id": "intake",
+            "revision": "r1",
+            "answers": {
+              "hair_notes": "Fine hair, sensitive scalp",
+              "hair_length": "medium",
+              "favorite_color": "blue"
+            }
+          }
+        ]
+      },
+      "result": {
+        "accepted": false,
+        "booking_created": false,
+        "messages": [
+          {
+            "type": "error",
+            "code": "booking_question_unknown",
+            "content": "This question is not part of the form.",
+            "severity": "recoverable",
+            "path": "$.booking_question_submissions[?@.set_id=='intake'].answers['favorite_color']"
+          }
+        ]
+      }
+    }
+  ],
+  "then": {
+    "booking_created": false,
+    "hold": {
+      "id": "hold_bq_1",
+      "status": "active",
+      "expires_at": "2026-10-25T10:10:00Z"
+    },
+    "slot_capacity_held": 1,
+    "payment_authorized": false,
+    "actions_created": [],
+    "http_status": 200,
+    "outcome_code": "booking_question_unknown"
+  },
+  "wrong_answers": [
+    {
+      "behaviour": "fail the whole submission as validation_error",
+      "violates": "11.4.5 Request Submission",
+      "why": "The platform cannot tell which key to drop."
+    }
+  ]
+}

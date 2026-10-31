@@ -1,0 +1,140 @@
+{
+  "id": "bq-flow-before-confirmation-recap",
+  "section": "11.4.7",
+  "requirement": "before-confirmation-recap",
+  "kind": "flow",
+  "expect": "accept",
+  "notes": "Answers collected in chat travel on create after one final recap. No server-side pending booking exists while the platform asks.",
+  "given": {
+    "service": {
+      "id": "svc_cut_45",
+      "type": "appointment",
+      "booking_question_sets": [
+        {
+          "id": "intake",
+          "revision": "r1",
+          "purpose": "intake",
+          "completion_timing": "before_confirmation",
+          "frequency": "every_booking",
+          "items": [
+            {
+              "kind": "question",
+              "id": "hair_notes",
+              "label": {
+                "plain": "Anything the stylist should know?"
+              },
+              "schema": {
+                "type": "string",
+                "maxLength": 500
+              },
+              "required": true
+            },
+            {
+              "kind": "question",
+              "id": "hair_length",
+              "label": {
+                "plain": "Hair length"
+              },
+              "schema": {
+                "type": "string",
+                "oneOf": [
+                  {
+                    "const": "short",
+                    "title": "Short"
+                  },
+                  {
+                    "const": "medium",
+                    "title": "Medium"
+                  },
+                  {
+                    "const": "long",
+                    "title": "Long"
+                  }
+                ]
+              },
+              "required": true
+            }
+          ]
+        }
+      ]
+    },
+    "hold": {
+      "id": "hold_bq_1",
+      "slot_id": "slot_20261028_1000",
+      "service_id": "svc_cut_45",
+      "spots": 1,
+      "expires_at": "2026-10-25T10:10:00Z",
+      "status": "active"
+    }
+  },
+  "when": [
+    {
+      "at": "2026-10-25T09:58:00Z",
+      "step": "platform_asks",
+      "with": {
+        "questions": [
+          "hair_notes",
+          "hair_length"
+        ]
+      }
+    },
+    {
+      "at": "2026-10-25T09:59:30Z",
+      "step": "platform_recap",
+      "with": {
+        "lists": [
+          "hair_notes",
+          "hair_length"
+        ]
+      },
+      "result": {
+        "buyer_confirmed": true
+      }
+    },
+    {
+      "at": "2026-10-25T10:00:00Z",
+      "step": "create_booking",
+      "with": {
+        "hold_id": "hold_bq_1",
+        "buyer": {
+          "first_name": "Dana",
+          "last_name": "Levi",
+          "email": "dana@example.com",
+          "phone_number": "+14155550123"
+        },
+        "booking_question_submissions": [
+          {
+            "set_id": "intake",
+            "revision": "r1",
+            "answers": {
+              "hair_notes": "Fine hair, sensitive scalp",
+              "hair_length": "medium"
+            },
+            "collected_via": {
+              "hair_notes": "conversation",
+              "hair_length": "conversation"
+            }
+          }
+        ]
+      },
+      "result": {
+        "accepted": true,
+        "booking_id": "bkg_bq_1",
+        "booking_status": "confirmed",
+        "messages": []
+      }
+    }
+  ],
+  "then": {
+    "booking_status": "confirmed",
+    "server_side_pending_resources_during_collection": 0,
+    "http_status": 200
+  },
+  "wrong_answers": [
+    {
+      "behaviour": "create a pending booking first and PUT each answer",
+      "violates": "11.4.7 Before confirmation",
+      "why": "Every abandoned chat leaves a pending booking holding capacity."
+    }
+  ]
+}

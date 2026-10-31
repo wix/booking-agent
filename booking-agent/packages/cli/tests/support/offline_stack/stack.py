@@ -81,6 +81,7 @@ class _OfflineHandler(BaseHTTPRequestHandler):
     platform_doc: Dict[str, Any] = {}
     checkout_store: Optional[UcpCheckoutStore] = None
     at_service: bool = False
+    deposit: bool = False
 
     def log_message(self, format: str, *args) -> None:  # noqa: A003
         pass
@@ -126,8 +127,9 @@ class _OfflineHandler(BaseHTTPRequestHandler):
             if not svc:
                 self.send_error(404)
                 return
-            if self.at_service:
-                policies = svc.policies.model_copy(update={"payment_timing": "at_service"})
+            timing = "at_service" if self.at_service else "deposit_required" if self.deposit else None
+            if timing:
+                policies = svc.policies.model_copy(update={"payment_timing": timing})
                 svc = svc.model_copy(update={"policies": policies})
             self._send_json(200, {"service": svc.model_dump(by_alias=True, exclude_none=True)})
             return
@@ -169,8 +171,21 @@ class _OfflineHandler(BaseHTTPRequestHandler):
             if not self.checkout_store:
                 self.send_error(500)
                 return
-            session = self.checkout_store.create_checkout(body)
+            session = self.checkout_store.create_checkout(
+                body, idempotency_key=self.headers.get("Idempotency-Key"),
+            )
             self._send_json(200, session)
+            return
+        if "/checkout-sessions/" in path and path.endswith("/cancel"):
+            self._read_json()
+            if not self.checkout_store:
+                self.send_error(500)
+                return
+            status, payload = self.checkout_store.cancel_checkout(path.rsplit("/", 2)[-2])
+            if payload is None:
+                self.send_error(404)
+                return
+            self._send_json(status, payload)
             return
         if "/checkout-sessions/" in path and path.endswith("/complete"):
             complete_body = self._read_json()
@@ -196,12 +211,15 @@ class OfflineHttpStack:
         *,
         at_service: bool = False,
         pay_at_service: bool = False,
+        deposit: bool = False,
     ) -> None:
         """``at_service`` serves the AC repair service as pay-at-appointment;
         ``pay_at_service`` additionally makes the business declare the extension and
-        answer with an offline-settlement checkout (USP 11.3)."""
+        answer with an offline-settlement checkout (USP 11.3). ``deposit`` serves it as
+        deposit-required and answers with a deposit-now, balance-later term."""
         self._at_service = at_service or pay_at_service
         self._pay_at_service = pay_at_service
+        self._deposit = deposit
         self._requested_port = port
         self.port = port
         self.base_url = ""
@@ -226,6 +244,7 @@ class OfflineHttpStack:
             pay_at_service=self._pay_at_service,
         )
         _OfflineHandler.at_service = self._at_service
+        _OfflineHandler.deposit = self._deposit
         _OfflineHandler.base_url = self.base_url
         _OfflineHandler.usp_base = self.usp_base
         _OfflineHandler.checkout_base = self.checkout_base
@@ -233,6 +252,7 @@ class OfflineHttpStack:
         _OfflineHandler.platform_doc = minimal_platform_profile()
         _OfflineHandler.checkout_store = UcpCheckoutStore(
             profile_doc=profile_doc, pay_at_service=self._pay_at_service,
+            deposit=self._deposit,
         )
         self.checkout_store = _OfflineHandler.checkout_store
 

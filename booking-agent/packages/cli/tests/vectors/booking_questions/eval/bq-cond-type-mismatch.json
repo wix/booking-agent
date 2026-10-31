@@ -1,0 +1,167 @@
+{
+  "id": "bq-cond-type-mismatch",
+  "section": "11.4.3",
+  "requirement": "condition-operator-types",
+  "kind": "eval",
+  "notes": "contains is valid only on multiple-choice answers and ordered comparisons only on numeric, date, time, and date-time answers. A mismatch is a definition error, not a false condition.",
+  "given": {
+    "set": {
+      "id": "t",
+      "revision": "r1",
+      "purpose": "intake",
+      "completion_timing": "before_confirmation",
+      "frequency": "every_booking",
+      "items": [
+        {
+          "kind": "question",
+          "id": "count",
+          "label": {
+            "plain": "How many?"
+          },
+          "schema": {
+            "type": "integer"
+          },
+          "required": true
+        },
+        {
+          "kind": "question",
+          "id": "x",
+          "label": {
+            "plain": "x"
+          },
+          "schema": {
+            "type": "string",
+            "maxLength": 10
+          },
+          "required": false,
+          "when": {
+            "question": "count",
+            "op": "gt",
+            "value": 2
+          }
+        }
+      ]
+    }
+  },
+  "cases": [
+    {
+      "case": "gt on an integer",
+      "answers": {
+        "count": 3
+      },
+      "then": {
+        "definition_valid": true,
+        "applicable": [
+          "count",
+          "x"
+        ]
+      }
+    },
+    {
+      "case": "gt on a text question",
+      "set": {
+        "id": "t",
+        "revision": "r1",
+        "purpose": "intake",
+        "completion_timing": "before_confirmation",
+        "frequency": "every_booking",
+        "items": [
+          {
+            "kind": "question",
+            "id": "name",
+            "label": {
+              "plain": "Name"
+            },
+            "schema": {
+              "type": "string",
+              "maxLength": 50
+            },
+            "required": true
+          },
+          {
+            "kind": "question",
+            "id": "x",
+            "label": {
+              "plain": "x"
+            },
+            "schema": {
+              "type": "string",
+              "maxLength": 10
+            },
+            "required": false,
+            "when": {
+              "question": "name",
+              "op": "gt",
+              "value": "M"
+            }
+          }
+        ]
+      },
+      "then": {
+        "definition_valid": false,
+        "semantic_errors": [
+          "operator_type_mismatch:x"
+        ]
+      }
+    },
+    {
+      "case": "contains on a single choice",
+      "set": {
+        "id": "t",
+        "revision": "r1",
+        "purpose": "intake",
+        "completion_timing": "before_confirmation",
+        "frequency": "every_booking",
+        "items": [
+          {
+            "kind": "question",
+            "id": "color",
+            "label": {
+              "plain": "Color"
+            },
+            "schema": {
+              "type": "string",
+              "oneOf": [
+                {
+                  "const": "red",
+                  "title": "Red"
+                }
+              ]
+            },
+            "required": true
+          },
+          {
+            "kind": "question",
+            "id": "x",
+            "label": {
+              "plain": "x"
+            },
+            "schema": {
+              "type": "string",
+              "maxLength": 10
+            },
+            "required": false,
+            "when": {
+              "question": "color",
+              "op": "contains",
+              "value": "red"
+            }
+          }
+        ]
+      },
+      "then": {
+        "definition_valid": false,
+        "semantic_errors": [
+          "operator_type_mismatch:x"
+        ]
+      }
+    }
+  ],
+  "wrong_answers": [
+    {
+      "behaviour": "evaluate gt on strings lexically",
+      "violates": "11.4.3 Conditions item 4",
+      "why": "\"10\" < \"9\" lexically; the business and platform would disagree on applicability."
+    }
+  ]
+}

@@ -1,0 +1,54 @@
+{
+  "id": "bq-schema-boolean-not-ack",
+  "section": "11.4.3",
+  "requirement": "required-boolean-either-value",
+  "kind": "wire",
+  "binding": [
+    "rest",
+    "mcp"
+  ],
+  "expect": "accept",
+  "schema": "booking_questions.json#/$defs/BookingQuestion",
+  "notes": "required: true on a plain boolean means an answer must be given, not that it must be true. Only schema const: true forces an affirmative answer.",
+  "case": "first visit question",
+  "instance": {
+    "kind": "question",
+    "id": "first_visit",
+    "label": {
+      "plain": "Is this your first visit?"
+    },
+    "schema": {
+      "type": "boolean"
+    },
+    "required": true
+  },
+  "then": {
+    "conforming": true,
+    "schema_valid": true,
+    "member_name_violations": []
+  },
+  "answer_cases": [
+    {
+      "value": true,
+      "valid": true
+    },
+    {
+      "value": false,
+      "valid": true
+    },
+    {
+      "absent": true,
+      "valid": false,
+      "errors": [
+        "required"
+      ]
+    }
+  ],
+  "wrong_answers": [
+    {
+      "behaviour": "treat false as unanswered",
+      "violates": "11.4.3 The meaning of required",
+      "why": "A buyer who truthfully answers no would be asked again forever."
+    }
+  ]
+}

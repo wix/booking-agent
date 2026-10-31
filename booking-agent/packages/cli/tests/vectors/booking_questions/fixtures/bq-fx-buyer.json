@@ -1,0 +1,18 @@
+{
+  "id": "bq-fx-buyer",
+  "kind": "fixture",
+  "schema": "booking.json#/$defs/Buyer",
+  "parameters": {
+    "phone_number": {
+      "optional": true
+    }
+  },
+  "body": {
+    "first_name": "Dana",
+    "last_name": "Levi",
+    "email": "dana@example.com",
+    "phone_number": {
+      "$param": "phone_number"
+    }
+  }
+}

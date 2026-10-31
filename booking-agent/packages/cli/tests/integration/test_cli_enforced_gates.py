@@ -249,9 +249,6 @@ def test_paid_checkout_asks_for_the_policies_with_the_summary_not_again_at_payme
     assert _error_code(r) == "policies_not_accepted"
     assert load_session().booking.id is None
 
-    session = load_session()
-    session.ucp_checkout_links = [{"type": "terms_of_service", "url": "https://shop.test/terms"}]
-    save_session(session)
     r = _invoke(runner, *_BOOK_CONFIRMED, "--policies-accepted")
     assert r.exit_code == 0, r.stdout + r.stderr
     book = _stdout_json(r)
@@ -260,6 +257,24 @@ def test_paid_checkout_asks_for_the_policies_with_the_summary_not_again_at_payme
 
     r = _invoke(runner, *_PAY)
     assert _error_code(r) != "policies_not_accepted"
+
+
+def test_checkout_links_that_change_after_the_summary_ask_again(
+    runner, isolated_session, business_policies,
+):
+    _paid_booking_to_recap(runner)
+    session = load_session()
+    session.ucp_checkout_links = [{"type": "terms_of_service", "url": "https://shop.test/terms"}]
+    save_session(session)
+
+    r = _invoke(runner, *_BOOK_CONFIRMED, "--policies-accepted")
+
+    assert r.exit_code == 1, r.stdout
+    body = _stdout_json(r)
+    assert body["data"]["error"]["code"] == "booking_confirmation_required"
+    assert body["next_command"] == "booking-agent flow buyer resolve"
+    assert load_session().flow_phase == "BUYER_RESOLVED"
+    assert load_session().booking.id is None
 
 
 def test_a_checkout_that_adds_policy_text_asks_again_before_payment(

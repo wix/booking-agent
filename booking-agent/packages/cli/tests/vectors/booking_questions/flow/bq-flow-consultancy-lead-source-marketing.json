@@ -1,0 +1,114 @@
+{
+  "id": "bq-flow-consultancy-lead-source-marketing",
+  "section": "11.4.3",
+  "requirement": "lead-source-and-channel-consent",
+  "kind": "flow",
+  "expect": "accept",
+  "notes": "A consultation asks the lead source and a channel-specific newsletter consent that stays distinct from core buyer.consent.marketing.",
+  "given": {
+    "service": {
+      "id": "svc_consult",
+      "type": "appointment",
+      "booking_question_sets": [
+        {
+          "id": "intake",
+          "revision": "r1",
+          "purpose": "intake",
+          "completion_timing": "before_confirmation",
+          "frequency": "every_booking",
+          "items": [
+            {
+              "kind": "question",
+              "id": "lead_source",
+              "label": {
+                "plain": "How did you find us?"
+              },
+              "schema": {
+                "type": "string",
+                "oneOf": [
+                  {
+                    "const": "podcast",
+                    "title": "A podcast"
+                  },
+                  {
+                    "const": "search",
+                    "title": "Web search"
+                  },
+                  {
+                    "const": "referral",
+                    "title": "A referral"
+                  }
+                ]
+              },
+              "required": true
+            },
+            {
+              "kind": "question",
+              "id": "newsletter",
+              "label": {
+                "plain": "Email me the monthly newsletter"
+              },
+              "schema": {
+                "type": "boolean"
+              },
+              "required": false,
+              "consent_purpose": "marketing",
+              "consent_channel": "email"
+            }
+          ]
+        }
+      ]
+    },
+    "hold": {
+      "id": "hold_bq_1",
+      "slot_id": "slot_20261028_1000",
+      "service_id": "svc_consult",
+      "spots": 1,
+      "expires_at": "2026-10-25T10:10:00Z",
+      "status": "active"
+    }
+  },
+  "when": [
+    {
+      "at": "2026-10-25T10:00:00Z",
+      "step": "create_booking",
+      "with": {
+        "hold_id": "hold_bq_1",
+        "buyer": {
+          "first_name": "Dana",
+          "last_name": "Levi",
+          "email": "dana@example.com",
+          "phone_number": "+14155550123"
+        },
+        "booking_question_submissions": [
+          {
+            "set_id": "intake",
+            "revision": "r1",
+            "answers": {
+              "lead_source": "podcast",
+              "newsletter": true
+            }
+          }
+        ]
+      },
+      "result": {
+        "accepted": true,
+        "booking_id": "bkg_bq_1",
+        "booking_status": "confirmed",
+        "messages": []
+      }
+    }
+  ],
+  "then": {
+    "core_marketing_flag_changed": false,
+    "channel_consent_recorded": "email",
+    "http_status": 200
+  },
+  "wrong_answers": [
+    {
+      "behaviour": "set buyer.consent.marketing true",
+      "violates": "11.4.3 Question Fields",
+      "why": "Email newsletter consent would become consent for text and phone marketing."
+    }
+  ]
+}

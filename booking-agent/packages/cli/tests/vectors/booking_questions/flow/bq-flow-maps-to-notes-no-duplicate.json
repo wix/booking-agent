@@ -1,0 +1,101 @@
+{
+  "id": "bq-flow-maps-to-notes-no-duplicate",
+  "section": "11.4.3",
+  "requirement": "maps-to-notes-asked-once",
+  "kind": "flow",
+  "expect": "accept",
+  "notes": "A maps_to: notes question is the booking's notes surface. The platform asks it once and sends no separate core notes; the business does not merge.",
+  "given": {
+    "service": {
+      "id": "svc_cut_45",
+      "type": "appointment",
+      "booking_question_sets": [
+        {
+          "id": "intake",
+          "revision": "r1",
+          "purpose": "intake",
+          "completion_timing": "before_confirmation",
+          "frequency": "every_booking",
+          "items": [
+            {
+              "kind": "question",
+              "id": "requests",
+              "label": {
+                "plain": "Special requests for your visit"
+              },
+              "schema": {
+                "type": "string",
+                "maxLength": 500
+              },
+              "required": false,
+              "maps_to": "notes"
+            }
+          ]
+        }
+      ]
+    },
+    "hold": {
+      "id": "hold_bq_1",
+      "slot_id": "slot_20261028_1000",
+      "service_id": "svc_cut_45",
+      "spots": 1,
+      "expires_at": "2026-10-25T10:10:00Z",
+      "status": "active"
+    }
+  },
+  "when": [
+    {
+      "at": "2026-10-25T09:59:00Z",
+      "step": "platform_asks",
+      "with": {
+        "questions": [
+          "requests"
+        ]
+      },
+      "result": {
+        "core_notes_requested": false
+      }
+    },
+    {
+      "at": "2026-10-25T10:00:00Z",
+      "step": "create_booking",
+      "with": {
+        "hold_id": "hold_bq_1",
+        "buyer": {
+          "first_name": "Dana",
+          "last_name": "Levi",
+          "email": "dana@example.com",
+          "phone_number": "+14155550123"
+        },
+        "booking_question_submissions": [
+          {
+            "set_id": "intake",
+            "revision": "r1",
+            "answers": {
+              "requests": "Window seat if possible"
+            }
+          }
+        ]
+      },
+      "result": {
+        "accepted": true,
+        "booking_id": "bkg_bq_1",
+        "booking_status": "confirmed",
+        "messages": []
+      }
+    }
+  ],
+  "then": {
+    "booking_status": "confirmed",
+    "core_notes_sent": false,
+    "booking_notes_source": "requests",
+    "http_status": 200
+  },
+  "wrong_answers": [
+    {
+      "behaviour": "ask for notes and the requests question separately",
+      "violates": "11.4.3 maps_to: notes",
+      "why": "The buyer types the same thing twice, or two different things the business must reconcile."
+    }
+  ]
+}

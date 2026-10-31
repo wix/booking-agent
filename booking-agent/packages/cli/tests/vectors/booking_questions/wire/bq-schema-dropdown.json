@@ -1,0 +1,61 @@
+{
+  "id": "bq-schema-dropdown",
+  "section": "11.4.3",
+  "requirement": "dropdown-is-single-choice",
+  "kind": "wire",
+  "binding": [
+    "rest",
+    "mcp"
+  ],
+  "expect": "accept",
+  "schema": "booking_questions.json#/$defs/BookingQuestion",
+  "notes": "A dropdown has the single-choice shape with rendering: dropdown. The hint never changes validation.",
+  "case": "stylist level dropdown",
+  "instance": {
+    "kind": "question",
+    "id": "level",
+    "label": {
+      "plain": "Stylist level"
+    },
+    "schema": {
+      "type": "string",
+      "oneOf": [
+        {
+          "const": "junior",
+          "title": "Junior stylist"
+        },
+        {
+          "const": "senior",
+          "title": "Senior stylist"
+        }
+      ]
+    },
+    "required": true,
+    "rendering": "dropdown"
+  },
+  "then": {
+    "conforming": true,
+    "schema_valid": true,
+    "member_name_violations": []
+  },
+  "answer_cases": [
+    {
+      "value": "senior",
+      "valid": true
+    },
+    {
+      "value": "Senior stylist",
+      "valid": false,
+      "errors": [
+        "option"
+      ]
+    }
+  ],
+  "wrong_answers": [
+    {
+      "behaviour": "submit the visible title instead of const",
+      "violates": "11.4.3 Answer Schema",
+      "why": "Titles are localized; const is the stable identifier."
+    }
+  ]
+}

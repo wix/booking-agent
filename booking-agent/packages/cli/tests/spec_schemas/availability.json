@@ -43,7 +43,8 @@
           "properties": {
             "total": { "type": "integer", "description": "Maximum number of spots." },
             "remaining": { "type": "integer", "description": "Spots still available." },
-            "held": { "type": "integer", "description": "Spots currently in active holds." }
+            "held": { "type": "integer", "description": "Spots currently in active holds." },
+            "waitlist": { "type": "boolean", "description": "Whether waitlist is enabled for this slot when it is full. A slot MUST NOT carry state waitlist unless this is true." }
           }
         },
         "resources": {
@@ -70,7 +71,7 @@
           "type": "object",
           "description": "Slot-specific pricing that overrides service-level pricing. Used for peak/off-peak or demand-based pricing.",
           "properties": {
-            "amount": { "type": "integer" },
+            "amount": { "type": ["integer", "string"], "pattern": "^-?[0-9]+$" },
             "currency": { "type": "string" },
             "label": { "type": "string", "description": "Optional human-readable note (e.g., Peak hour rate)." }
           }

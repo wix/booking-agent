@@ -1,0 +1,120 @@
+{
+  "id": "bq-flow-exclusive-option-rejected",
+  "section": "11.4.3",
+  "requirement": "exclusive-option-enforced",
+  "kind": "flow",
+  "expect": "reject",
+  "outcome_code": "booking_question_answer_invalid",
+  "notes": "The exclusive none option is submitted together with peanuts. The business returns booking_question_answer_invalid for that question.",
+  "given": {
+    "service": {
+      "id": "svc_cut_45",
+      "type": "appointment",
+      "booking_question_sets": [
+        {
+          "id": "intake",
+          "revision": "r1",
+          "purpose": "intake",
+          "completion_timing": "before_confirmation",
+          "frequency": "every_booking",
+          "items": [
+            {
+              "kind": "question",
+              "id": "allergies",
+              "label": {
+                "plain": "Any allergies?"
+              },
+              "schema": {
+                "type": "array",
+                "items": {
+                  "anyOf": [
+                    {
+                      "const": "none",
+                      "title": "None",
+                      "exclusive": true
+                    },
+                    {
+                      "const": "peanuts",
+                      "title": "Peanuts"
+                    }
+                  ]
+                },
+                "uniqueItems": true,
+                "minItems": 1
+              },
+              "required": true
+            }
+          ]
+        }
+      ]
+    },
+    "hold": {
+      "id": "hold_bq_1",
+      "slot_id": "slot_20261028_1000",
+      "service_id": "svc_cut_45",
+      "spots": 1,
+      "expires_at": "2026-10-25T10:10:00Z",
+      "status": "active"
+    }
+  },
+  "when": [
+    {
+      "at": "2026-10-25T10:00:00Z",
+      "step": "create_booking",
+      "with": {
+        "hold_id": "hold_bq_1",
+        "buyer": {
+          "first_name": "Dana",
+          "last_name": "Levi",
+          "email": "dana@example.com",
+          "phone_number": "+14155550123"
+        },
+        "booking_question_submissions": [
+          {
+            "set_id": "intake",
+            "revision": "r1",
+            "answers": {
+              "allergies": [
+                "none",
+                "peanuts"
+              ]
+            }
+          }
+        ]
+      },
+      "result": {
+        "accepted": false,
+        "booking_created": false,
+        "messages": [
+          {
+            "type": "error",
+            "code": "booking_question_answer_invalid",
+            "content": "Choose None on its own, or choose the allergies that apply.",
+            "severity": "recoverable",
+            "path": "$.booking_question_submissions[?@.set_id=='intake'].answers['allergies']"
+          }
+        ]
+      }
+    }
+  ],
+  "then": {
+    "booking_created": false,
+    "hold": {
+      "id": "hold_bq_1",
+      "status": "active",
+      "expires_at": "2026-10-25T10:10:00Z"
+    },
+    "slot_capacity_held": 1,
+    "payment_authorized": false,
+    "actions_created": [],
+    "http_status": 200,
+    "outcome_code": "booking_question_answer_invalid"
+  },
+  "wrong_answers": [
+    {
+      "behaviour": "keep peanuts and drop none",
+      "violates": "11.4.11 business item 4",
+      "why": "The business guesses at a contradictory answer."
+    }
+  ]
+}

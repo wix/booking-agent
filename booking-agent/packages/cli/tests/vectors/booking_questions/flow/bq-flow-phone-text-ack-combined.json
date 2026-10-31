@@ -1,0 +1,261 @@
+{
+  "id": "bq-flow-phone-text-ack-combined",
+  "section": "11.4.9",
+  "requirement": "booking-questions-required-inputs-compose",
+  "kind": "compose",
+  "notes": "A service whose form requires a phone number, a free-text answer, and a tick-to-agree checkbox. The composition proves the three requirements combine: required buyer fields and required answers are both checked at create, rejections accumulate in a defined order without creating anything, and the acknowledgment resolves only through the negotiated buyer-input Action after a successful create. Every expanded case's create messages are also recomputed independently by the checker's reference business validation, so the declared effects cannot drift from Section 11.4.9.",
+  "compose": {
+    "base": {
+      "given": {
+        "service": {
+          "$use": "bq-fx-service-required-inputs",
+          "with": {
+            "required_buyer_fields": [
+              "phone_number"
+            ],
+            "items": [
+              {
+                "$use": "bq-fx-q-text-required",
+                "with": {
+                  "id": "hair_notes",
+                  "label": {
+                    "plain": "Anything the stylist should know?"
+                  }
+                }
+              },
+              {
+                "$use": "bq-fx-q-ack-action",
+                "with": {
+                  "id": "no_show_fee",
+                  "label": {
+                    "plain": "I agree to the no-show fee."
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "hold": {
+          "$use": "bq-fx-hold-active"
+        }
+      },
+      "when": {
+        "steps": [
+          {
+            "stage": "create",
+            "$use": "bq-fx-step-create",
+            "with": {
+              "buyer": {
+                "$use": "bq-fx-buyer",
+                "with": {
+                  "phone_number": "+14155550123"
+                }
+              },
+              "submissions": [
+                {
+                  "set_id": "intake",
+                  "revision": "r1",
+                  "answers": {
+                    "hair_notes": "Fine hair, sensitive scalp"
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    "stages": [
+      {
+        "name": "create",
+        "default": {
+          "status": "requires_action",
+          "actions_outstanding": [
+            "dev.usp-protocol.services.booking_questions.buyer_input"
+          ]
+        }
+      },
+      {
+        "name": "submit_action",
+        "default": {
+          "status": "confirmed",
+          "actions_outstanding": []
+        }
+      }
+    ],
+    "factors": {
+      "phone": {
+        "present": {
+          "effects": []
+        },
+        "absent": {
+          "apply": [
+            {
+              "op": "remove",
+              "path": "/when/steps/0/with/buyer/with/phone_number"
+            }
+          ],
+          "effects": [
+            {
+              "stage": "create",
+              "reject": {
+                "outcome_code": "booking_question_answer_missing",
+                "path": "$.buyer.phone_number"
+              }
+            }
+          ]
+        }
+      },
+      "text": {
+        "answered": {
+          "effects": []
+        },
+        "missing": {
+          "apply": [
+            {
+              "op": "remove",
+              "path": "/when/steps/0/with/submissions/0/answers/hair_notes"
+            }
+          ],
+          "effects": [
+            {
+              "stage": "create",
+              "reject": {
+                "outcome_code": "booking_question_answer_missing",
+                "path": "$.booking_question_submissions[?@.set_id=='intake'].answers['hair_notes']"
+              }
+            }
+          ]
+        }
+      },
+      "ack": {
+        "via_action": {
+          "apply": [
+            {
+              "op": "add",
+              "path": "/when/steps/-",
+              "value": {
+                "stage": "submit_action",
+                "$use": "bq-fx-step-submit-action",
+                "with": {
+                  "answers": {
+                    "no_show_fee": true
+                  },
+                  "collected_via": {
+                    "no_show_fee": "platform_surface"
+                  }
+                }
+              }
+            }
+          ],
+          "effects": [
+            {
+              "stage": "submit_action",
+              "then": {
+                "acceptance_recorded": true
+              }
+            }
+          ]
+        },
+        "bare_flag": {
+          "apply": [
+            {
+              "op": "add",
+              "path": "/when/steps/0/with/submissions/0/answers/no_show_fee",
+              "value": true
+            }
+          ],
+          "effects": [
+            {
+              "stage": "create",
+              "then": {
+                "acceptance_recorded": false
+              }
+            }
+          ]
+        },
+        "absent": {
+          "effects": []
+        }
+      }
+    },
+    "invariants": [
+      "no_booking_resource_when_create_rejected",
+      "hold_expires_at_and_capacity_unchanged_when_create_rejected",
+      "no_payment_authorized_or_captured_before_confirmed",
+      "bare_acknowledgement_never_resolves_action",
+      "messages_never_echo_answer_values"
+    ],
+    "anchors": {
+      "phone=present,text=answered,ack=via_action": {
+        "final_status": "confirmed",
+        "messages": [],
+        "acceptance_recorded": true
+      },
+      "phone=absent,text=answered,ack=via_action": {
+        "final_stage": "create",
+        "rejected": true,
+        "messages": [
+          "$.buyer.phone_number"
+        ],
+        "unreached": [
+          "submit_action"
+        ]
+      },
+      "phone=present,text=missing,ack=via_action": {
+        "final_stage": "create",
+        "rejected": true,
+        "messages": [
+          "$.booking_question_submissions[?@.set_id=='intake'].answers['hair_notes']"
+        ],
+        "unreached": [
+          "submit_action"
+        ]
+      },
+      "phone=present,text=answered,ack=bare_flag": {
+        "final_status": "requires_action",
+        "acceptance_recorded": false,
+        "actions_outstanding": [
+          "dev.usp-protocol.services.booking_questions.buyer_input"
+        ]
+      },
+      "phone=present,text=answered,ack=absent": {
+        "final_status": "requires_action",
+        "actions_outstanding": [
+          "dev.usp-protocol.services.booking_questions.buyer_input"
+        ]
+      },
+      "phone=absent,text=missing,ack=absent": {
+        "final_stage": "create",
+        "rejected": true,
+        "messages": [
+          "$.buyer.phone_number",
+          "$.booking_question_submissions[?@.set_id=='intake'].answers['hair_notes']"
+        ]
+      }
+    },
+    "max_cases": 64
+  },
+  "wrong_answers": [
+    {
+      "behaviour": "treat the bare true in answers as acceptance and confirm",
+      "violates": "11.4.8 Authority",
+      "why": "Confirms on an agent-asserted flag the buyer never gave through the Action surface."
+    },
+    {
+      "behaviour": "stop at the first missing input",
+      "violates": "11.4.9 Order",
+      "why": "The buyer is asked again for each missing field in turn, one round trip each."
+    },
+    {
+      "behaviour": "create a pending booking and request the missing phone later",
+      "violates": "11.4.7 Before confirmation",
+      "why": "Consumes capacity and leaves an unconfirmable booking behind."
+    },
+    {
+      "behaviour": "present the acknowledgment Action before create succeeds",
+      "violates": "11.4.7 Before confirmation",
+      "why": "The buyer agrees to a fee for a booking that is then rejected."
+    }
+  ]
+}

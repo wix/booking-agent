@@ -1,0 +1,133 @@
+{
+  "id": "bq-cond-unanswered-reference",
+  "section": "11.4.3",
+  "requirement": "condition-unanswered",
+  "kind": "eval",
+  "notes": "An unanswered reference makes answered false and every other operation false, so not(answered) is the way to branch on silence.",
+  "given": {
+    "set": {
+      "id": "u",
+      "revision": "r1",
+      "purpose": "intake",
+      "completion_timing": "before_confirmation",
+      "frequency": "every_booking",
+      "items": [
+        {
+          "kind": "question",
+          "id": "pets",
+          "label": {
+            "plain": "Number of pets"
+          },
+          "schema": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "required": false
+        },
+        {
+          "kind": "question",
+          "id": "if_answered",
+          "label": {
+            "plain": "x"
+          },
+          "schema": {
+            "type": "string",
+            "maxLength": 10
+          },
+          "required": false,
+          "when": {
+            "question": "pets",
+            "op": "answered"
+          }
+        },
+        {
+          "kind": "question",
+          "id": "if_zero",
+          "label": {
+            "plain": "x"
+          },
+          "schema": {
+            "type": "string",
+            "maxLength": 10
+          },
+          "required": false,
+          "when": {
+            "question": "pets",
+            "op": "equals",
+            "value": 0
+          }
+        },
+        {
+          "kind": "question",
+          "id": "if_lt",
+          "label": {
+            "plain": "x"
+          },
+          "schema": {
+            "type": "string",
+            "maxLength": 10
+          },
+          "required": false,
+          "when": {
+            "question": "pets",
+            "op": "lt",
+            "value": 5
+          }
+        },
+        {
+          "kind": "question",
+          "id": "if_silent",
+          "label": {
+            "plain": "x"
+          },
+          "schema": {
+            "type": "string",
+            "maxLength": 10
+          },
+          "required": false,
+          "when": {
+            "not": {
+              "question": "pets",
+              "op": "answered"
+            }
+          }
+        }
+      ]
+    }
+  },
+  "cases": [
+    {
+      "case": "pets unanswered",
+      "answers": {},
+      "then": {
+        "definition_valid": true,
+        "applicable": [
+          "pets",
+          "if_silent"
+        ]
+      }
+    },
+    {
+      "case": "pets is 0",
+      "answers": {
+        "pets": 0
+      },
+      "then": {
+        "definition_valid": true,
+        "applicable": [
+          "pets",
+          "if_answered",
+          "if_zero",
+          "if_lt"
+        ]
+      }
+    }
+  ],
+  "wrong_answers": [
+    {
+      "behaviour": "treat unanswered as 0 for lt",
+      "violates": "11.4.3 Conditions item 3",
+      "why": "A buyer who skipped the question would be shown follow-ups about having few pets."
+    }
+  ]
+}

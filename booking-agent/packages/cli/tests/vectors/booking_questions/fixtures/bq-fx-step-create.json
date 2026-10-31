@@ -1,0 +1,30 @@
+{
+  "id": "bq-fx-step-create",
+  "kind": "fixture",
+  "parameters": {
+    "hold_id": {
+      "default": "hold_bq_1"
+    },
+    "buyer": {
+      "required": true
+    },
+    "submissions": {
+      "default": []
+    }
+  },
+  "body": {
+    "at": "2026-10-25T10:00:00Z",
+    "step": "create_booking",
+    "with": {
+      "hold_id": {
+        "$param": "hold_id"
+      },
+      "buyer": {
+        "$param": "buyer"
+      },
+      "booking_question_submissions": {
+        "$param": "submissions"
+      }
+    }
+  }
+}

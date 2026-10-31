@@ -1,0 +1,81 @@
+{
+  "id": "bq-schema-email",
+  "section": "11.4.3",
+  "requirement": "email-answer-addr-spec",
+  "kind": "wire",
+  "binding": [
+    "rest",
+    "mcp"
+  ],
+  "expect": "accept",
+  "schema": "booking_questions.json#/$defs/BookingQuestion",
+  "notes": "format: email accepts a bare address. A display-name form is a mailbox, not an address, and is rejected so the business never parses a name out of an email field.",
+  "case": "email question",
+  "instance": {
+    "kind": "question",
+    "id": "contact_email",
+    "label": {
+      "plain": "Email for your receipt"
+    },
+    "schema": {
+      "type": "string",
+      "format": "email"
+    },
+    "required": true
+  },
+  "then": {
+    "conforming": true,
+    "schema_valid": true,
+    "member_name_violations": []
+  },
+  "answer_cases": [
+    {
+      "value": "ana@example.com",
+      "valid": true
+    },
+    {
+      "value": "A <a@b.c>",
+      "valid": false,
+      "errors": [
+        "format"
+      ]
+    },
+    {
+      "value": "ana@",
+      "valid": false,
+      "errors": [
+        "format"
+      ]
+    }
+  ],
+  "variants": [
+    {
+      "case": "unknown format name",
+      "expect": "reject",
+      "instance": {
+        "kind": "question",
+        "id": "contact_email",
+        "label": {
+          "plain": "Email for your receipt"
+        },
+        "schema": {
+          "type": "string",
+          "format": "e-mail"
+        },
+        "required": true
+      },
+      "then": {
+        "conforming": false,
+        "schema_valid": false,
+        "member_name_violations": []
+      }
+    }
+  ],
+  "wrong_answers": [
+    {
+      "behaviour": "accept \"A <a@b.c>\"",
+      "violates": "11.4.3 Answer Schema",
+      "why": "Different businesses would extract different addresses from the same mailbox string."
+    }
+  ]
+}

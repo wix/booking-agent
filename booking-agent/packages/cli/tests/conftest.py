@@ -174,7 +174,9 @@ def isolated_session(tmp_path, monkeypatch):
         _resolve_ucp_profile,
     )
 
-    async def _create_mock_ucp_checkout(session, service_id, notes, delivery_address=None):
+    async def _create_mock_ucp_checkout(
+        session, service_id, notes, delivery_address=None, *, reuse_checkout_id=None,
+    ):
         from types import SimpleNamespace
         from booking_agent_cli.session import BookingRef
 
@@ -216,6 +218,13 @@ def isolated_session(tmp_path, monkeypatch):
         payment_helpers,
         "_create_booking_via_ucp_checkout",
         _create_mock_ucp_checkout,
+    )
+
+    async def _cancel_mock_ucp_checkout(session):
+        return {"id": session.ucp_checkout_session_id, "status": "canceled"}
+
+    monkeypatch.setattr(
+        payment_helpers, "_cancel_checkout_for_abandonment", _cancel_mock_ucp_checkout,
     )
     MockCalendarService._connected_sessions.clear()
 

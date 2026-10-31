@@ -1,0 +1,109 @@
+{
+  "id": "bq-flow-phone-only-requirement",
+  "section": "11.4.3",
+  "requirement": "international-phone-answers",
+  "kind": "flow",
+  "expect": "accept",
+  "evidence": "international-phone-answers",
+  "notes": "A service whose form makes only the phone number required maps to required_buyer_fields with no booking question at all.",
+  "given": {
+    "service": {
+      "id": "svc_cut_45",
+      "type": "appointment",
+      "required_buyer_fields": [
+        "phone_number"
+      ]
+    },
+    "hold": {
+      "id": "hold_bq_1",
+      "slot_id": "slot_20261028_1000",
+      "service_id": "svc_cut_45",
+      "spots": 1,
+      "expires_at": "2026-10-25T10:10:00Z",
+      "status": "active"
+    }
+  },
+  "when": [
+    {
+      "at": "2026-10-25T10:00:00Z",
+      "step": "create_booking",
+      "with": {
+        "hold_id": "hold_bq_1",
+        "buyer": {
+          "first_name": "Dana",
+          "last_name": "Levi",
+          "email": "dana@example.com",
+          "phone_number": "+14155550123"
+        }
+      },
+      "result": {
+        "accepted": true,
+        "booking_id": "bkg_bq_1",
+        "booking_status": "confirmed",
+        "messages": []
+      }
+    }
+  ],
+  "then": {
+    "published_question_sets": 0,
+    "booking_status": "confirmed",
+    "http_status": 200
+  },
+  "variants": [
+    {
+      "case": "phone missing",
+      "given": {
+        "service": {
+          "id": "svc_cut_45",
+          "type": "appointment",
+          "required_buyer_fields": [
+            "phone_number"
+          ]
+        },
+        "hold": {
+          "id": "hold_bq_1",
+          "slot_id": "slot_20261028_1000",
+          "service_id": "svc_cut_45",
+          "spots": 1,
+          "expires_at": "2026-10-25T10:10:00Z",
+          "status": "active"
+        }
+      },
+      "when": [
+        {
+          "at": "2026-10-25T10:00:00Z",
+          "step": "create_booking",
+          "with": {
+            "hold_id": "hold_bq_1",
+            "buyer": {
+              "first_name": "Dana",
+              "last_name": "Levi",
+              "email": "dana@example.com"
+            }
+          },
+          "result": {
+            "accepted": false,
+            "booking_created": false,
+            "messages": [
+              {
+                "type": "error",
+                "code": "booking_question_answer_missing",
+                "content": "This answer is required.",
+                "severity": "recoverable",
+                "path": "$.buyer.phone_number"
+              }
+            ]
+          }
+        }
+      ],
+      "outcome_code": "booking_question_answer_missing"
+    }
+  ],
+  "wrong_answers": [
+    {
+      "behaviour": "publish a phone booking question",
+      "violates": "11.4.3 Required Buyer Fields",
+      "why": "The buyer's phone number would be asked twice and stored in two places."
+    }
+  ]
+}

@@ -4,7 +4,7 @@ Implements the USP specification's /.well-known/usp profile discovery (Section 7
 Live HTTP discovery only.
 """
 import logging
-from typing import Any, Optional, Dict, List
+from typing import Any, Optional, Dict, List, Union
 from urllib.parse import urlparse
 
 import httpx
@@ -45,6 +45,7 @@ class USPCapabilityEntry(BaseModel):
     version: str
     spec: Optional[str] = None
     schema_url: Optional[str] = Field(None, alias="schema")
+    extends: Optional[Union[str, List[str]]] = None
 
 
 class USPBusinessInfo(BaseModel):

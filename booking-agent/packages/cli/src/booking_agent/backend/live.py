@@ -378,6 +378,7 @@ class LiveUSPBackend(USPBackend):
         start_date: str,
         end_date: str,
         timezone: Optional[str] = None,
+        **booking_questions: Any,
     ) -> AvailabilityResult:
         client = await self._client(profile)
         return await client.query_availability(
@@ -385,6 +386,7 @@ class LiveUSPBackend(USPBackend):
             start_date=start_date,
             end_date=end_date,
             timezone=timezone,
+            **booking_questions,
         )
 
     async def hold_slot(
@@ -393,9 +395,10 @@ class LiveUSPBackend(USPBackend):
         slot_id: str,
         service_id: str,
         spots: int = 1,
+        **booking_questions: Any,
     ) -> Hold:
         client = await self._client(profile)
-        hold = await client.hold_slot(slot_id, service_id, spots)
+        hold = await client.hold_slot(slot_id, service_id, spots, **booking_questions)
         self.last_issued_credential = client.last_issued_credential
         return hold
 
@@ -422,6 +425,7 @@ class LiveUSPBackend(USPBackend):
         notes: Optional[str] = None,
         delivery_address: Optional[Dict[str, Any]] = None,
         idempotency_key: Optional[str] = None,
+        **extensions: Any,
     ) -> Booking:
         client = await self._client(profile)
         booking = await client.create_booking(
@@ -433,11 +437,44 @@ class LiveUSPBackend(USPBackend):
             notes=notes,
             delivery_address=delivery_address,
             idempotency_key=idempotency_key,
+            **extensions,
         )
         # The only point at which a credential is issued.  The caller that owns
         # session state persists it against (endpoint, booking id).
         self.last_issued_credential = client.last_issued_credential
         return booking
+
+    async def check_eligibility(
+        self,
+        profile: USPBusinessProfile,
+        service_id: str,
+        *,
+        buyer: Optional[Dict[str, Any]] = None,
+        recipient: Optional[Dict[str, Any]] = None,
+        submissions: Optional[List[Dict[str, Any]]] = None,
+    ):
+        client = await self._client(profile)
+        return await client.check_eligibility(
+            service_id, buyer=buyer, recipient=recipient, submissions=submissions,
+        )
+
+    async def update_booking(
+        self,
+        profile: USPBusinessProfile,
+        booking_id: str,
+        *,
+        credential: Optional[BookingScopedCredential] = None,
+        credential_endpoint: Optional[str] = None,
+        if_match: Optional[str] = None,
+        **changes: Any,
+    ) -> Booking:
+        client = await self._client(
+            profile,
+            pop_key_endpoint=credential_endpoint if credential is not None else None,
+        )
+        return await client.update_booking(
+            booking_id, credential=credential, if_match=if_match, **changes,
+        )
 
     async def get_booking(
         self,

@@ -1,0 +1,156 @@
+{
+  "id": "bq-flow-ucp-order-echo-persists",
+  "section": "11.4.6",
+  "requirement": "ucp-echo-persists",
+  "kind": "flow",
+  "expect": "accept",
+  "notes": "After a paid UCP-Native checkout completes, the non-sensitive booking_question_state echo appears on the created Booking and on the booking-confirmation webhook.",
+  "given": {
+    "service": {
+      "id": "svc_cut_45",
+      "type": "appointment",
+      "booking_question_sets": [
+        {
+          "id": "intake",
+          "revision": "r1",
+          "purpose": "intake",
+          "completion_timing": "before_confirmation",
+          "frequency": "every_booking",
+          "items": [
+            {
+              "kind": "question",
+              "id": "hair_length",
+              "label": {
+                "plain": "Hair length"
+              },
+              "schema": {
+                "type": "string",
+                "oneOf": [
+                  {
+                    "const": "short",
+                    "title": "Short"
+                  },
+                  {
+                    "const": "medium",
+                    "title": "Medium"
+                  },
+                  {
+                    "const": "long",
+                    "title": "Long"
+                  }
+                ]
+              },
+              "required": true
+            },
+            {
+              "kind": "question",
+              "id": "scalp",
+              "label": {
+                "plain": "Scalp conditions"
+              },
+              "schema": {
+                "type": "string",
+                "maxLength": 300
+              },
+              "required": true,
+              "sensitive": true
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "when": [
+    {
+      "at": "2026-10-25T10:00:00Z",
+      "step": "create_checkout",
+      "with": {
+        "booking": {
+          "service_id": "svc_cut_45",
+          "slot": {
+            "id": "slot_20261028_1000"
+          },
+          "booking_question_submissions": [
+            {
+              "set_id": "intake",
+              "revision": "r1",
+              "answers": {
+                "hair_length": "medium",
+                "scalp": "Psoriasis flare"
+              }
+            }
+          ]
+        }
+      },
+      "result": {
+        "checkout_status": "ready_for_complete",
+        "messages": []
+      }
+    },
+    {
+      "at": "2026-10-25T10:01:30Z",
+      "step": "complete_checkout",
+      "with": {
+        "payment_token": "tok_test_001"
+      },
+      "actor": "buyer_in_trusted_ui",
+      "result": {
+        "checkout_status": "completed",
+        "booking_id": "bkg_bq_1"
+      }
+    },
+    {
+      "at": "2026-10-25T10:01:31Z",
+      "step": "read_booking",
+      "with": {
+        "booking_id": "bkg_bq_1"
+      },
+      "result": {
+        "booking_question_state": [
+          {
+            "set_id": "intake",
+            "revision": "r1",
+            "status": "completed",
+            "completion_timing": "before_confirmation",
+            "answers": {
+              "hair_length": "medium"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "at": "2026-10-25T10:01:32Z",
+      "step": "webhook",
+      "with": {
+        "event": "booking.confirmed"
+      },
+      "result": {
+        "booking_question_state": [
+          {
+            "set_id": "intake",
+            "revision": "r1",
+            "status": "completed",
+            "completion_timing": "before_confirmation",
+            "answers": {
+              "hair_length": "medium"
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "then": {
+    "echo_on_booking": true,
+    "echo_on_webhook": true,
+    "sensitive_echoed": false,
+    "http_status": 200
+  },
+  "wrong_answers": [
+    {
+      "behaviour": "drop the echo when the checkout is archived",
+      "violates": "11.4.6 The echo survives checkout",
+      "why": "The platform loses the record of what the buyer answered."
+    }
+  ]
+}

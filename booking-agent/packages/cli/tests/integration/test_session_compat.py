@@ -91,6 +91,31 @@ def test_a_v1_store_still_migrates(store_file):
     assert [s.user_request for s in store.sessions] == ["massage"]
 
 
+def test_an_older_summary_session_loads_as_not_yet_prepared(store_file):
+    _write(store_file, _store_doc(flow_phase="BUYER_RESOLVED", ucp_checkout_session_id=None))
+    session = sess.load_store().sessions[0]
+    assert session.flow_phase == "BUYER_RESOLVED"
+    assert session.prepared_checkout_fingerprint is None
+    assert not sess.has_open_prepared_checkout(session)
+    assert session.recipient is None and session.recipient_pending is None
+    assert session.booking_questions == {}
+
+
+def test_an_older_payment_session_keeps_its_open_checkout(store_file):
+    from booking_agent_cli.commands.flow import _checkout_needs_abandonment
+
+    _write(store_file, _store_doc(
+        flow_phase="PAYMENT_PENDING", ucp_checkout_session_id="chk_old",
+        payment={"status": "pending"},
+    ))
+    session = sess.load_store().sessions[0]
+    assert session.ucp_checkout_session_id == "chk_old"
+    assert not sess.has_open_prepared_checkout(session)
+    assert _checkout_needs_abandonment(session)
+    sess.save_store(sess.load_store())
+    assert json.loads(store_file.read_text())["sessions"][0]["ucp_checkout_session_id"] == "chk_old"
+
+
 def test_the_support_report_projection_drops_unknown_keys(store_file):
     _write(store_file, _store_doc(future_secret="tok_live_123", payment={"future_card": "4242"}))
     session = sess.load_store().sessions[0]

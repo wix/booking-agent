@@ -43,9 +43,9 @@ def home_visit(isolated_session, monkeypatch):
     captured = {}
     create = payment_helpers._create_booking_via_ucp_checkout
 
-    async def capture(session, service_id, notes, delivery_address=None):
+    async def capture(session, service_id, notes, delivery_address=None, **kwargs):
         captured.update(notes=notes, delivery_address=delivery_address)
-        return await create(session, service_id, notes, delivery_address=delivery_address)
+        return await create(session, service_id, notes, delivery_address=delivery_address, **kwargs)
 
     monkeypatch.setattr(payment_helpers, "_create_booking_via_ucp_checkout", capture)
     return captured
@@ -113,6 +113,7 @@ def test_book_refuses_a_home_visit_without_a_confirmed_address(runner, home_visi
     session = must_load()
     session.service_address = None
     save_session(session)
+    home_visit.clear()
 
     r = _invoke(runner, "flow", "book", "--user-confirmed", "--policies-accepted")
     assert r.exit_code == 1

@@ -1,0 +1,108 @@
+{
+  "id": "bq-flow-pattern-description-echoed",
+  "section": "11.4.3",
+  "requirement": "format-described-and-echoed",
+  "kind": "flow",
+  "expect": "reject",
+  "outcome_code": "booking_question_answer_invalid",
+  "notes": "A membership-number format cannot be expressed in the subset, so it is described in plain text. The business's invalid-answer message restates that format. The rejection is business policy beyond the schema, so it is marked policy and not derived.",
+  "given": {
+    "service": {
+      "id": "svc_cut_45",
+      "type": "appointment",
+      "booking_question_sets": [
+        {
+          "id": "intake",
+          "revision": "r1",
+          "purpose": "intake",
+          "completion_timing": "before_confirmation",
+          "frequency": "every_booking",
+          "items": [
+            {
+              "kind": "question",
+              "id": "member_no",
+              "label": {
+                "plain": "Membership number"
+              },
+              "schema": {
+                "type": "string",
+                "maxLength": 8
+              },
+              "required": true,
+              "description": {
+                "plain": "Two capital letters followed by six digits, for example AB123456."
+              }
+            }
+          ]
+        }
+      ]
+    },
+    "hold": {
+      "id": "hold_bq_1",
+      "slot_id": "slot_20261028_1000",
+      "service_id": "svc_cut_45",
+      "spots": 1,
+      "expires_at": "2026-10-25T10:10:00Z",
+      "status": "active"
+    }
+  },
+  "when": [
+    {
+      "at": "2026-10-25T10:00:00Z",
+      "step": "create_booking",
+      "with": {
+        "hold_id": "hold_bq_1",
+        "buyer": {
+          "first_name": "Dana",
+          "last_name": "Levi",
+          "email": "dana@example.com",
+          "phone_number": "+14155550123"
+        },
+        "booking_question_submissions": [
+          {
+            "set_id": "intake",
+            "revision": "r1",
+            "answers": {
+              "member_no": "12345678"
+            }
+          }
+        ]
+      },
+      "result": {
+        "accepted": false,
+        "booking_created": false,
+        "messages": [
+          {
+            "type": "error",
+            "code": "booking_question_answer_invalid",
+            "content": "Use two capital letters followed by six digits, for example AB123456.",
+            "severity": "recoverable",
+            "path": "$.booking_question_submissions[?@.set_id=='intake'].answers['member_no']",
+            "policy": true
+          }
+        ]
+      }
+    }
+  ],
+  "then": {
+    "booking_created": false,
+    "hold": {
+      "id": "hold_bq_1",
+      "status": "active",
+      "expires_at": "2026-10-25T10:10:00Z"
+    },
+    "slot_capacity_held": 1,
+    "payment_authorized": false,
+    "actions_created": [],
+    "http_status": 200,
+    "outcome_code": "booking_question_answer_invalid",
+    "message_restates_format": true
+  },
+  "wrong_answers": [
+    {
+      "behaviour": "reply only \"invalid value\"",
+      "violates": "11.4.3 Formats the schema cannot express",
+      "why": "The buyer cannot correct an answer whose rule they were never shown."
+    }
+  ]
+}

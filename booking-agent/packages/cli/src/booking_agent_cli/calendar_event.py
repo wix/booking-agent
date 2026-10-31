@@ -388,8 +388,14 @@ def _event_description(session: Session) -> str:
     service_name = _service_display_name(session)
     if service_name:
         details.append(f"Service: {service_name}")
+    from . import booking_questions_flow as bq_flow
+    from .booking_summary import recipient_name
+
     buyer_name = (session.buyer.name or "").strip()
-    if buyer_name:
+    recipient = recipient_name(session)
+    if recipient:
+        details.append(f"For: {recipient}. Booked by: {buyer_name}" if buyer_name else f"For: {recipient}")
+    elif buyer_name:
         details.append(f"Booked for: {buyer_name}")
     where = _where_line(session)
     if where:
@@ -397,6 +403,9 @@ def _event_description(session: Session) -> str:
     note = (session.booking_notes or "").strip()
     if note:
         details.append(f"Your note to the business: {note}")
+    answer_lines = bq_flow.calendar_lines(session)
+    if answer_lines:
+        details.append("Your answers:\n" + "\n".join(answer_lines))
     payment = _payment_line(session)
     if payment:
         details.append(payment)

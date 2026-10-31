@@ -1,0 +1,112 @@
+{
+  "id": "bq-schema-configuration-purpose",
+  "section": "11.4.3",
+  "requirement": "configuration-preflight-only",
+  "kind": "wire",
+  "binding": [
+    "rest",
+    "mcp"
+  ],
+  "expect": "accept",
+  "schema": "booking_questions.json#/$defs/BookingQuestionSet",
+  "notes": "configuration is valid only with completion_timing preflight, and preflight only with eligibility or configuration.",
+  "case": "configuration at preflight",
+  "instance": {
+    "id": "size",
+    "revision": "r1",
+    "purpose": "configuration",
+    "completion_timing": "preflight",
+    "frequency": "every_booking",
+    "items": [
+      {
+        "kind": "question",
+        "id": "sq_ft",
+        "label": {
+          "plain": "Home size in square feet"
+        },
+        "schema": {
+          "type": "integer",
+          "minimum": 100,
+          "maximum": 10000
+        },
+        "required": true
+      }
+    ]
+  },
+  "then": {
+    "conforming": true,
+    "schema_valid": true,
+    "member_name_violations": []
+  },
+  "variants": [
+    {
+      "case": "configuration before confirmation",
+      "expect": "reject",
+      "instance": {
+        "id": "size",
+        "revision": "r1",
+        "purpose": "configuration",
+        "completion_timing": "before_confirmation",
+        "frequency": "every_booking",
+        "items": [
+          {
+            "kind": "question",
+            "id": "sq_ft",
+            "label": {
+              "plain": "Home size in square feet"
+            },
+            "schema": {
+              "type": "integer",
+              "minimum": 100,
+              "maximum": 10000
+            },
+            "required": true
+          }
+        ]
+      },
+      "then": {
+        "conforming": false,
+        "schema_valid": false,
+        "member_name_violations": []
+      }
+    },
+    {
+      "case": "intake at preflight",
+      "expect": "reject",
+      "instance": {
+        "id": "size",
+        "revision": "r1",
+        "purpose": "intake",
+        "completion_timing": "preflight",
+        "frequency": "every_booking",
+        "items": [
+          {
+            "kind": "question",
+            "id": "sq_ft",
+            "label": {
+              "plain": "Home size in square feet"
+            },
+            "schema": {
+              "type": "integer",
+              "minimum": 100,
+              "maximum": 10000
+            },
+            "required": true
+          }
+        ]
+      },
+      "then": {
+        "conforming": false,
+        "schema_valid": false,
+        "member_name_violations": []
+      }
+    }
+  ],
+  "wrong_answers": [
+    {
+      "behaviour": "collect configuration after the slot is chosen",
+      "violates": "11.4.3 Configuration Sets",
+      "why": "The slot duration was already fixed, so the answer cannot change it."
+    }
+  ]
+}

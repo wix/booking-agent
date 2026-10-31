@@ -1,0 +1,120 @@
+{
+  "id": "bq-schema-tags",
+  "section": "11.4.3",
+  "requirement": "tags-empty-only-when-optional",
+  "kind": "wire",
+  "binding": [
+    "rest",
+    "mcp"
+  ],
+  "expect": "accept",
+  "schema": "booking_questions.json#/$defs/BookingQuestion",
+  "notes": "Tags are multi-choice with no maximum. An empty array is a valid answer to an optional question; a required tags question declares minItems: 1.",
+  "case": "optional interests",
+  "instance": {
+    "kind": "question",
+    "id": "interests",
+    "label": {
+      "plain": "Topics you are interested in"
+    },
+    "schema": {
+      "type": "array",
+      "items": {
+        "anyOf": [
+          {
+            "const": "color",
+            "title": "Color"
+          },
+          {
+            "const": "care",
+            "title": "Hair care"
+          },
+          {
+            "const": "styling",
+            "title": "Styling"
+          }
+        ]
+      },
+      "uniqueItems": true
+    },
+    "required": false,
+    "rendering": "tags"
+  },
+  "then": {
+    "conforming": true,
+    "schema_valid": true,
+    "member_name_violations": []
+  },
+  "answer_cases": [
+    {
+      "value": [],
+      "valid": true
+    },
+    {
+      "value": [
+        "color",
+        "styling"
+      ],
+      "valid": true
+    }
+  ],
+  "variants": [
+    {
+      "case": "required interests",
+      "expect": "accept",
+      "instance": {
+        "kind": "question",
+        "id": "interests",
+        "label": {
+          "plain": "Topics you are interested in"
+        },
+        "schema": {
+          "type": "array",
+          "items": {
+            "anyOf": [
+              {
+                "const": "color",
+                "title": "Color"
+              },
+              {
+                "const": "care",
+                "title": "Hair care"
+              }
+            ]
+          },
+          "uniqueItems": true,
+          "minItems": 1
+        },
+        "required": true,
+        "rendering": "tags"
+      },
+      "then": {
+        "conforming": true,
+        "schema_valid": true,
+        "member_name_violations": []
+      },
+      "answer_cases": [
+        {
+          "value": [],
+          "valid": false,
+          "errors": [
+            "min_items"
+          ]
+        },
+        {
+          "value": [
+            "care"
+          ],
+          "valid": true
+        }
+      ]
+    }
+  ],
+  "wrong_answers": [
+    {
+      "behaviour": "treat [] as answered for a required question",
+      "violates": "11.4.3 Answer Schema",
+      "why": "A required tags question without minItems would be satisfied by selecting nothing."
+    }
+  ]
+}

@@ -106,7 +106,7 @@ def _redact_json_value(value: Any, *, in_buyer: bool = False) -> Any:
             key_n = key_l.replace("_", "").replace("-", "")
             if key_l in _REDACT_BODY_KEYS or "credential" in key_l or key_l.endswith("_token"):
                 out[key] = "<redacted>"
-            elif key_n.endswith("address"):
+            elif key_n.endswith("address") or key_l == "answers":
                 out[key] = _redact_all_leaves(item)
             elif key_n in _ADDRESS_LEAF_KEYS or (in_buyer and key_n in _BUYER_ADDRESS_KEYS):
                 out[key] = _redact_all_leaves(item)
@@ -114,7 +114,7 @@ def _redact_json_value(value: Any, *, in_buyer: bool = False) -> Any:
                 out[key] = _redact_json_value(item)
             elif key_l == "instruments" and isinstance(item, list):
                 out[key] = [_redact_json_value(i) for i in item]
-            elif key_l == "buyer" and isinstance(item, dict):
+            elif key_l in ("buyer", "recipient") and isinstance(item, dict):
                 out[key] = _redact_json_value(item, in_buyer=True)
             else:
                 out[key] = _redact_json_value(item, in_buyer=in_buyer)

@@ -1,0 +1,94 @@
+{
+  "id": "bq-flow-before-confirmation-external-task",
+  "section": "11.4.7",
+  "requirement": "before-confirmation-handoff",
+  "kind": "flow",
+  "expect": "accept",
+  "notes": "A signature cannot be collected in band. Create returns requires_action with a session-specific continue_url; the business observes the signature and confirms.",
+  "given": {
+    "service": {
+      "id": "svc_cut_45",
+      "type": "appointment",
+      "booking_question_sets": [
+        {
+          "id": "waiver",
+          "revision": "r1",
+          "purpose": "intake",
+          "completion_timing": "before_confirmation",
+          "frequency": "every_booking",
+          "items": [
+            {
+              "kind": "external_task",
+              "id": "waiver_sig",
+              "label": {
+                "plain": "Sign the treatment waiver"
+              },
+              "task_type": "signature",
+              "required": true,
+              "collection": "business_surface"
+            }
+          ]
+        }
+      ]
+    },
+    "hold": {
+      "id": "hold_bq_1",
+      "slot_id": "slot_20261028_1000",
+      "service_id": "svc_cut_45",
+      "spots": 1,
+      "expires_at": "2026-10-25T10:10:00Z",
+      "status": "active"
+    }
+  },
+  "when": [
+    {
+      "at": "2026-10-25T10:00:00Z",
+      "step": "create_booking",
+      "with": {
+        "hold_id": "hold_bq_1",
+        "buyer": {
+          "first_name": "Dana",
+          "last_name": "Levi",
+          "email": "dana@example.com",
+          "phone_number": "+14155550123"
+        },
+        "booking_question_submissions": []
+      },
+      "result": {
+        "accepted": true,
+        "booking_status": "requires_action",
+        "actions": [
+          {
+            "type": "waiver",
+            "status": "pending",
+            "continue_url": "https://studio.example.com/forms/sess_42",
+            "expires_at": "2026-10-25T10:30:00Z"
+          }
+        ],
+        "messages": []
+      }
+    },
+    {
+      "at": "2026-10-25T10:05:00Z",
+      "step": "business_observes",
+      "with": {
+        "task": "waiver_sig"
+      },
+      "result": {
+        "booking_status": "confirmed"
+      }
+    }
+  ],
+  "then": {
+    "booking_status": "confirmed",
+    "payment_blocked_until_resolved": true,
+    "http_status": 200
+  },
+  "wrong_answers": [
+    {
+      "behaviour": "ask the buyer to type their name as a signature",
+      "violates": "11.4.11 business item 9",
+      "why": "A signature disguised as free text is not the signature the business requires."
+    }
+  ]
+}

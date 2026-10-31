@@ -1,0 +1,72 @@
+{
+  "id": "bq-schema-rich-label-checkbox",
+  "section": "11.4.3",
+  "requirement": "rich-label-policy-link",
+  "kind": "wire",
+  "binding": [
+    "rest",
+    "mcp"
+  ],
+  "expect": "accept",
+  "schema": "booking_questions.json#/$defs/BookingQuestion",
+  "notes": "An acknowledgment label can carry markdown with a policy link; label.plain renders the same text with the URL in parentheses for plain-text surfaces.",
+  "case": "policy link in a checkbox label",
+  "instance": {
+    "kind": "question",
+    "id": "policy",
+    "label": {
+      "plain": "I agree to the studio policy (https://studio.example.com/policy).",
+      "markdown": "I agree to the [studio policy](https://studio.example.com/policy)."
+    },
+    "schema": {
+      "type": "boolean",
+      "const": true
+    },
+    "required": true,
+    "rendering": "checkbox",
+    "collection": "platform_surface"
+  },
+  "then": {
+    "conforming": true,
+    "schema_valid": true,
+    "member_name_violations": []
+  },
+  "answer_cases": [
+    {
+      "value": true,
+      "valid": true
+    }
+  ],
+  "variants": [
+    {
+      "case": "markdown without plain",
+      "expect": "reject",
+      "instance": {
+        "kind": "question",
+        "id": "policy",
+        "label": {
+          "markdown": "I agree to the [studio policy](https://studio.example.com/policy)."
+        },
+        "schema": {
+          "type": "boolean",
+          "const": true
+        },
+        "required": true,
+        "rendering": "checkbox",
+        "collection": "platform_surface"
+      },
+      "then": {
+        "conforming": false,
+        "schema_valid": false,
+        "member_name_violations": []
+      }
+    }
+  ],
+  "wrong_answers": [
+    {
+      "behaviour": "drop the URL from the plain rendering",
+      "violates": "11.4.3 Question Fields",
+      "why": "A plain-text surface would ask the buyer to agree to a policy they cannot open."
+    }
+  ]
+}

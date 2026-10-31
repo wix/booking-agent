@@ -1,0 +1,158 @@
+{
+  "id": "bq-flow-tattoo-consent-policy-link",
+  "section": "11.4.3",
+  "requirement": "rich-label-policy-link",
+  "kind": "flow",
+  "expect": "accept",
+  "notes": "An 18-or-over acknowledgment whose markdown label links the policy, plus a design upload. The acknowledgment is a buyer-input Action; the upload is a business-surface handoff.",
+  "given": {
+    "service": {
+      "id": "svc_tattoo",
+      "type": "appointment",
+      "booking_question_sets": [
+        {
+          "id": "intake",
+          "revision": "r1",
+          "purpose": "intake",
+          "completion_timing": "before_confirmation",
+          "frequency": "every_booking",
+          "items": [
+            {
+              "kind": "question",
+              "id": "adult_ack",
+              "label": {
+                "plain": "I confirm I am 18 or older and agree to the studio policy (https://ink.example.com/policy).",
+                "markdown": "I confirm I am 18 or older and agree to the [studio policy](https://ink.example.com/policy)."
+              },
+              "schema": {
+                "type": "boolean",
+                "const": true
+              },
+              "required": true,
+              "rendering": "checkbox",
+              "collection": "platform_surface"
+            },
+            {
+              "kind": "external_task",
+              "id": "design",
+              "label": {
+                "plain": "Upload your design"
+              },
+              "task_type": "file",
+              "required": true,
+              "collection": "business_surface"
+            }
+          ]
+        }
+      ]
+    },
+    "hold": {
+      "id": "hold_bq_1",
+      "slot_id": "slot_20261028_1000",
+      "service_id": "svc_tattoo",
+      "spots": 1,
+      "expires_at": "2026-10-25T10:10:00Z",
+      "status": "active"
+    }
+  },
+  "when": [
+    {
+      "at": "2026-10-25T10:00:00Z",
+      "step": "create_booking",
+      "with": {
+        "hold_id": "hold_bq_1",
+        "buyer": {
+          "first_name": "Dana",
+          "last_name": "Levi",
+          "email": "dana@example.com",
+          "phone_number": "+14155550123"
+        },
+        "booking_question_submissions": []
+      },
+      "result": {
+        "accepted": true,
+        "booking_id": "bkg_bq_4",
+        "booking_status": "requires_action",
+        "messages": [],
+        "actions": [
+          {
+            "type": "dev.usp-protocol.services.booking_questions.buyer_input",
+            "id": "act_bq_7",
+            "status": "pending",
+            "config": {
+              "mode": "acknowledge",
+              "sets": [
+                {
+                  "set_id": "intake",
+                  "revision": "r1"
+                }
+              ],
+              "item_ids": [
+                "adult_ack"
+              ],
+              "presentation": "verbatim"
+            }
+          },
+          {
+            "type": "file_upload",
+            "status": "pending",
+            "continue_url": "https://ink.example.com/forms/sess_47"
+          }
+        ]
+      }
+    },
+    {
+      "at": "2026-10-25T10:00:10Z",
+      "step": "platform_renders",
+      "with": {
+        "action_id": "act_bq_7"
+      },
+      "result": {
+        "policy_link_shown": true,
+        "preselected": false
+      }
+    },
+    {
+      "at": "2026-10-25T10:00:30Z",
+      "step": "update_booking",
+      "with": {
+        "booking_id": "bkg_bq_1",
+        "booking_question_submissions": [
+          {
+            "set_id": "intake",
+            "revision": "r1",
+            "answers": {
+              "adult_ack": true
+            },
+            "action_id": "act_bq_7"
+          }
+        ]
+      },
+      "booking_status": "requires_action",
+      "result": {
+        "accepted": true,
+        "booking_status": "requires_action",
+        "messages": [],
+        "actions": [
+          {
+            "type": "file_upload",
+            "status": "pending",
+            "continue_url": "https://ink.example.com/forms/sess_47"
+          }
+        ]
+      }
+    }
+  ],
+  "then": {
+    "ack_resolved": true,
+    "upload_outstanding": true,
+    "http_status": 200
+  },
+  "wrong_answers": [
+    {
+      "behaviour": "drop the link from a plain-text rendering",
+      "violates": "11.4.3 Question Fields",
+      "why": "The buyer agrees to a policy they cannot read."
+    }
+  ]
+}

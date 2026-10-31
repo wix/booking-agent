@@ -1,0 +1,168 @@
+{
+  "id": "bq-schema-required-buyer-fields",
+  "section": "11.4.3",
+  "requirement": "required-buyer-fields",
+  "kind": "wire",
+  "binding": [
+    "rest",
+    "mcp"
+  ],
+  "expect": "accept",
+  "schema": "catalog.json#/$defs/Service",
+  "notes": "required_buyer_fields names core Buyer members a service needs. It is a service-level member, valid with no question sets, and never appears inside a set.",
+  "case": "phone required, no sets",
+  "instance": {
+    "id": "svc_cut_45",
+    "business_id": "biz_downtown_studio",
+    "name": "Haircut - 45 min",
+    "type": "appointment",
+    "duration": {
+      "fixed": "PT45M"
+    },
+    "pricing": {
+      "model": "fixed",
+      "amount": 6500,
+      "currency": "USD"
+    },
+    "channel": {
+      "type": "at_business_location"
+    },
+    "policies": {
+      "cancellation": {
+        "allowed": true,
+        "free_cancellation_until": "PT24H"
+      },
+      "rescheduling": {
+        "allowed": true,
+        "free_reschedule_until": "PT24H"
+      },
+      "confirmation_mode": "auto",
+      "requires_payment": true,
+      "payment_timing": "at_service"
+    },
+    "required_buyer_fields": [
+      "phone_number"
+    ]
+  },
+  "then": {
+    "conforming": true,
+    "schema_valid": true,
+    "member_name_violations": []
+  },
+  "variants": [
+    {
+      "case": "inside a set",
+      "expect": "reject",
+      "instance": {
+        "id": "svc_cut_45",
+        "business_id": "biz_downtown_studio",
+        "name": "Haircut - 45 min",
+        "type": "appointment",
+        "duration": {
+          "fixed": "PT45M"
+        },
+        "pricing": {
+          "model": "fixed",
+          "amount": 6500,
+          "currency": "USD"
+        },
+        "channel": {
+          "type": "at_business_location"
+        },
+        "policies": {
+          "cancellation": {
+            "allowed": true,
+            "free_cancellation_until": "PT24H"
+          },
+          "rescheduling": {
+            "allowed": true,
+            "free_reschedule_until": "PT24H"
+          },
+          "confirmation_mode": "auto",
+          "requires_payment": true,
+          "payment_timing": "at_service"
+        },
+        "booking_question_sets": [
+          {
+            "id": "intake",
+            "revision": "r1",
+            "purpose": "intake",
+            "completion_timing": "before_confirmation",
+            "frequency": "every_booking",
+            "items": [
+              {
+                "kind": "question",
+                "id": "notes",
+                "label": {
+                  "plain": "Notes"
+                },
+                "schema": {
+                  "type": "string",
+                  "maxLength": 200
+                },
+                "required": false
+              }
+            ],
+            "required_buyer_fields": [
+              "phone_number"
+            ]
+          }
+        ]
+      },
+      "then": {
+        "conforming": false,
+        "schema_valid": false,
+        "member_name_violations": []
+      }
+    },
+    {
+      "case": "not a core Buyer member",
+      "expect": "reject",
+      "instance": {
+        "id": "svc_cut_45",
+        "business_id": "biz_downtown_studio",
+        "name": "Haircut - 45 min",
+        "type": "appointment",
+        "duration": {
+          "fixed": "PT45M"
+        },
+        "pricing": {
+          "model": "fixed",
+          "amount": 6500,
+          "currency": "USD"
+        },
+        "channel": {
+          "type": "at_business_location"
+        },
+        "policies": {
+          "cancellation": {
+            "allowed": true,
+            "free_cancellation_until": "PT24H"
+          },
+          "rescheduling": {
+            "allowed": true,
+            "free_reschedule_until": "PT24H"
+          },
+          "confirmation_mode": "auto",
+          "requires_payment": true,
+          "payment_timing": "at_service"
+        },
+        "required_buyer_fields": [
+          "phone"
+        ]
+      },
+      "then": {
+        "conforming": false,
+        "schema_valid": false,
+        "member_name_violations": []
+      }
+    }
+  ],
+  "wrong_answers": [
+    {
+      "behaviour": "model the phone number as a booking question",
+      "violates": "11.4.3 Required Buyer Fields",
+      "why": "The buyer is asked twice and the business receives two numbers that may differ."
+    }
+  ]
+}

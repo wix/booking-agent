@@ -1,0 +1,150 @@
+{
+  "id": "bq-schema-multi-choice",
+  "section": "11.4.3",
+  "requirement": "multi-choice-items-anyof",
+  "kind": "wire",
+  "binding": [
+    "rest",
+    "mcp"
+  ],
+  "expect": "accept",
+  "schema": "booking_questions.json#/$defs/BookingQuestion",
+  "notes": "Multiple choice is items.anyOf of {const, title} options with uniqueItems true, so every option keeps its title. A bare enum of identifiers is not conforming.",
+  "case": "up to two add-ons",
+  "instance": {
+    "kind": "question",
+    "id": "add_ons",
+    "label": {
+      "plain": "Add-ons"
+    },
+    "schema": {
+      "type": "array",
+      "items": {
+        "anyOf": [
+          {
+            "const": "scalp",
+            "title": "Scalp massage"
+          },
+          {
+            "const": "gloss",
+            "title": "Gloss"
+          },
+          {
+            "const": "trim",
+            "title": "Fringe trim"
+          }
+        ]
+      },
+      "uniqueItems": true,
+      "minItems": 1,
+      "maxItems": 2
+    },
+    "required": true
+  },
+  "then": {
+    "conforming": true,
+    "schema_valid": true,
+    "member_name_violations": []
+  },
+  "answer_cases": [
+    {
+      "value": [
+        "scalp"
+      ],
+      "valid": true
+    },
+    {
+      "value": [
+        "scalp",
+        "scalp"
+      ],
+      "valid": false,
+      "errors": [
+        "unique"
+      ]
+    },
+    {
+      "value": [
+        "scalp",
+        "gloss",
+        "trim"
+      ],
+      "valid": false,
+      "errors": [
+        "max_items"
+      ]
+    },
+    {
+      "value": [],
+      "valid": false,
+      "errors": [
+        "min_items"
+      ]
+    }
+  ],
+  "variants": [
+    {
+      "case": "bare array of identifiers",
+      "expect": "reject",
+      "instance": {
+        "kind": "question",
+        "id": "add_ons",
+        "label": {
+          "plain": "Add-ons"
+        },
+        "schema": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "scalp",
+              "gloss"
+            ]
+          },
+          "uniqueItems": true
+        },
+        "required": true
+      },
+      "then": {
+        "conforming": false,
+        "schema_valid": false,
+        "member_name_violations": []
+      }
+    },
+    {
+      "case": "uniqueItems missing",
+      "expect": "reject",
+      "instance": {
+        "kind": "question",
+        "id": "add_ons",
+        "label": {
+          "plain": "Add-ons"
+        },
+        "schema": {
+          "type": "array",
+          "items": {
+            "anyOf": [
+              {
+                "const": "scalp",
+                "title": "Scalp massage"
+              }
+            ]
+          }
+        },
+        "required": true
+      },
+      "then": {
+        "conforming": false,
+        "schema_valid": false,
+        "member_name_violations": []
+      }
+    }
+  ],
+  "wrong_answers": [
+    {
+      "behaviour": "publish an enum of ids",
+      "violates": "11.4.3 Answer Schema",
+      "why": "The platform has no title to show and invents one from the identifier."
+    }
+  ]
+}

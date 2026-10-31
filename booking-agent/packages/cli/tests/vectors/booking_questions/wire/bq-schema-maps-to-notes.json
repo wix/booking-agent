@@ -1,0 +1,97 @@
+{
+  "id": "bq-schema-maps-to-notes",
+  "section": "11.4.3",
+  "requirement": "maps-to-notes-once",
+  "kind": "wire",
+  "binding": [
+    "rest",
+    "mcp"
+  ],
+  "expect": "accept",
+  "schema": "booking_questions.json#/$defs/BookingQuestionSet",
+  "notes": "maps_to: notes marks the single question that is the booking's notes surface. Two in one set are rejected.",
+  "case": "one notes question",
+  "instance": {
+    "id": "intake",
+    "revision": "r1",
+    "purpose": "intake",
+    "completion_timing": "before_confirmation",
+    "frequency": "every_booking",
+    "items": [
+      {
+        "kind": "question",
+        "id": "requests",
+        "label": {
+          "plain": "Special requests"
+        },
+        "schema": {
+          "type": "string",
+          "maxLength": 500
+        },
+        "required": false,
+        "maps_to": "notes"
+      }
+    ]
+  },
+  "then": {
+    "conforming": true,
+    "schema_valid": true,
+    "member_name_violations": []
+  },
+  "variants": [
+    {
+      "case": "two notes questions",
+      "expect": "reject",
+      "instance": {
+        "id": "intake",
+        "revision": "r1",
+        "purpose": "intake",
+        "completion_timing": "before_confirmation",
+        "frequency": "every_booking",
+        "items": [
+          {
+            "kind": "question",
+            "id": "requests",
+            "label": {
+              "plain": "Special requests"
+            },
+            "schema": {
+              "type": "string",
+              "maxLength": 500
+            },
+            "required": false,
+            "maps_to": "notes"
+          },
+          {
+            "kind": "question",
+            "id": "more",
+            "label": {
+              "plain": "Anything else"
+            },
+            "schema": {
+              "type": "string",
+              "maxLength": 500
+            },
+            "required": false,
+            "maps_to": "notes"
+          }
+        ]
+      },
+      "then": {
+        "conforming": false,
+        "schema_valid": true,
+        "member_name_violations": [],
+        "semantic_errors": [
+          "multiple_maps_to_notes:more"
+        ]
+      }
+    }
+  ],
+  "wrong_answers": [
+    {
+      "behaviour": "concatenate two notes questions",
+      "violates": "11.4.3 maps_to: notes",
+      "why": "Separator and order are undefined, so two businesses store different notes."
+    }
+  ]
+}

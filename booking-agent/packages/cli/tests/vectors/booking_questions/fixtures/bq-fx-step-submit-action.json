@@ -1,0 +1,47 @@
+{
+  "id": "bq-fx-step-submit-action",
+  "kind": "fixture",
+  "parameters": {
+    "set_id": {
+      "default": "intake"
+    },
+    "revision": {
+      "default": "r1"
+    },
+    "action_id": {
+      "default": "act_bq_1"
+    },
+    "answers": {
+      "required": true
+    },
+    "collected_via": {
+      "optional": true
+    }
+  },
+  "body": {
+    "at": "2026-10-25T10:00:30Z",
+    "step": "update_booking",
+    "with": {
+      "booking_id": "bkg_bq_1",
+      "booking_question_submissions": [
+        {
+          "set_id": {
+            "$param": "set_id"
+          },
+          "revision": {
+            "$param": "revision"
+          },
+          "action_id": {
+            "$param": "action_id"
+          },
+          "answers": {
+            "$param": "answers"
+          },
+          "collected_via": {
+            "$param": "collected_via"
+          }
+        }
+      ]
+    }
+  }
+}

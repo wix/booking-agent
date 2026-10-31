@@ -1,0 +1,73 @@
+{
+  "id": "bq-flow-required-buyer-field-missing",
+  "section": "11.4.3",
+  "requirement": "required-buyer-field-missing",
+  "kind": "flow",
+  "expect": "reject",
+  "outcome_code": "booking_question_answer_missing",
+  "notes": "required_buyer_fields lists phone_number and the request's buyer has none. The business reports it at $.buyer.phone_number.",
+  "given": {
+    "service": {
+      "id": "svc_cut_45",
+      "type": "appointment",
+      "required_buyer_fields": [
+        "phone_number"
+      ]
+    },
+    "hold": {
+      "id": "hold_bq_1",
+      "slot_id": "slot_20261028_1000",
+      "service_id": "svc_cut_45",
+      "spots": 1,
+      "expires_at": "2026-10-25T10:10:00Z",
+      "status": "active"
+    }
+  },
+  "when": [
+    {
+      "at": "2026-10-25T10:00:00Z",
+      "step": "create_booking",
+      "with": {
+        "hold_id": "hold_bq_1",
+        "buyer": {
+          "first_name": "Dana",
+          "last_name": "Levi",
+          "email": "dana@example.com"
+        }
+      },
+      "result": {
+        "accepted": false,
+        "booking_created": false,
+        "messages": [
+          {
+            "type": "error",
+            "code": "booking_question_answer_missing",
+            "content": "This answer is required.",
+            "severity": "recoverable",
+            "path": "$.buyer.phone_number"
+          }
+        ]
+      }
+    }
+  ],
+  "then": {
+    "booking_created": false,
+    "hold": {
+      "id": "hold_bq_1",
+      "status": "active",
+      "expires_at": "2026-10-25T10:10:00Z"
+    },
+    "slot_capacity_held": 1,
+    "payment_authorized": false,
+    "actions_created": [],
+    "http_status": 200,
+    "outcome_code": "booking_question_answer_missing"
+  },
+  "wrong_answers": [
+    {
+      "behaviour": "accept the booking and call the email address later",
+      "violates": "11.4.11 business item 4",
+      "why": "The business declared it cannot serve the booking without a phone number."
+    }
+  ]
+}

@@ -16,6 +16,7 @@ from pydantic import (
 )
 from pydantic.alias_generators import to_camel
 
+from .booking_questions import BookingQuestionsSummary
 from .wire import AvailabilityHint, Coordinates, RegistryBusinessInfo
 
 
@@ -175,6 +176,18 @@ class ServiceSearchResult(BaseModel):
     category_ids: Optional[List[str]] = None
     availability_hint: Optional[AvailabilityHint] = None
     rank_signals: Optional[RankSignals] = None
+    last_indexed_at: Optional[str] = None
+    booking_questions: Optional[BookingQuestionsSummary] = None
+
+    @field_validator("booking_questions", mode="before")
+    @classmethod
+    def _drop_malformed_booking_questions(cls, value: Any) -> Optional[BookingQuestionsSummary]:
+        if value is None or isinstance(value, BookingQuestionsSummary):
+            return value
+        try:
+            return BookingQuestionsSummary.model_validate(value)
+        except (ValidationError, TypeError, ValueError):
+            return None
 
     @field_validator("availability_hint", mode="before")
     @classmethod

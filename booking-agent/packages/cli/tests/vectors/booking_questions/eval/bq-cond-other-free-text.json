@@ -1,0 +1,107 @@
+{
+  "id": "bq-cond-other-free-text",
+  "section": "11.4.3",
+  "requirement": "condition-other-free-text",
+  "kind": "eval",
+  "notes": "The free-text follow-up shows only when other is among the selected options.",
+  "given": {
+    "set": {
+      "id": "lead",
+      "revision": "r1",
+      "purpose": "intake",
+      "completion_timing": "before_confirmation",
+      "frequency": "every_booking",
+      "items": [
+        {
+          "kind": "question",
+          "id": "source",
+          "label": {
+            "plain": "How did you hear about us?"
+          },
+          "schema": {
+            "type": "array",
+            "items": {
+              "anyOf": [
+                {
+                  "const": "friend",
+                  "title": "A friend"
+                },
+                {
+                  "const": "social",
+                  "title": "Social media"
+                },
+                {
+                  "const": "other",
+                  "title": "Other"
+                }
+              ]
+            },
+            "uniqueItems": true,
+            "minItems": 1
+          },
+          "required": true
+        },
+        {
+          "kind": "question",
+          "id": "source_other",
+          "label": {
+            "plain": "Please tell us where"
+          },
+          "schema": {
+            "type": "string",
+            "maxLength": 200
+          },
+          "required": true,
+          "when": {
+            "question": "source",
+            "op": "contains",
+            "value": "other"
+          }
+        }
+      ]
+    }
+  },
+  "cases": [
+    {
+      "case": "friend",
+      "answers": {
+        "source": [
+          "friend"
+        ]
+      },
+      "then": {
+        "definition_valid": true,
+        "applicable": [
+          "source"
+        ],
+        "required_unanswered": []
+      }
+    },
+    {
+      "case": "friend and other",
+      "answers": {
+        "source": [
+          "friend",
+          "other"
+        ]
+      },
+      "then": {
+        "definition_valid": true,
+        "applicable": [
+          "source",
+          "source_other"
+        ],
+        "required_unanswered": [
+          "source_other"
+        ]
+      }
+    }
+  ],
+  "wrong_answers": [
+    {
+      "behaviour": "use equals other on a multi-choice answer",
+      "violates": "11.4.3 Conditions",
+      "why": "equals compares the whole array, so the follow-up disappears as soon as a second option is selected."
+    }
+  ]
+}

@@ -1,0 +1,129 @@
+{
+  "id": "bq-flow-recap-redacts-sensitive",
+  "section": "11.4.10",
+  "requirement": "recap-redacts-sensitive",
+  "kind": "flow",
+  "expect": "accept",
+  "notes": "The final recap lists every non-sensitive answer and shows a sensitive one only as provided.",
+  "given": {
+    "service": {
+      "id": "svc_cut_45",
+      "type": "appointment",
+      "booking_question_sets": [
+        {
+          "id": "intake",
+          "revision": "r1",
+          "purpose": "intake",
+          "completion_timing": "before_confirmation",
+          "frequency": "every_booking",
+          "items": [
+            {
+              "kind": "question",
+              "id": "hair_length",
+              "label": {
+                "plain": "Hair length"
+              },
+              "schema": {
+                "type": "string",
+                "oneOf": [
+                  {
+                    "const": "short",
+                    "title": "Short"
+                  },
+                  {
+                    "const": "medium",
+                    "title": "Medium"
+                  },
+                  {
+                    "const": "long",
+                    "title": "Long"
+                  }
+                ]
+              },
+              "required": true
+            },
+            {
+              "kind": "question",
+              "id": "conditions",
+              "label": {
+                "plain": "Any medical conditions?"
+              },
+              "schema": {
+                "type": "string",
+                "maxLength": 300
+              },
+              "required": true,
+              "sensitive": true
+            }
+          ]
+        }
+      ]
+    },
+    "hold": {
+      "id": "hold_bq_1",
+      "slot_id": "slot_20261028_1000",
+      "service_id": "svc_cut_45",
+      "spots": 1,
+      "expires_at": "2026-10-25T10:10:00Z",
+      "status": "active"
+    }
+  },
+  "when": [
+    {
+      "at": "2026-10-25T09:59:30Z",
+      "step": "platform_recap",
+      "with": {
+        "lists": [
+          "hair_length",
+          "conditions"
+        ]
+      },
+      "result": {
+        "recap": {
+          "hair_length": "Medium",
+          "conditions": "provided"
+        }
+      }
+    },
+    {
+      "at": "2026-10-25T10:00:00Z",
+      "step": "create_booking",
+      "with": {
+        "hold_id": "hold_bq_1",
+        "buyer": {
+          "first_name": "Dana",
+          "last_name": "Levi",
+          "email": "dana@example.com",
+          "phone_number": "+14155550123"
+        },
+        "booking_question_submissions": [
+          {
+            "set_id": "intake",
+            "revision": "r1",
+            "answers": {
+              "hair_length": "medium",
+              "conditions": "Mild asthma"
+            }
+          }
+        ]
+      },
+      "result": {
+        "accepted": true,
+        "booking_id": "bkg_bq_1",
+        "booking_status": "confirmed",
+        "messages": []
+      }
+    }
+  ],
+  "then": {
+    "sensitive_in_recap": false,
+    "http_status": 200
+  },
+  "wrong_answers": [
+    {
+      "behaviour": "omit the sensitive answer from the recap",
+      "violates": "11.4.11 platform item 5",
+      "why": "The buyer cannot tell whether it was sent."
+    }
+  ]
+}

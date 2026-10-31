@@ -1,0 +1,112 @@
+{
+  "id": "bq-flow-service-area",
+  "section": "11.4.4",
+  "requirement": "service-area-eligibility",
+  "kind": "flow",
+  "expect": "accept",
+  "notes": "A postal code outside the service area is ineligible before any slot is shown; one inside is eligible.",
+  "given": {
+    "service": {
+      "id": "svc_clean",
+      "type": "appointment",
+      "booking_question_sets": [
+        {
+          "id": "area",
+          "revision": "r1",
+          "purpose": "eligibility",
+          "completion_timing": "preflight",
+          "frequency": "every_booking",
+          "items": [
+            {
+              "kind": "question",
+              "id": "postal_code",
+              "label": {
+                "plain": "Postal code of the service address"
+              },
+              "schema": {
+                "type": "string",
+                "maxLength": 10
+              },
+              "required": true
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "when": [
+    {
+      "at": "2026-10-25T10:00:00Z",
+      "step": "check_eligibility",
+      "with": {
+        "service_id": "svc_clean",
+        "buyer": {
+          "first_name": "Dana",
+          "last_name": "Levi",
+          "email": "dana@example.com",
+          "phone_number": "+14155550123"
+        },
+        "booking_question_submissions": [
+          {
+            "set_id": "area",
+            "revision": "r1",
+            "answers": {
+              "postal_code": "94105"
+            }
+          }
+        ]
+      },
+      "result": {
+        "eligibility": {
+          "decision": "ineligible"
+        },
+        "messages": [
+          {
+            "type": "info",
+            "code": "eligibility_reason",
+            "content": "We do not serve this area yet."
+          }
+        ]
+      }
+    },
+    {
+      "at": "2026-10-25T10:01:00Z",
+      "step": "check_eligibility",
+      "with": {
+        "service_id": "svc_clean",
+        "buyer": {
+          "first_name": "Dana",
+          "last_name": "Levi",
+          "email": "dana@example.com",
+          "phone_number": "+14155550123"
+        },
+        "booking_question_submissions": [
+          {
+            "set_id": "area",
+            "revision": "r1",
+            "answers": {
+              "postal_code": "10012"
+            }
+          }
+        ]
+      },
+      "result": {
+        "eligibility": {
+          "decision": "eligible",
+          "assessment_token": "bqat_7Hc2kQ",
+          "expires_at": "2026-10-25T10:15:00Z"
+        }
+      }
+    }
+  ],
+  "then": {
+    "http_status": 200
+  },
+  "wrong_answers": [
+    {
+      "behaviour": "let the buyer pick a slot and cancel later",
+      "violates": "11.4.4 Decisions",
+      "why": "The business reserved staff time it could never use."
+    }
+  ]
+}

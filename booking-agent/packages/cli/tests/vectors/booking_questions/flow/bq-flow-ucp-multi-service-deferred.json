@@ -1,0 +1,99 @@
+{
+  "id": "bq-flow-ucp-multi-service-deferred",
+  "section": "11.4.13",
+  "requirement": "multi-service-deferred",
+  "kind": "flow",
+  "expect": "accept",
+  "notes": "Per-line-item questions in a multi-service checkout are out of scope. A platform does not combine two services that declare question sets into one checkout; it books them separately.",
+  "given": {
+    "services": [
+      {
+        "id": "svc_cut_45",
+        "type": "appointment",
+        "booking_question_sets": [
+          {
+            "id": "intake",
+            "revision": "r1",
+            "purpose": "intake",
+            "completion_timing": "before_confirmation",
+            "frequency": "every_booking",
+            "items": [
+              {
+                "kind": "question",
+                "id": "hair_notes",
+                "label": {
+                  "plain": "Anything the stylist should know?"
+                },
+                "schema": {
+                  "type": "string",
+                  "maxLength": 500
+                },
+                "required": true
+              },
+              {
+                "kind": "question",
+                "id": "hair_length",
+                "label": {
+                  "plain": "Hair length"
+                },
+                "schema": {
+                  "type": "string",
+                  "oneOf": [
+                    {
+                      "const": "short",
+                      "title": "Short"
+                    },
+                    {
+                      "const": "medium",
+                      "title": "Medium"
+                    },
+                    {
+                      "const": "long",
+                      "title": "Long"
+                    }
+                  ]
+                },
+                "required": true
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "svc_color_90",
+        "type": "appointment",
+        "required_buyer_fields": [
+          "phone_number"
+        ]
+      }
+    ]
+  },
+  "when": [
+    {
+      "at": "2026-10-25T10:00:00Z",
+      "step": "platform_plans_checkout",
+      "with": {
+        "services": [
+          "svc_cut_45",
+          "svc_color_90"
+        ]
+      },
+      "result": {
+        "checkouts": 2,
+        "combined": false
+      }
+    }
+  ],
+  "then": {
+    "checkouts_created": 2,
+    "deferral": "11.4.13",
+    "http_status": 200
+  },
+  "wrong_answers": [
+    {
+      "behaviour": "merge both services' answers into one checkout",
+      "violates": "11.4.13 Deferred Capabilities",
+      "why": "No wire shape says which line item an answer belongs to."
+    }
+  ]
+}

@@ -1,0 +1,97 @@
+{
+  "id": "bq-flow-before-service-optional",
+  "section": "11.4.6",
+  "requirement": "optional-never-blocks",
+  "kind": "flow",
+  "expect": "accept",
+  "notes": "An optional before_service set never blocks confirmation or the in_progress transition, whatever its status.",
+  "given": {
+    "service": {
+      "id": "svc_cut_45",
+      "type": "appointment",
+      "booking_question_sets": [
+        {
+          "id": "goals",
+          "revision": "r1",
+          "purpose": "intake",
+          "completion_timing": "before_service",
+          "frequency": "every_booking",
+          "items": [
+            {
+              "kind": "question",
+              "id": "goals",
+              "label": {
+                "plain": "Anything you want to work on?"
+              },
+              "schema": {
+                "type": "string",
+                "maxLength": 300
+              },
+              "required": true
+            }
+          ],
+          "completion_requirement": "optional"
+        }
+      ]
+    },
+    "hold": {
+      "id": "hold_bq_1",
+      "slot_id": "slot_20261028_1000",
+      "service_id": "svc_cut_45",
+      "spots": 1,
+      "expires_at": "2026-10-25T10:10:00Z",
+      "status": "active"
+    }
+  },
+  "when": [
+    {
+      "at": "2026-10-25T10:00:00Z",
+      "step": "create_booking",
+      "with": {
+        "hold_id": "hold_bq_1",
+        "buyer": {
+          "first_name": "Dana",
+          "last_name": "Levi",
+          "email": "dana@example.com",
+          "phone_number": "+14155550123"
+        },
+        "booking_question_submissions": []
+      },
+      "result": {
+        "accepted": true,
+        "booking_id": "bkg_bq_1",
+        "booking_status": "confirmed",
+        "messages": [],
+        "booking_question_state": [
+          {
+            "set_id": "goals",
+            "revision": "r1",
+            "status": "pending",
+            "completion_timing": "before_service"
+          }
+        ]
+      }
+    },
+    {
+      "at": "2026-10-28T10:00:00Z",
+      "step": "business_starts_service",
+      "with": {
+        "booking_id": "bkg_bq_1"
+      },
+      "result": {
+        "booking_status": "in_progress"
+      }
+    }
+  ],
+  "then": {
+    "blocked": false,
+    "http_status": 200
+  },
+  "wrong_answers": [
+    {
+      "behaviour": "hold the session until optional goals are filled",
+      "violates": "11.4.6 Gating",
+      "why": "An optional form becomes a hidden requirement."
+    }
+  ]
+}

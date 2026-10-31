@@ -9,7 +9,40 @@ from enum import Enum
 from pydantic.alias_generators import to_camel
 from typing import Optional, List, Dict, Any, Literal, Union
 
-from pydantic import AliasChoices, BaseModel, ConfigDict, Field, model_validator
+from pydantic import (
+    AliasChoices,
+    BaseModel,
+    ConfigDict,
+    Field,
+    ValidationError,
+    field_validator,
+    model_validator,
+)
+
+from .booking_questions import (
+    BookingQuestionAssessmentToken,
+    BookingQuestionSet,
+    BookingQuestionState,
+    BookingQuestionSubmission,
+    RequiredBuyerField,
+)
+
+
+def _keep_valid(model: Any, value: Any) -> Any:
+    """Parse a list of extension objects, dropping the entries that do not parse.
+
+    Extension data rides on core objects; a malformed entry must not make the core
+    object unparseable, which would break a flow that never negotiated the extension.
+    """
+    if not isinstance(value, list):
+        return None
+    kept = []
+    for entry in value:
+        try:
+            kept.append(entry if isinstance(entry, model) else model.model_validate(entry))
+        except (ValidationError, TypeError, ValueError):
+            continue
+    return kept
 
 
 # ---------------------------------------------------------------------------
@@ -486,6 +519,23 @@ class USPService(BaseModel):
     links: Optional[List[Link]] = None
     localized: Optional[LocalizedFields] = None
     business: Optional[RegistryBusinessInfo] = None
+    #: Booking questions extension. Carries meaning only when the extension is
+    #: negotiated (``booking_agent.booking_questions_negotiation``).
+    booking_question_sets: Optional[List[BookingQuestionSet]] = None
+    required_buyer_fields: Optional[List[RequiredBuyerField]] = None
+
+    @field_validator("booking_question_sets", mode="before")
+    @classmethod
+    def _drop_malformed_sets(cls, value: Any) -> Any:
+        return _keep_valid(BookingQuestionSet, value)
+
+    @field_validator("required_buyer_fields", mode="before")
+    @classmethod
+    def _drop_unknown_buyer_fields(cls, value: Any) -> Any:
+        if not isinstance(value, list):
+            return None
+        known = ("first_name", "last_name", "email", "phone_number")
+        return [field for field in value if field in known] or None
 
     @model_validator(mode="before")
     @classmethod
@@ -752,21 +802,38 @@ class ActionStatus(str, Enum):
 
 
 class Action(BaseModel):
-    """A pending task the buyer must complete before a booking can be confirmed."""
+    """A pending task the buyer must complete before a booking can be confirmed.
+
+    A legacy handoff Action carries ``continue_url``. An Action with extension-owned
+    ``config`` (a reverse-domain type such as the booking-questions buyer input)
+    carries ``id`` instead, and ``continue_url`` is its optional fallback.
+    """
     model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
 
     type: str
     status: ActionStatus
-    continue_url: str
-    expires_at: str
+    id: Optional[str] = None
+    config: Optional[Dict[str, Any]] = None
+    continue_url: Optional[str] = None
+    expires_at: Optional[str] = None
     message: Optional[USPMessage] = None
     payment_context: Optional[USPPaymentContext] = None
+
+    @model_validator(mode="after")
+    def _handoff_or_config(self) -> "Action":
+        if self.config is not None:
+            if not self.id:
+                raise ValueError("an Action with config requires id")
+        elif not self.continue_url:
+            raise ValueError("an Action without config requires continue_url")
+        return self
 
 
 class Cancellation(BaseModel):
     model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
 
     reason: Optional[str] = None
+    reason_code: Optional[str] = None
     canceled_by: Optional[str] = None
     fee: Optional[int] = None
     refund_amount: Optional[int] = None
@@ -866,3 +933,37 @@ class Booking(BaseModel):
     #: with 412 rather than clobbering a concurrent change.  Absent means
     #: unconditional writes, exactly like a missing HTTP ETag.
     revision: Optional[str] = None
+    booking_question_state: Optional[List[BookingQuestionState]] = None
+
+    @field_validator("booking_question_state", mode="before")
+    @classmethod
+    def _drop_malformed_question_state(cls, value: Any) -> Any:
+        return _keep_valid(BookingQuestionState, value)
+
+
+class PaidBookingContext(BaseModel):
+    """The ``booking`` object of a UCP-Native checkout (paid_bookings.json BookingContext)."""
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    booking_id: Optional[str] = None
+    service_id: str
+    service_type: str
+    slot: Dict[str, Any]
+    hold_id: Optional[str] = None
+    resources: Optional[List[Dict[str, Any]]] = None
+    party_size: Optional[int] = None
+    confirmation_mode: Optional[str] = None
+    booking_status: Optional[str] = None
+    actions: Optional[List[Dict[str, Any]]] = None
+    notes: Optional[str] = None
+    delivery_address: Optional[DeliveryAddress] = None
+    recipient: Optional[Buyer] = None
+    booking_question_submissions: Optional[List[BookingQuestionSubmission]] = None
+    booking_question_assessment_token: Optional[BookingQuestionAssessmentToken] = None
+    booking_question_state: Optional[List[BookingQuestionState]] = None
+
+    @field_validator("booking_question_state", mode="before")
+    @classmethod
+    def _drop_malformed_question_state(cls, value: Any) -> Any:
+        return _keep_valid(BookingQuestionState, value)

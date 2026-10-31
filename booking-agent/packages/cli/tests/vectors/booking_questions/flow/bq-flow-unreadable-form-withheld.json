@@ -1,0 +1,37 @@
+{
+  "id": "bq-flow-unreadable-form-withheld",
+  "section": "11.4.11",
+  "requirement": "unreadable-form-withheld",
+  "kind": "flow",
+  "expect": "accept",
+  "notes": "The business cannot read its own form definition for a service. The service is withheld from catalog discovery rather than published with an empty or partial set.",
+  "given": {
+    "business_form": {
+      "service_id": "svc_brow",
+      "readable": false
+    }
+  },
+  "when": [
+    {
+      "at": "2026-10-25T08:00:00Z",
+      "step": "catalog_publish",
+      "with": {
+        "service_id": "svc_brow"
+      },
+      "result": {
+        "service_published": false
+      }
+    }
+  ],
+  "then": {
+    "service_published": false,
+    "published_with_empty_sets": false
+  },
+  "wrong_answers": [
+    {
+      "behaviour": "publish the service with no sets",
+      "violates": "11.4.11 business item 2",
+      "why": "Platforms book it without the answers the business needs."
+    }
+  ]
+}

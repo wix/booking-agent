@@ -1,0 +1,124 @@
+{
+  "id": "bq-flow-massage-sensitive-injury",
+  "section": "11.4.10",
+  "requirement": "sensitive-optional-injury",
+  "kind": "flow",
+  "expect": "accept",
+  "notes": "A required pressure choice and an optional sensitive injuries question. The injuries text reaches the business but is never echoed.",
+  "given": {
+    "service": {
+      "id": "svc_massage_60",
+      "type": "appointment",
+      "booking_question_sets": [
+        {
+          "id": "intake",
+          "revision": "r1",
+          "purpose": "intake",
+          "completion_timing": "before_confirmation",
+          "frequency": "every_booking",
+          "items": [
+            {
+              "kind": "question",
+              "id": "pressure",
+              "label": {
+                "plain": "Preferred pressure"
+              },
+              "schema": {
+                "type": "string",
+                "oneOf": [
+                  {
+                    "const": "light",
+                    "title": "Light"
+                  },
+                  {
+                    "const": "medium",
+                    "title": "Medium"
+                  },
+                  {
+                    "const": "firm",
+                    "title": "Firm"
+                  }
+                ]
+              },
+              "required": true
+            },
+            {
+              "kind": "question",
+              "id": "injuries",
+              "label": {
+                "plain": "Any injuries we should avoid?"
+              },
+              "schema": {
+                "type": "string",
+                "maxLength": 500
+              },
+              "required": false,
+              "sensitive": true
+            }
+          ]
+        }
+      ]
+    },
+    "hold": {
+      "id": "hold_bq_1",
+      "slot_id": "slot_20261028_1000",
+      "service_id": "svc_massage_60",
+      "spots": 1,
+      "expires_at": "2026-10-25T10:10:00Z",
+      "status": "active"
+    }
+  },
+  "when": [
+    {
+      "at": "2026-10-25T10:00:00Z",
+      "step": "create_booking",
+      "with": {
+        "hold_id": "hold_bq_1",
+        "buyer": {
+          "first_name": "Dana",
+          "last_name": "Levi",
+          "email": "dana@example.com",
+          "phone_number": "+14155550123"
+        },
+        "booking_question_submissions": [
+          {
+            "set_id": "intake",
+            "revision": "r1",
+            "answers": {
+              "pressure": "medium",
+              "injuries": "Herniated disc L4"
+            }
+          }
+        ]
+      },
+      "result": {
+        "accepted": true,
+        "booking_id": "bkg_bq_1",
+        "booking_status": "confirmed",
+        "messages": [],
+        "booking_question_state": [
+          {
+            "set_id": "intake",
+            "revision": "r1",
+            "status": "completed",
+            "completion_timing": "before_confirmation",
+            "answers": {
+              "pressure": "medium"
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "then": {
+    "sensitive_in_outputs": false,
+    "http_status": 200
+  },
+  "wrong_answers": [
+    {
+      "behaviour": "require the injuries answer",
+      "violates": "11.4.3 The meaning of required",
+      "why": "The business published it as optional."
+    }
+  ]
+}

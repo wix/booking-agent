@@ -1,0 +1,50 @@
+{
+  "id": "bq-flow-ucp-multi-parent-pruning",
+  "section": "11.4.2",
+  "requirement": "multi-parent-pruning",
+  "kind": "flow",
+  "expect": "accept",
+  "notes": "The business extends catalog, availability, bookings, and paid_bookings; the platform shares only paid_bookings. The extension stays active for checkout, and fields on surfaces whose parent is not negotiated are pruned.",
+  "given": {
+    "business_extends": [
+      "dev.usp-protocol.services.catalog",
+      "dev.usp-protocol.services.availability",
+      "dev.usp-protocol.services.bookings",
+      "dev.usp-protocol.services.paid_bookings"
+    ],
+    "platform_supports": [
+      "dev.usp-protocol.services.paid_bookings",
+      "dev.usp-protocol.services.booking_questions"
+    ]
+  },
+  "when": [
+    {
+      "at": "2026-10-25T09:00:00Z",
+      "step": "negotiate",
+      "with": {},
+      "result": {
+        "extension_active": true,
+        "active_parents": [
+          "dev.usp-protocol.services.paid_bookings"
+        ],
+        "pruned": [
+          "Service.booking_question_sets",
+          "Service.required_buyer_fields",
+          "ServiceSearchResult.booking_questions"
+        ]
+      }
+    }
+  ],
+  "then": {
+    "extension_active": true,
+    "checkout_fields_valid": true,
+    "http_status": 200
+  },
+  "wrong_answers": [
+    {
+      "behaviour": "drop the extension because not every parent is shared",
+      "violates": "8.3 Multi-parent extensions",
+      "why": "UCP keeps a multi-parent extension when any parent is in the intersection."
+    }
+  ]
+}

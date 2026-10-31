@@ -8,15 +8,25 @@ from datetime import datetime, timezone
 from .session import ActivityEntry, LastError, Session
 
 MAX_ACTIVITY_LOG = 300
-# Flags whose values are the user's address or free text written for the business.
-PRIVATE_VALUE_FLAGS = frozenset({"--address", "--notes", "--context"})
+# Flags whose values are the user's address, contact details, answers to the business's
+# questions, or free text written for the business.
+PRIVATE_VALUE_FLAGS = frozenset({
+    "--address", "--notes", "--context", "--value", "--option-id",
+    "--first-name", "--last-name", "--email", "--phone",
+})
+# Bare flags that are themselves an answer to a booking question.
+_ANSWER_FLAGS = frozenset({"--yes", "--no"})
 REDACTED = "<redacted>"
 
 
 def _redact_private_values(args: list[str]) -> list[str]:
     out: list[str] = []
     redact_next = False
+    answering = "questions" in args and "answer" in args
     for arg in args:
+        if answering and arg in _ANSWER_FLAGS:
+            out.append(REDACTED)
+            continue
         if redact_next:
             out.append(REDACTED)
             redact_next = False

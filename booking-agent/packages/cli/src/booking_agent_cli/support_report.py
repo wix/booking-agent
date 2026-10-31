@@ -560,6 +560,18 @@ SESSION_RULES: Dict[str, FieldRule] = {
     "desired_time_ranges": EXCLUDE,
     "link_auth_url_surfaced": EXCLUDE,
     "ucp_checkout_abandoned": EXCLUDE,
+    # Prepared-checkout bookkeeping; the checkout id and quote are reported above.
+    "prepared_checkout_fingerprint": EXCLUDE,
+    "checkout_create_idempotency_key": EXCLUDE,
+    "prepared_checkout_snapshot": EXCLUDE,
+    "prepared_checkout_digest": EXCLUDE,
+    "prepared_checkout_expires_at": EXCLUDE,
+    "prepared_checkout_consumed": EXCLUDE,
+    "prepared_booking_id": EXCLUDE,
+    "checkout_abandonment": EXCLUDE,
+    "booking_questions": EXCLUDE,  # answers and assessment tokens never leave the device
+    "recipient": EXCLUDE,
+    "recipient_pending": EXCLUDE,
 }
 
 # Dataclass -> its rules table, for the classification test.

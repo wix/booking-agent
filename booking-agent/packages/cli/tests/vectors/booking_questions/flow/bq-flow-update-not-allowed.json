@@ -1,0 +1,147 @@
+{
+  "id": "bq-flow-update-not-allowed",
+  "section": "5.3.3",
+  "requirement": "booking-question-update-not-allowed",
+  "kind": "flow",
+  "expect": "reject",
+  "outcome_code": "booking_question_update_not_allowed",
+  "notes": "Once the booking is in_progress, completed, no_show, or canceled, the business rejects every booking-question submission with booking_question_update_not_allowed.",
+  "given": {
+    "service": {
+      "id": "svc_cut_45",
+      "type": "appointment",
+      "booking_question_sets": [
+        {
+          "id": "intake",
+          "revision": "r1",
+          "purpose": "intake",
+          "completion_timing": "before_confirmation",
+          "frequency": "every_booking",
+          "items": [
+            {
+              "kind": "question",
+              "id": "hair_notes",
+              "label": {
+                "plain": "Anything the stylist should know?"
+              },
+              "schema": {
+                "type": "string",
+                "maxLength": 500
+              },
+              "required": true
+            },
+            {
+              "kind": "question",
+              "id": "hair_length",
+              "label": {
+                "plain": "Hair length"
+              },
+              "schema": {
+                "type": "string",
+                "oneOf": [
+                  {
+                    "const": "short",
+                    "title": "Short"
+                  },
+                  {
+                    "const": "medium",
+                    "title": "Medium"
+                  },
+                  {
+                    "const": "long",
+                    "title": "Long"
+                  }
+                ]
+              },
+              "required": true
+            }
+          ]
+        },
+        {
+          "id": "prep",
+          "revision": "r1",
+          "purpose": "intake",
+          "completion_timing": "before_service",
+          "frequency": "every_booking",
+          "items": [
+            {
+              "kind": "question",
+              "id": "allergies_detail",
+              "label": {
+                "plain": "Anything we should prepare for?"
+              },
+              "schema": {
+                "type": "string",
+                "maxLength": 300
+              },
+              "required": true
+            }
+          ]
+        }
+      ]
+    },
+    "booking": {
+      "id": "bkg_bq_1",
+      "status": "in_progress"
+    }
+  },
+  "when": [
+    {
+      "at": "2026-10-28T10:05:00Z",
+      "step": "update_booking",
+      "with": {
+        "booking_id": "bkg_bq_1",
+        "booking_question_submissions": [
+          {
+            "set_id": "prep",
+            "revision": "r1",
+            "answers": {
+              "allergies_detail": "None"
+            }
+          }
+        ]
+      },
+      "booking_status": "in_progress",
+      "result": {
+        "accepted": false,
+        "messages": [
+          {
+            "type": "error",
+            "code": "booking_question_update_not_allowed",
+            "content": "Answers can no longer be changed for this booking.",
+            "severity": "recoverable"
+          }
+        ]
+      }
+    }
+  ],
+  "then": {
+    "accepted": false,
+    "outcome_code": "booking_question_update_not_allowed",
+    "http_status": 200
+  },
+  "variants": [
+    {
+      "case": "completed",
+      "booking_status": "completed",
+      "outcome_code": "booking_question_update_not_allowed"
+    },
+    {
+      "case": "no_show",
+      "booking_status": "no_show",
+      "outcome_code": "booking_question_update_not_allowed"
+    },
+    {
+      "case": "canceled",
+      "booking_status": "canceled",
+      "outcome_code": "booking_question_update_not_allowed"
+    }
+  ],
+  "wrong_answers": [
+    {
+      "behaviour": "accept late answers silently",
+      "violates": "5.3.3 update permission table",
+      "why": "Answers arrive after the service started and are never read."
+    }
+  ]
+}

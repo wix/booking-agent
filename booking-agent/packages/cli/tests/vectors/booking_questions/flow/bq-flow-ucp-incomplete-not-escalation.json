@@ -1,0 +1,111 @@
+{
+  "id": "bq-flow-ucp-incomplete-not-escalation",
+  "section": "11.4.8",
+  "requirement": "ucp-recoverable-is-incomplete",
+  "kind": "flow",
+  "expect": "reject",
+  "outcome_code": "booking_question_answer_invalid",
+  "notes": "A recoverable answer error keeps the checkout incomplete, not requires_escalation.",
+  "given": {
+    "service": {
+      "id": "svc_cut_45",
+      "type": "appointment",
+      "booking_question_sets": [
+        {
+          "id": "intake",
+          "revision": "r1",
+          "purpose": "intake",
+          "completion_timing": "before_confirmation",
+          "frequency": "every_booking",
+          "items": [
+            {
+              "kind": "question",
+              "id": "hair_notes",
+              "label": {
+                "plain": "Anything the stylist should know?"
+              },
+              "schema": {
+                "type": "string",
+                "maxLength": 500
+              },
+              "required": true
+            },
+            {
+              "kind": "question",
+              "id": "hair_length",
+              "label": {
+                "plain": "Hair length"
+              },
+              "schema": {
+                "type": "string",
+                "oneOf": [
+                  {
+                    "const": "short",
+                    "title": "Short"
+                  },
+                  {
+                    "const": "medium",
+                    "title": "Medium"
+                  },
+                  {
+                    "const": "long",
+                    "title": "Long"
+                  }
+                ]
+              },
+              "required": true
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "when": [
+    {
+      "at": "2026-10-25T10:00:00Z",
+      "step": "create_checkout",
+      "with": {
+        "booking": {
+          "service_id": "svc_cut_45",
+          "slot": {
+            "id": "slot_20261028_1000"
+          },
+          "booking_question_submissions": [
+            {
+              "set_id": "intake",
+              "revision": "r1",
+              "answers": {
+                "hair_notes": "Fine hair, sensitive scalp",
+                "hair_length": "xl"
+              }
+            }
+          ]
+        }
+      },
+      "result": {
+        "checkout_status": "incomplete",
+        "messages": [
+          {
+            "type": "error",
+            "code": "booking_question_answer_invalid",
+            "content": "This answer is not valid.",
+            "severity": "recoverable",
+            "path": "$.booking.booking_question_submissions[?@.set_id=='intake'].answers['hair_length']"
+          }
+        ]
+      }
+    }
+  ],
+  "then": {
+    "checkout_status": "incomplete",
+    "continue_url_required": false,
+    "http_status": 200
+  },
+  "wrong_answers": [
+    {
+      "behaviour": "escalate to the business page",
+      "violates": "11.4.8 Paid UCP-Native",
+      "why": "requires_escalation forces a handoff for something the platform can fix in one turn."
+    }
+  ]
+}

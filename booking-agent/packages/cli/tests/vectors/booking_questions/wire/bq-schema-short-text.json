@@ -1,0 +1,105 @@
+{
+  "id": "bq-schema-short-text",
+  "section": "11.4.3",
+  "requirement": "text-answer-bounded",
+  "kind": "wire",
+  "binding": [
+    "rest",
+    "mcp"
+  ],
+  "expect": "accept",
+  "schema": "booking_questions.json#/$defs/BookingQuestion",
+  "notes": "A short text question bounds its answer with maxLength. The restricted subset forbids pattern, so a business that needs a shape describes it in plain text instead of shipping a regular expression the platform would have to trust and evaluate.",
+  "case": "required short text with minLength 1 and maxLength 200",
+  "instance": {
+    "kind": "question",
+    "id": "hair_notes",
+    "label": {
+      "plain": "Anything the stylist should know?"
+    },
+    "schema": {
+      "type": "string",
+      "maxLength": 200,
+      "minLength": 1
+    },
+    "required": true
+  },
+  "then": {
+    "conforming": true,
+    "schema_valid": true,
+    "member_name_violations": []
+  },
+  "answer_cases": [
+    {
+      "value": "Fine hair, sensitive scalp",
+      "valid": true
+    },
+    {
+      "value": "",
+      "valid": false,
+      "errors": [
+        "min_length"
+      ]
+    },
+    {
+      "value": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "valid": false,
+      "errors": [
+        "max_length"
+      ]
+    }
+  ],
+  "variants": [
+    {
+      "case": "pattern in the definition",
+      "expect": "reject",
+      "instance": {
+        "kind": "question",
+        "id": "member_no",
+        "label": {
+          "plain": "Membership number"
+        },
+        "schema": {
+          "type": "string",
+          "maxLength": 20,
+          "pattern": "^[A-Z]{2}[0-9]{6}$"
+        },
+        "required": true
+      },
+      "then": {
+        "conforming": false,
+        "schema_valid": false,
+        "member_name_violations": []
+      },
+      "why": "pattern is not part of the restricted subset; the format belongs in description."
+    },
+    {
+      "case": "free text with neither maxLength nor format",
+      "expect": "reject",
+      "instance": {
+        "kind": "question",
+        "id": "hair_notes",
+        "label": {
+          "plain": "Anything the stylist should know?"
+        },
+        "schema": {
+          "type": "string"
+        },
+        "required": true
+      },
+      "then": {
+        "conforming": false,
+        "schema_valid": false,
+        "member_name_violations": []
+      },
+      "why": "An unbounded string would let a business demand arbitrarily long input through an agent."
+    }
+  ],
+  "wrong_answers": [
+    {
+      "behaviour": "accept a pattern and evaluate it on the platform",
+      "violates": "11.4.3 Answer Schema",
+      "why": "Business-supplied regular expressions are untrusted code paths; the subset keeps validation deterministic and in the business's hands."
+    }
+  ]
+}

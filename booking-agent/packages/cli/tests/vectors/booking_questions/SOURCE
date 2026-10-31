@@ -1,0 +1,5 @@
+repository: wix/universal-scheduling-protocol
+commit: c9370e24d9f5062887c8cec4f3c11857084f180f
+usp_version: 2026-08-20
+path: tests/vectors/{wire,eval,fixtures,flow}/bq-*.json
+rule: vectors are copied byte for byte, never edited. Re-vendor to change them.

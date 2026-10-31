@@ -1,0 +1,55 @@
+{
+  "id": "bq-schema-date-time",
+  "section": "11.4.3",
+  "requirement": "date-time-needs-offset",
+  "kind": "wire",
+  "binding": [
+    "rest",
+    "mcp"
+  ],
+  "expect": "accept",
+  "schema": "booking_questions.json#/$defs/BookingQuestion",
+  "notes": "A date-time answer is an instant, so it needs a UTC offset (Section 1.1).",
+  "case": "drop-off time",
+  "instance": {
+    "kind": "question",
+    "id": "drop_off",
+    "label": {
+      "plain": "Drop-off time"
+    },
+    "schema": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "required": true
+  },
+  "then": {
+    "conforming": true,
+    "schema_valid": true,
+    "member_name_violations": []
+  },
+  "answer_cases": [
+    {
+      "value": "2026-10-25T14:30:00-04:00",
+      "valid": true
+    },
+    {
+      "value": "2026-10-25T18:30:00Z",
+      "valid": true
+    },
+    {
+      "value": "2026-10-25T14:30:00",
+      "valid": false,
+      "errors": [
+        "format"
+      ]
+    }
+  ],
+  "wrong_answers": [
+    {
+      "behaviour": "assume the business time zone for a bare local time",
+      "violates": "1.1 Conventions",
+      "why": "A floating time is ambiguous across a DST transition."
+    }
+  ]
+}

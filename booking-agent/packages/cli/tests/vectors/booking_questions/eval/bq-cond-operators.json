@@ -1,0 +1,363 @@
+{
+  "id": "bq-cond-operators",
+  "section": "11.4.3",
+  "requirement": "condition-operators",
+  "kind": "eval",
+  "notes": "Each leaf operation in a true and a false case. Ordered comparisons on date-time compare instants: 2026-11-01T13:00:00Z equals 09:00 at -04:00, so lte is true, and one second later it is false. time compares wall-clock values.",
+  "given": {
+    "set": {
+      "id": "ops",
+      "revision": "r1",
+      "purpose": "intake",
+      "completion_timing": "before_confirmation",
+      "frequency": "every_booking",
+      "items": [
+        {
+          "kind": "question",
+          "id": "count",
+          "label": {
+            "plain": "How many?"
+          },
+          "schema": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "required": true
+        },
+        {
+          "kind": "question",
+          "id": "color",
+          "label": {
+            "plain": "Color"
+          },
+          "schema": {
+            "type": "string",
+            "oneOf": [
+              {
+                "const": "red",
+                "title": "Red"
+              },
+              {
+                "const": "blue",
+                "title": "Blue"
+              },
+              {
+                "const": "green",
+                "title": "Green"
+              }
+            ]
+          },
+          "required": true
+        },
+        {
+          "kind": "question",
+          "id": "allergens",
+          "label": {
+            "plain": "Allergens"
+          },
+          "schema": {
+            "type": "array",
+            "items": {
+              "anyOf": [
+                {
+                  "const": "nuts",
+                  "title": "Nuts"
+                },
+                {
+                  "const": "dairy",
+                  "title": "Dairy"
+                }
+              ]
+            },
+            "uniqueItems": true
+          },
+          "required": true
+        },
+        {
+          "kind": "question",
+          "id": "note",
+          "label": {
+            "plain": "Note"
+          },
+          "schema": {
+            "type": "string",
+            "maxLength": 100
+          },
+          "required": false
+        },
+        {
+          "kind": "question",
+          "id": "visit_date",
+          "label": {
+            "plain": "Visit date"
+          },
+          "schema": {
+            "type": "string",
+            "format": "date"
+          },
+          "required": true
+        },
+        {
+          "kind": "question",
+          "id": "arrival",
+          "label": {
+            "plain": "Arrival time"
+          },
+          "schema": {
+            "type": "string",
+            "format": "time"
+          },
+          "required": true
+        },
+        {
+          "kind": "question",
+          "id": "starts_at",
+          "label": {
+            "plain": "Start"
+          },
+          "schema": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "required": true
+        },
+        {
+          "kind": "question",
+          "id": "d_equals",
+          "label": {
+            "plain": "equals"
+          },
+          "schema": {
+            "type": "string",
+            "maxLength": 10
+          },
+          "required": false,
+          "when": {
+            "question": "color",
+            "op": "equals",
+            "value": "red"
+          }
+        },
+        {
+          "kind": "question",
+          "id": "d_in",
+          "label": {
+            "plain": "in"
+          },
+          "schema": {
+            "type": "string",
+            "maxLength": 10
+          },
+          "required": false,
+          "when": {
+            "question": "color",
+            "op": "in",
+            "value": [
+              "red",
+              "blue"
+            ]
+          }
+        },
+        {
+          "kind": "question",
+          "id": "d_contains",
+          "label": {
+            "plain": "contains"
+          },
+          "schema": {
+            "type": "string",
+            "maxLength": 10
+          },
+          "required": false,
+          "when": {
+            "question": "allergens",
+            "op": "contains",
+            "value": "nuts"
+          }
+        },
+        {
+          "kind": "question",
+          "id": "d_answered",
+          "label": {
+            "plain": "answered"
+          },
+          "schema": {
+            "type": "string",
+            "maxLength": 10
+          },
+          "required": false,
+          "when": {
+            "question": "note",
+            "op": "answered"
+          }
+        },
+        {
+          "kind": "question",
+          "id": "d_gt",
+          "label": {
+            "plain": "gt"
+          },
+          "schema": {
+            "type": "string",
+            "maxLength": 10
+          },
+          "required": false,
+          "when": {
+            "question": "count",
+            "op": "gt",
+            "value": 2
+          }
+        },
+        {
+          "kind": "question",
+          "id": "d_gte",
+          "label": {
+            "plain": "gte"
+          },
+          "schema": {
+            "type": "string",
+            "maxLength": 10
+          },
+          "required": false,
+          "when": {
+            "question": "visit_date",
+            "op": "gte",
+            "value": "2026-11-01"
+          }
+        },
+        {
+          "kind": "question",
+          "id": "d_lt",
+          "label": {
+            "plain": "lt"
+          },
+          "schema": {
+            "type": "string",
+            "maxLength": 10
+          },
+          "required": false,
+          "when": {
+            "question": "arrival",
+            "op": "lt",
+            "value": "12:00"
+          }
+        },
+        {
+          "kind": "question",
+          "id": "d_lte",
+          "label": {
+            "plain": "lte"
+          },
+          "schema": {
+            "type": "string",
+            "maxLength": 10
+          },
+          "required": false,
+          "when": {
+            "question": "starts_at",
+            "op": "lte",
+            "value": "2026-11-01T09:00:00-04:00"
+          }
+        }
+      ]
+    }
+  },
+  "cases": [
+    {
+      "case": "every operation true",
+      "answers": {
+        "count": 3,
+        "color": "red",
+        "allergens": [
+          "nuts"
+        ],
+        "note": "hi",
+        "visit_date": "2026-11-01",
+        "arrival": "11:59",
+        "starts_at": "2026-11-01T13:00:00Z"
+      },
+      "then": {
+        "definition_valid": true,
+        "applicable": [
+          "count",
+          "color",
+          "allergens",
+          "note",
+          "visit_date",
+          "arrival",
+          "starts_at",
+          "d_equals",
+          "d_in",
+          "d_contains",
+          "d_answered",
+          "d_gt",
+          "d_gte",
+          "d_lt",
+          "d_lte"
+        ],
+        "required_unanswered": [],
+        "pruned": []
+      }
+    },
+    {
+      "case": "every operation false",
+      "answers": {
+        "count": 2,
+        "color": "green",
+        "allergens": [
+          "dairy"
+        ],
+        "visit_date": "2026-10-31",
+        "arrival": "12:00",
+        "starts_at": "2026-11-01T13:00:01Z"
+      },
+      "then": {
+        "definition_valid": true,
+        "applicable": [
+          "count",
+          "color",
+          "allergens",
+          "note",
+          "visit_date",
+          "arrival",
+          "starts_at"
+        ],
+        "required_unanswered": [],
+        "pruned": []
+      }
+    },
+    {
+      "case": "in true while equals false",
+      "answers": {
+        "count": 0,
+        "color": "blue",
+        "allergens": [],
+        "visit_date": "2026-01-01",
+        "arrival": "13:00",
+        "starts_at": "2026-12-01T00:00:00Z"
+      },
+      "then": {
+        "definition_valid": true,
+        "applicable": [
+          "count",
+          "color",
+          "allergens",
+          "note",
+          "visit_date",
+          "arrival",
+          "starts_at",
+          "d_in"
+        ],
+        "required_unanswered": [],
+        "pruned": []
+      }
+    }
+  ],
+  "wrong_answers": [
+    {
+      "behaviour": "compare date-time values as strings",
+      "violates": "11.4.3 Conditions item 4",
+      "why": "Lexical order of strings with different offsets is not instant order."
+    }
+  ]
+}

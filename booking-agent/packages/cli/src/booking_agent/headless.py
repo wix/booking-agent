@@ -360,6 +360,7 @@ async def query_availability_with_quirk(
     *,
     timezone_str: Optional[str] = None,
     single_day_retry_days: int = 7,
+    **booking_questions: Any,
 ) -> List[TimeSlot]:
     """Query availability, widening an empty single-day window once.
 
@@ -368,7 +369,7 @@ async def query_availability_with_quirk(
     the slots that fall on that date.
     """
     slots = await backend.query_availability(
-        profile, service_id, start_date, end_date, timezone_str
+        profile, service_id, start_date, end_date, timezone_str, **booking_questions
     )
     if slots:
         return slots
@@ -398,7 +399,7 @@ async def query_availability_with_quirk(
         service_id, target_date, single_day_retry_days,
     )
     wide = await backend.query_availability(
-        profile, service_id, start_date, retry_end, timezone_str
+        profile, service_id, start_date, retry_end, timezone_str, **booking_questions
     )
     if date_only:
         applied = _valid_zone(getattr(wide, "applied_date_bounds_timezone", None))

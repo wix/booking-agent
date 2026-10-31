@@ -15,6 +15,7 @@ from booking_agent.http_retry import with_http_retry
 from booking_agent.http_trace import traced_async_client
 from booking_agent.rest_client import BookingRequestError
 
+from . import booking_questions_flow as bq_flow
 from .link_cli import retrieve_spend_request
 from .output import write_spend_approval_notice
 from .payment_token import shared_payment_token_source
@@ -93,9 +94,19 @@ async def _create_booking_via_ucp_checkout(
     service_id: str,
     notes: Optional[str],
     delivery_address: Optional[Dict[str, Any]] = None,
+    *,
+    reuse_checkout_id: Optional[str] = None,
+    update_checkout_id: Optional[str] = None,
 ) -> Tuple[Any, BookingRef, str]:
+    """Create the checkout, or read *reuse_checkout_id* back when it is still open.
+
+    A create sends ``session.checkout_create_idempotency_key`` when one is saved, so a
+    retry after a lost response repeats the same key. *update_checkout_id* replaces
+    that open checkout's state instead (UCP Update), resending every answer.
+    """
     from booking_agent.config import load_config
     from booking_agent.ucp_checkout import (
+        MandatoryAcceptancePending,
         build_paid_bookings_create_body,
         build_ucp_checkout_client,
     )
@@ -121,12 +132,11 @@ async def _create_booking_via_ucp_checkout(
     platform_supported = intersect_ucp_capabilities(plat_doc, bus_doc)
     if getattr(session, "payment_route", None) == "pay_at_service":
         _require_pay_at_service_declared(platform_supported)
+    _record_ucp_booking_questions(session, platform_supported, bus_doc)
 
     profile = await backend.resolve_profile(biz_url)
     service = await backend.get_service(profile, service_id)
-    from .catalog import authoritative_amount_minor_units_for_session
-
-    amount_info = authoritative_amount_minor_units_for_session(session)
+    amount_info = _catalog_amount_info(session)
     line_item_amount = amount_info.get("amount_minor_units")
     slot_start, slot_end, slot_duration, slot_price = _slot_window(session)
     parts = (session.buyer.name or "Buyer").split(" ", 1)
@@ -151,20 +161,47 @@ async def _create_booking_via_ucp_checkout(
         line_item_amount_minor=line_item_amount,
         notes=notes,
         delivery_address=delivery_address,
+        booking_extras=booking_extensions(
+            session, surface="paid_bookings", action=update_checkout_id is not None,
+        ),
+        buyer_extras=bq_flow.buyer_overrides(session) if bq_flow.is_active(session, "paid_bookings") else None,
     )
     client = build_ucp_checkout_client(
         session.ucp_checkout_rest_base,
         platform_profile_url=plat_url,
         ucp_version_header=ver,
     )
-    checkout = await client.create_checkout(body)
-    checkout_id = _attach_ucp_checkout_handles(session, checkout)
     from .session import save_session
 
+    checkout = None
+    if update_checkout_id:
+        checkout = await client.update_checkout(update_checkout_id, body)
+        reuse_checkout_id = update_checkout_id
+    elif reuse_checkout_id:
+        checkout = await _read_open_checkout(session, client, reuse_checkout_id)
+        if checkout is None:
+            from .session import clear_prepared_checkout
+
+            fingerprint = session.prepared_checkout_fingerprint
+            clear_prepared_checkout(session)
+            session.prepared_checkout_fingerprint = fingerprint
+            session.checkout_create_idempotency_key = str(uuid.uuid4())
+            save_session(session)
+    reused = checkout is not None
+    if checkout is None:
+        checkout = await client.create_checkout(
+            body, idempotency_key=session.checkout_create_idempotency_key,
+        )
+    checkout_id = _attach_ucp_checkout_handles(session, checkout)
+    if session.recipient:
+        echoed = checkout.get("booking") if isinstance(checkout.get("booking"), dict) else {}
+        session.recipient["echoed"] = bool(echoed.get("recipient"))
     save_session(session)
     try:
-        _persist_checkout_issued_credential(session, client, checkout)
-        save_session(session)
+        _record_checkout_booking_questions(session, checkout, checkout_id)
+        if not reused:
+            _persist_checkout_issued_credential(session, client, checkout)
+            save_session(session)
         return await _finalize_ucp_checkout_create(
             session,
             client,
@@ -174,9 +211,62 @@ async def _create_booking_via_ucp_checkout(
             negotiated_version=ver,
             expected_amount_minor=amount_info.get("amount_minor_units"),
         )
+    except MandatoryAcceptancePending:
+        # The user finishes the business's own step on its page; the next buyer
+        # resolve reads this checkout back instead of creating another one.
+        raise
     except Exception:
         await _compensate_rejected_ucp_checkout(session, client, checkout_id)
         raise
+
+
+def _catalog_amount_info(session: Session) -> Dict[str, Any]:
+    """The quoted price before any checkout, even when an earlier checkout is saved."""
+    import copy
+
+    from .catalog import authoritative_amount_minor_units_for_session
+
+    quoted = copy.copy(session)
+    quoted.booking = BookingRef()
+    quoted.due_now_amount_minor = None
+    quoted.ucp_checkout_amount_minor = None
+    quoted.ucp_merchant_quote = None
+    return authoritative_amount_minor_units_for_session(quoted)
+
+
+_GONE_CHECKOUT_STATUSES = frozenset({"canceled", "expired"})
+
+
+async def _read_open_checkout(
+    session: Session, client: Any, checkout_id: str,
+) -> Optional[Dict[str, Any]]:
+    """The saved checkout when the business still holds it open, else None."""
+    from booking_agent.ucp_checkout import UcpCheckoutHttpError
+
+    try:
+        checkout = await client.get_checkout(
+            checkout_id, credential=_checkout_presentation_credential(session),
+        )
+    except UcpCheckoutHttpError as e:
+        if e.status in (404, 410):
+            return None
+        raise
+    status = checkout.get("status")
+    if status in _GONE_CHECKOUT_STATUSES or checkout_expired(session.prepared_checkout_expires_at):
+        return None
+    if status == "completed":
+        raise RuntimeError(
+            "The prepared checkout was already completed at the business, so it cannot be "
+            "reused for a new confirmation."
+        )
+    return checkout
+
+
+def checkout_expired(expires_at: Optional[str], *, margin_sec: int = CHECKOUT_SAFETY_MARGIN_SEC) -> bool:
+    expires = parse_expires_at(expires_at)
+    if expires is None:
+        return False
+    return expires.timestamp() - margin_sec <= datetime.now(timezone.utc).timestamp()
 
 
 def _require_pay_at_service_declared(negotiated: Dict[str, Any]) -> None:
@@ -334,6 +424,7 @@ async def _finalize_ucp_checkout_create(
     expected_amount_minor: Optional[int],
 ) -> Tuple[Any, BookingRef, str]:
     from booking_agent.ucp_checkout import (
+        checkout_expires_at,
         extract_merchant_quote,
         extract_spt_handler_config_from_checkout,
         checkout_line_item_price_minor_units,
@@ -348,6 +439,7 @@ async def _finalize_ucp_checkout_create(
         version_from_checkout_response,
     )
 
+    session.prepared_checkout_expires_at = checkout_expires_at(checkout)
     validate_create_checkout_ready(checkout)
     session.ucp_merchant_quote = extract_merchant_quote(checkout)
     links = checkout.get("links")
@@ -490,6 +582,323 @@ def _booking_idempotency_key(session: Session, fingerprint: str) -> str:
     return str(uuid.uuid4())
 
 
+class CheckoutCleanupUnverified(RuntimeError):
+    """A checkout the user did not complete could not be confirmed as canceled."""
+
+    def __init__(self, message: str, *, checkout_id: Optional[str], outcome: str) -> None:
+        super().__init__(message)
+        self.checkout_id = checkout_id
+        self.outcome = outcome
+
+
+def prepared_checkout_fingerprint(
+    session: Session,
+    service_id: str,
+    notes: Optional[str],
+    delivery_address: Optional[Dict[str, Any]],
+) -> str:
+    """A digest of everything a prepared checkout was created for."""
+    from .gates import digest
+
+    buyer = session.buyer
+    return digest({
+        "business": session.business.profile_url,
+        "service_id": service_id,
+        "slot_id": session.slot_id,
+        "route": session.payment_route,
+        "buyer": [buyer.name, buyer.email, buyer.phone],
+        "delivery_address": delivery_address,
+        "notes": notes,
+        **checkout_inputs_extra(session),
+    })
+
+
+def checkout_inputs_extra(session: Session) -> Dict[str, Any]:
+    """Inputs beyond the core booking fields that also shape the checkout body."""
+    extra: Dict[str, Any] = {}
+    if bq_flow.is_active(session):
+        extra["booking_questions"] = bq_flow.submissions_digest(session)
+        extra["assessment_token"] = bq_flow.valid_token(session)
+        extra["buyer_overrides"] = sorted(bq_flow.buyer_overrides(session).items()) or None
+    if session.recipient:
+        extra["recipient"] = recipient_payload(session)
+    return {k: v for k, v in extra.items() if v}
+
+
+def recipient_payload(session: Session) -> Optional[Dict[str, Any]]:
+    """The USP ``recipient`` (Buyer shape) from what the user typed, or None."""
+    r = session.recipient or {}
+    if not r.get("first_name"):
+        return None
+    out = {"first_name": r["first_name"], "last_name": r.get("last_name") or ""}
+    for key in ("email", "phone_number"):
+        if r.get(key):
+            out[key] = r[key]
+    return out
+
+
+def booking_extensions(session: Session, *, surface: str, action: bool = False) -> Dict[str, Any]:
+    """Request members beyond the core booking: ``recipient`` and booking-questions fields."""
+    out: Dict[str, Any] = {}
+    recipient = recipient_payload(session)
+    if recipient:
+        out["recipient"] = recipient
+    out.update(bq_flow.request_fields(session, surface=surface, action=action))
+    return out
+
+
+def _record_checkout_booking_questions(
+    session: Session, checkout: Dict[str, Any], checkout_id: Optional[str],
+) -> None:
+    """Keep the business's set state and any buyer-input Action from a checkout response."""
+    from booking_agent.namespace import ACTION_BOOKING_QUESTIONS_BUYER_INPUT
+
+    from booking_agent.booking_questions import OUTCOME_CODES
+    from booking_agent.rest_client import BookingQuestionsRejected
+
+    if not bq_flow.is_active(session, "paid_bookings"):
+        return
+    outcomes = [
+        m for m in checkout.get("messages") or []
+        if isinstance(m, dict) and m.get("type") == "error" and m.get("code") in OUTCOME_CODES
+    ]
+    if outcomes:
+        raise BookingQuestionsRejected(outcomes)
+    booking = checkout.get("booking") if isinstance(checkout.get("booking"), dict) else {}
+    bq_flow.record_business_state(session, booking.get("booking_question_state"))
+    actions = checkout.get("actions") if isinstance(checkout.get("actions"), dict) else {}
+    bq_flow.record_action(
+        session, actions.get(ACTION_BOOKING_QUESTIONS_BUYER_INPUT),
+        surface="paid_bookings", booking_id=checkout_id,
+    )
+
+
+def _record_ucp_booking_questions(
+    session: Session, intersection: Dict[str, Any], business_doc: Dict[str, Any],
+) -> None:
+    from booking_agent.booking_questions_negotiation import ucp_active_surfaces
+
+    active = ucp_active_surfaces(intersection, business_doc)
+    st = bq_flow.state(session)
+    if not st.get("surfaces"):
+        return
+    current = set(st["surfaces"])
+    if "paid_bookings" in active:
+        current.add("paid_bookings")
+    else:
+        current.discard("paid_bookings")
+    st["surfaces"] = sorted(current)
+
+
+def approval_snapshot(session: Session) -> Dict[str, Any]:
+    """The business's checkout terms the summary shows, in minor units and plain text."""
+    from .booking_summary import collect_provider_policies
+
+    quote = session.ucp_merchant_quote if isinstance(session.ucp_merchant_quote, dict) else {}
+    total = quote.get("total_minor_units")
+    if total is None:
+        total = session.ucp_checkout_amount_minor
+    due_now = session.due_now_amount_minor
+    balance = None
+    if total is not None and due_now is not None:
+        balance = max(0, int(total) - int(due_now))
+    schedules = []
+    for schedule in session.payment_schedules or []:
+        if not isinstance(schedule, dict):
+            continue
+        description = schedule.get("description")
+        schedules.append({
+            "type": schedule.get("type"),
+            "amount_minor_units": schedule.get("amount"),
+            "due_at": schedule.get("due_at"),
+            "text": description.get("plain") if isinstance(description, dict) else None,
+        })
+    policies = collect_provider_policies(session)
+    return {
+        "route": session.payment_route,
+        "currency": quote.get("currency"),
+        "line_item_minor_units": quote.get("line_item_price_minor_units"),
+        "subtotal_minor_units": quote.get("subtotal_minor_units"),
+        "tax_minor_units": quote.get("tax_minor_units"),
+        "total_minor_units": total,
+        "due_now_minor_units": due_now,
+        "balance_minor_units": balance,
+        "schedules": schedules,
+        "policy_lines": list(policies["lines"]),
+        "policy_links": list(policies["links"]),
+    }
+
+
+def snapshot_digest(snapshot: Optional[Dict[str, Any]]) -> Optional[str]:
+    from .gates import digest
+
+    return digest({"snapshot": snapshot}) if snapshot else None
+
+
+async def prepare_ucp_checkout_async(
+    session: Session,
+    service_id: str,
+    notes: Optional[str],
+    delivery_address: Optional[Dict[str, Any]] = None,
+    *,
+    submit_action: bool = False,
+) -> Tuple[Any, BookingRef, str]:
+    """Create the checkout for the summary, or reuse the one already made for the same inputs.
+
+    Inputs that changed cancel the old checkout first (confirmed, or
+    ``CheckoutCleanupUnverified``). The create key is saved before the request.
+    ``submit_action`` sends the buyer's answer to the checkout's buyer-input Action
+    as an update of that same checkout.
+    """
+    from dataclasses import replace
+
+    from .session import has_open_prepared_checkout, save_session
+
+    fingerprint = prepared_checkout_fingerprint(session, service_id, notes, delivery_address)
+    reuse_id = None
+    update_id = None
+    if submit_action and has_open_prepared_checkout(session):
+        update_id = session.ucp_checkout_session_id
+        session.prepared_checkout_fingerprint = fingerprint
+        save_session(session)
+    elif session.prepared_checkout_fingerprint == fingerprint and not session.prepared_checkout_consumed:
+        reuse_id = session.ucp_checkout_session_id
+    elif has_open_prepared_checkout(session):
+        await abandon_checkout_async(session, reason="booking_details_changed")
+    if reuse_id is None and update_id is None:
+        if (
+            session.prepared_checkout_fingerprint != fingerprint
+            or not session.checkout_create_idempotency_key
+        ):
+            session.checkout_create_idempotency_key = str(uuid.uuid4())
+        session.prepared_checkout_fingerprint = fingerprint
+        session.prepared_checkout_consumed = False
+        save_session(session)
+    try:
+        booking_obj, ref, path = await _create_booking_via_ucp_checkout(
+            session, service_id, notes, delivery_address=delivery_address,
+            reuse_checkout_id=reuse_id,
+            **({"update_checkout_id": update_id} if update_id else {}),
+        )
+    finally:
+        if session.booking.id:
+            session.prepared_booking_id = session.booking.id
+            session.booking.id = None
+            save_session(session)
+    session.prepared_booking_id = ref.id
+    session.booking = replace(ref, id=None)
+    session.prepared_checkout_snapshot = approval_snapshot(session)
+    session.prepared_checkout_digest = snapshot_digest(session.prepared_checkout_snapshot)
+    save_session(session)
+    return booking_obj, ref, path
+
+
+def take_prepared_checkout(session: Session, booking_ref: BookingRef) -> None:
+    """Hand the prepared checkout to the pay steps with the user's yes already recorded."""
+    booking_ref.id = booking_ref.id or session.prepared_booking_id
+    apply_booking_to_session(session, booking_ref, "ucp")
+    session.prepared_booking_id = None
+    session.prepared_checkout_consumed = True
+    session.disclosures_user_confirmed = True
+    if session.ucp_checkout_amount_minor is not None:
+        session.total_confirmed_amount_minor = int(session.ucp_checkout_amount_minor)
+
+
+def _record_abandonment(
+    session: Session, *, checkout_id: Optional[str], reason: str, outcome: str,
+    status: Optional[str] = None,
+) -> Dict[str, Any]:
+    from .session import save_session
+
+    record = {
+        "checkout_id": checkout_id,
+        "reason": reason,
+        "outcome": outcome,
+        "status": status,
+        "at": datetime.now(timezone.utc).isoformat(),
+    }
+    session.checkout_abandonment = record
+    save_session(session)
+    return record
+
+
+async def abandon_checkout_async(session: Session, reason: str) -> Dict[str, Any]:
+    """Cancel a checkout the user did not complete, and only report it released when it is.
+
+    ``outcome`` is ``released`` when the business answered ``status: canceled``, ``not_found``
+    when it no longer has the checkout, and ``none`` when there was nothing to cancel. Local
+    checkout state is cleared only for those. Anything else raises
+    ``CheckoutCleanupUnverified`` and keeps local state, so the cancel can be retried.
+    """
+    from booking_agent.ucp_checkout import UcpCheckoutHttpError
+
+    from .session import clear_prepared_checkout, save_session
+
+    checkout_id = session.ucp_checkout_session_id
+    if not checkout_id or not session.ucp_checkout_rest_base:
+        return {"checkout_id": None, "reason": reason, "outcome": "none", "status": None}
+
+    def _closed(outcome: str, status: Optional[str] = None) -> Dict[str, Any]:
+        record = _record_abandonment(
+            session, checkout_id=checkout_id, reason=reason, outcome=outcome, status=status,
+        )
+        clear_prepared_checkout(session)
+        save_session(session)
+        return record
+
+    try:
+        response = await _cancel_checkout_for_abandonment(session)
+    except UcpCheckoutHttpError as e:
+        if e.status in (404, 410):
+            return _closed("not_found")
+        closed = await _closed_checkout_status(session)
+        if closed is not None:
+            return _closed("already_closed", closed)
+        _record_abandonment(
+            session, checkout_id=checkout_id, reason=reason, outcome="failed",
+            status=f"http_{e.status}",
+        )
+        raise CheckoutCleanupUnverified(
+            f"The business did not confirm the checkout was canceled (HTTP {e.status}).",
+            checkout_id=checkout_id, outcome="failed",
+        ) from e
+    except Exception as e:
+        _record_abandonment(session, checkout_id=checkout_id, reason=reason, outcome="failed")
+        raise CheckoutCleanupUnverified(
+            f"The checkout cancel could not be confirmed ({_safe_cancel_error(e)}).",
+            checkout_id=checkout_id, outcome="failed",
+        ) from e
+    status = response.get("status") if isinstance(response, dict) else None
+    if status == "canceled":
+        return _closed("released", status)
+    if status == "expired":
+        return _closed("already_closed", status)
+    outcome = "already_completed" if status == "completed" else "unconfirmed"
+    _record_abandonment(
+        session, checkout_id=checkout_id, reason=reason, outcome=outcome, status=status,
+    )
+    raise CheckoutCleanupUnverified(
+        "The business completed this checkout, so it was not released."
+        if outcome == "already_completed"
+        else f"The business answered the cancel with status {status!r}, not 'canceled'.",
+        checkout_id=checkout_id, outcome=outcome,
+    )
+
+
+async def _cancel_checkout_for_abandonment(session: Session) -> Dict[str, Any]:
+    return await cancel_ucp_checkout_async(session)
+
+
+async def _closed_checkout_status(session: Session) -> Optional[str]:
+    """``canceled`` or ``expired`` when the business already closed the checkout, else None."""
+    try:
+        checkout = await get_ucp_checkout_async(session)
+    except Exception:
+        return None
+    status = checkout.get("status") if isinstance(checkout, dict) else None
+    return status if status in _GONE_CHECKOUT_STATUSES else None
+
+
 async def create_booking_async(
     session: Session,
     service_id: str,
@@ -521,8 +930,12 @@ async def create_booking_async(
     }
     if session.buyer.phone:
         buyer["phone_number"] = session.buyer.phone
+    if bq_flow.is_active(session, "bookings"):
+        buyer.update({k: v for k, v in bq_flow.buyer_overrides(session).items() if v})
+    extensions = booking_extensions(session, surface="bookings")
     fingerprint = booking_attempt_fingerprint(
-        service_id, session.slot_id, buyer, delivery_address, notes
+        service_id, session.slot_id, buyer, delivery_address,
+        notes if not extensions else json.dumps([notes, extensions], sort_keys=True),
     )
     idempotency_key = _booking_idempotency_key(session, fingerprint)
     try:
@@ -535,6 +948,7 @@ async def create_booking_async(
             notes=notes,
             delivery_address=delivery_address,
             idempotency_key=idempotency_key,
+            **extensions,
         )
     except BookingRequestError as e:
         session.pending_booking_attempt = (
@@ -551,6 +965,8 @@ async def create_booking_async(
         session.pending_booking_attempt = None
         raise
     session.pending_booking_attempt = None
+    if session.recipient:
+        session.recipient["echoed"] = bool(getattr(booking_obj, "recipient", None))
 
     checkout_path = "none"
     ref = BookingRef(
@@ -891,6 +1307,26 @@ def create_booking_sync(
             retry_command=retry_command,
         )
     )
+
+
+def prepare_ucp_checkout_sync(
+    session: Session,
+    service_id: str,
+    notes: Optional[str] = None,
+    delivery_address: Optional[Dict[str, Any]] = None,
+    *,
+    submit_action: bool = False,
+) -> Tuple[Any, BookingRef, str]:
+    return asyncio.run(
+        prepare_ucp_checkout_async(
+            session, service_id, notes, delivery_address=delivery_address,
+            submit_action=submit_action,
+        )
+    )
+
+
+def abandon_checkout_sync(session: Session, reason: str) -> Dict[str, Any]:
+    return asyncio.run(abandon_checkout_async(session, reason))
 
 
 def apply_booking_to_session(

@@ -1,0 +1,198 @@
+{
+  "id": "bq-flow-update-states",
+  "section": "5.3.3",
+  "requirement": "booking-question-update-permission",
+  "kind": "flow",
+  "expect": "accept",
+  "notes": "The update-permission table row by row: pending and requires_action accept any applicable set; confirmed accepts before_service sets and MAY reject an edit to a completed before_confirmation set.",
+  "given": {
+    "service": {
+      "id": "svc_cut_45",
+      "type": "appointment",
+      "booking_question_sets": [
+        {
+          "id": "intake",
+          "revision": "r1",
+          "purpose": "intake",
+          "completion_timing": "before_confirmation",
+          "frequency": "every_booking",
+          "items": [
+            {
+              "kind": "question",
+              "id": "hair_notes",
+              "label": {
+                "plain": "Anything the stylist should know?"
+              },
+              "schema": {
+                "type": "string",
+                "maxLength": 500
+              },
+              "required": true
+            },
+            {
+              "kind": "question",
+              "id": "hair_length",
+              "label": {
+                "plain": "Hair length"
+              },
+              "schema": {
+                "type": "string",
+                "oneOf": [
+                  {
+                    "const": "short",
+                    "title": "Short"
+                  },
+                  {
+                    "const": "medium",
+                    "title": "Medium"
+                  },
+                  {
+                    "const": "long",
+                    "title": "Long"
+                  }
+                ]
+              },
+              "required": true
+            }
+          ]
+        },
+        {
+          "id": "prep",
+          "revision": "r1",
+          "purpose": "intake",
+          "completion_timing": "before_service",
+          "frequency": "every_booking",
+          "items": [
+            {
+              "kind": "question",
+              "id": "allergies_detail",
+              "label": {
+                "plain": "Anything we should prepare for?"
+              },
+              "schema": {
+                "type": "string",
+                "maxLength": 300
+              },
+              "required": true
+            }
+          ]
+        }
+      ]
+    },
+    "booking": {
+      "id": "bkg_bq_1"
+    }
+  },
+  "when": [
+    {
+      "at": "2026-10-25T10:00:00Z",
+      "step": "update_booking",
+      "with": {
+        "booking_id": "bkg_bq_1",
+        "booking_question_submissions": [
+          {
+            "set_id": "intake",
+            "revision": "r1",
+            "answers": {
+              "hair_notes": "Fine hair, sensitive scalp",
+              "hair_length": "medium"
+            }
+          }
+        ]
+      },
+      "booking_status": "pending",
+      "result": {
+        "accepted": true,
+        "messages": []
+      }
+    },
+    {
+      "at": "2026-10-25T10:01:00Z",
+      "step": "update_booking",
+      "with": {
+        "booking_id": "bkg_bq_1",
+        "booking_question_submissions": [
+          {
+            "set_id": "intake",
+            "revision": "r1",
+            "answers": {
+              "hair_notes": "Fine hair, sensitive scalp",
+              "hair_length": "medium"
+            }
+          }
+        ]
+      },
+      "booking_status": "requires_action",
+      "result": {
+        "accepted": true,
+        "messages": []
+      }
+    },
+    {
+      "at": "2026-10-25T10:02:00Z",
+      "step": "update_booking",
+      "with": {
+        "booking_id": "bkg_bq_1",
+        "booking_question_submissions": [
+          {
+            "set_id": "prep",
+            "revision": "r1",
+            "answers": {
+              "allergies_detail": "None"
+            }
+          }
+        ]
+      },
+      "booking_status": "confirmed",
+      "result": {
+        "accepted": true,
+        "messages": []
+      }
+    },
+    {
+      "at": "2026-10-25T10:03:00Z",
+      "step": "update_booking",
+      "with": {
+        "booking_id": "bkg_bq_1",
+        "booking_question_submissions": [
+          {
+            "set_id": "intake",
+            "revision": "r1",
+            "answers": {
+              "hair_notes": "Fine hair, sensitive scalp",
+              "hair_length": "long"
+            }
+          }
+        ]
+      },
+      "booking_status": "confirmed",
+      "result": {
+        "accepted": false,
+        "messages": [
+          {
+            "type": "error",
+            "code": "booking_question_update_not_allowed",
+            "content": "Answers can no longer be changed for this booking.",
+            "severity": "recoverable"
+          }
+        ],
+        "permitted_by": "MAY"
+      }
+    }
+  ],
+  "then": {
+    "http_status": 200,
+    "rows_checked": [
+      "pending",
+      "requires_action",
+      "confirmed"
+    ]
+  },
+  "wrong_answers": [
+    {
+      "behaviour": "reject before_service answers on a confirmed booking",
+      "violates": "5.3.3 update permission table",
+      "why": "before_service sets exist precisely to be completed after confirmation."
+    }
+  ]
+}

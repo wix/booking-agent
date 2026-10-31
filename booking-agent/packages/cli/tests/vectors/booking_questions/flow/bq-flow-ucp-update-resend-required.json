@@ -1,0 +1,140 @@
+{
+  "id": "bq-flow-ucp-update-resend-required",
+  "section": "11.4.5",
+  "requirement": "ucp-update-resend",
+  "kind": "flow",
+  "expect": "accept",
+  "notes": "Update Checkout replaces the whole body. An Update that omits the intake submission sent on Create is treated as unanswered, unless the business's own session state already recorded that set complete for this checkout.",
+  "given": {
+    "service": {
+      "id": "svc_cut_45",
+      "type": "appointment",
+      "booking_question_sets": [
+        {
+          "id": "intake",
+          "revision": "r1",
+          "purpose": "intake",
+          "completion_timing": "before_confirmation",
+          "frequency": "every_booking",
+          "items": [
+            {
+              "kind": "question",
+              "id": "hair_notes",
+              "label": {
+                "plain": "Anything the stylist should know?"
+              },
+              "schema": {
+                "type": "string",
+                "maxLength": 500
+              },
+              "required": true
+            },
+            {
+              "kind": "question",
+              "id": "hair_length",
+              "label": {
+                "plain": "Hair length"
+              },
+              "schema": {
+                "type": "string",
+                "oneOf": [
+                  {
+                    "const": "short",
+                    "title": "Short"
+                  },
+                  {
+                    "const": "medium",
+                    "title": "Medium"
+                  },
+                  {
+                    "const": "long",
+                    "title": "Long"
+                  }
+                ]
+              },
+              "required": true
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "when": [
+    {
+      "at": "2026-10-25T10:00:00Z",
+      "step": "create_checkout",
+      "with": {
+        "booking": {
+          "service_id": "svc_cut_45",
+          "slot": {
+            "id": "slot_20261028_1000"
+          },
+          "booking_question_submissions": [
+            {
+              "set_id": "intake",
+              "revision": "r1",
+              "answers": {
+                "hair_notes": "Fine hair, sensitive scalp",
+                "hair_length": "medium"
+              }
+            }
+          ]
+        }
+      },
+      "result": {
+        "checkout_status": "ready_for_complete",
+        "messages": []
+      }
+    },
+    {
+      "at": "2026-10-25T10:01:00Z",
+      "step": "update_checkout",
+      "with": {
+        "booking": {
+          "service_id": "svc_cut_45",
+          "slot": {
+            "id": "slot_20261028_1000"
+          },
+          "notes": "Running 5 minutes late"
+        }
+      },
+      "result": {
+        "checkout_status": "incomplete",
+        "messages": [
+          {
+            "type": "error",
+            "code": "booking_question_answer_missing",
+            "content": "This answer is required.",
+            "severity": "recoverable",
+            "path": "$.booking.booking_question_submissions[?@.set_id=='intake'].answers['hair_notes']"
+          },
+          {
+            "type": "error",
+            "code": "booking_question_answer_missing",
+            "content": "This answer is required.",
+            "severity": "recoverable",
+            "path": "$.booking.booking_question_submissions[?@.set_id=='intake'].answers['hair_length']"
+          }
+        ]
+      }
+    }
+  ],
+  "then": {
+    "checkout_status": "incomplete",
+    "http_status": 200
+  },
+  "variants": [
+    {
+      "case": "business recorded the set complete for this checkout",
+      "checkout_status": "ready_for_complete",
+      "why": "Session state, not the omission, is what lets the business treat the set as satisfied."
+    }
+  ],
+  "wrong_answers": [
+    {
+      "behaviour": "keep the Create answers because the platform omitted them",
+      "violates": "11.4.5 UCP Update Checkout resend",
+      "why": "An omitted member in a full-replacement update means absent, and a later Update cannot tell a withdrawal from an omission."
+    }
+  ]
+}

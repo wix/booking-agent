@@ -48,6 +48,7 @@ from .pop import (
     usp_error_payload,
 )
 
+from .models.booking_questions import BookingEligibilityCheckResult
 from .models.wire import (
     AvailabilityResult,
     USPService,
@@ -112,6 +113,11 @@ def _booking_from_response(data: Dict[str, Any]) -> Booking:
             m for m in messages
             if isinstance(m, dict) and m.get("type") == "error"
         ]
+        from booking_agent.booking_questions import OUTCOME_CODES
+
+        outcomes = [m for m in error_entries if m.get("code") in OUTCOME_CODES]
+        if outcomes:
+            raise BookingQuestionsRejected(outcomes)
         if error_entries:
             code = error_entries[0].get("code") or "unknown_error"
             content = error_entries[0].get("content") or ""
@@ -160,6 +166,27 @@ def _booking_from_response(data: Dict[str, Any]) -> Booking:
             ],
         }
     return Booking.model_validate(raw)
+
+class BookingQuestionsRejected(Exception):
+    """The business refused a request over booking-question answers (Section 11.4.9).
+
+    A business outcome, carried with HTTP 200: nothing was created, and the platform
+    may correct the named answers and retry. Only code, path, severity and the
+    business's buyer-safe content are kept.
+    """
+
+    def __init__(self, messages: List[Dict[str, Any]]) -> None:
+        self.messages = [
+            {k: m.get(k) for k in ("code", "path", "severity", "content") if m.get(k) is not None}
+            for m in messages
+        ]
+        codes = ", ".join(sorted({m.get("code", "") for m in self.messages}))
+        super().__init__(f"The business needs changes to the booking answers ({codes}).")
+
+    @property
+    def codes(self) -> List[str]:
+        return [m.get("code", "") for m in self.messages]
+
 
 class BookingRequestError(Exception):
     """The business refused ``POST /bookings`` and named a machine-readable code.
@@ -983,6 +1010,7 @@ class USPBusinessRestClient(BaseUSPRestClient):
         location_id: Optional[str] = None,
         party_size: Optional[int] = None,
         resource_id: Optional[str] = None,
+        booking_question_assessment_token: Optional[str] = None,
     ) -> AvailabilityResult:
         body: Dict[str, Any] = {
             "service_id": service_id,
@@ -997,6 +1025,8 @@ class USPBusinessRestClient(BaseUSPRestClient):
             body["party_size"] = party_size
         if resource_id:
             body["resource_id"] = resource_id
+        if booking_question_assessment_token:
+            body["booking_question_assessment_token"] = booking_question_assessment_token
         data = await self._post("/availability/query", body)
         return AvailabilityResult(
             [TimeSlot(**s) for s in data.get("slots", [])],
@@ -1009,8 +1039,12 @@ class USPBusinessRestClient(BaseUSPRestClient):
         slot_id: str,
         service_id: str,
         spots: int = 1,
+        *,
+        booking_question_assessment_token: Optional[str] = None,
     ) -> Hold:
-        body = {"slot_id": slot_id, "service_id": service_id, "spots": spots}
+        body: Dict[str, Any] = {"slot_id": slot_id, "service_id": service_id, "spots": spots}
+        if booking_question_assessment_token:
+            body["booking_question_assessment_token"] = booking_question_assessment_token
         data = await self._post(
             "/availability/holds", body, idempotent=True,
             access=usp_methods.PRIVILEGED_PLATFORM,
@@ -1048,6 +1082,8 @@ class USPBusinessRestClient(BaseUSPRestClient):
         recipient: Optional[Dict[str, Any]] = None,
         consent: Optional[Dict[str, Any]] = None,
         idempotency_key: Optional[str] = None,
+        booking_question_submissions: Optional[List[Dict[str, Any]]] = None,
+        booking_question_assessment_token: Optional[str] = None,
     ) -> Booking:
         body: Dict[str, Any] = {
             "service_id": service_id,
@@ -1055,6 +1091,10 @@ class USPBusinessRestClient(BaseUSPRestClient):
             "buyer": buyer,
             "party_size": party_size,
         }
+        if booking_question_submissions:
+            body["booking_question_submissions"] = booking_question_submissions
+        if booking_question_assessment_token:
+            body["booking_question_assessment_token"] = booking_question_assessment_token
         if hold_id:
             body["hold_id"] = hold_id
         if resource_id:
@@ -1159,12 +1199,15 @@ class USPBusinessRestClient(BaseUSPRestClient):
         *,
         credential: Optional[BookingScopedCredential] = None,
         if_match: Optional[str] = None,
+        booking_question_submissions: Optional[List[Dict[str, Any]]] = None,
     ) -> Booking:
         body: Dict[str, Any] = {}
         if buyer:
             body["buyer"] = buyer
         if recipient:
             body["recipient"] = recipient
+        if booking_question_submissions:
+            body["booking_question_submissions"] = booking_question_submissions
         if notes is not None:
             body["notes"] = notes
         if delivery_address is not None:
@@ -1176,6 +1219,37 @@ class USPBusinessRestClient(BaseUSPRestClient):
             if_match=if_match,
         )
         return _booking_from_response(data)
+
+    async def check_eligibility(
+        self,
+        service_id: str,
+        *,
+        buyer: Optional[Dict[str, Any]] = None,
+        recipient: Optional[Dict[str, Any]] = None,
+        submissions: Optional[List[Dict[str, Any]]] = None,
+    ) -> Tuple[BookingEligibilityCheckResult, List[Dict[str, Any]]]:
+        """``POST /services/{id}/eligibility-checks``: a decision, with the business's messages.
+
+        Creates nothing. The decision is a business result (HTTP 200), so
+        ``ineligible`` and ``requires_input`` are returned, not raised.
+        """
+        body: Dict[str, Any] = {}
+        if buyer:
+            body["buyer"] = buyer
+        if recipient:
+            body["recipient"] = recipient
+        if submissions:
+            body["booking_question_submissions"] = submissions
+        data = await self._post(
+            f"/services/{service_id}/eligibility-checks", body, idempotent=True,
+            access=usp_methods.PRIVILEGED_PLATFORM,
+        )
+        result = BookingEligibilityCheckResult.model_validate(data.get("eligibility") or {})
+        messages = [
+            {k: m.get(k) for k in ("type", "code", "path", "severity", "content") if m.get(k) is not None}
+            for m in (data.get("messages") or []) if isinstance(m, dict)
+        ]
+        return result, messages
 
     async def confirm_booking(
         self,

@@ -1,0 +1,143 @@
+{
+  "id": "bq-flow-under-review-then-rejected",
+  "section": "11.4.6",
+  "requirement": "under-review-rejected",
+  "kind": "flow",
+  "expect": "accept",
+  "notes": "A submission enters under_review, then rejected with a buyer-safe message. Resubmission returns it to pending. On a required set both states block the in_progress transition.",
+  "given": {
+    "service": {
+      "id": "svc_cut_45",
+      "type": "appointment",
+      "booking_question_sets": [
+        {
+          "id": "medical",
+          "revision": "r1",
+          "purpose": "intake",
+          "completion_timing": "before_service",
+          "frequency": "every_booking",
+          "items": [
+            {
+              "kind": "question",
+              "id": "medications",
+              "label": {
+                "plain": "Current medications"
+              },
+              "schema": {
+                "type": "string",
+                "maxLength": 500
+              },
+              "required": true,
+              "sensitive": true
+            }
+          ]
+        }
+      ]
+    },
+    "booking": {
+      "id": "bkg_bq_1",
+      "status": "confirmed"
+    }
+  },
+  "when": [
+    {
+      "at": "2026-10-26T09:00:00Z",
+      "step": "update_booking",
+      "with": {
+        "booking_id": "bkg_bq_1",
+        "booking_question_submissions": [
+          {
+            "set_id": "medical",
+            "revision": "r1",
+            "answers": {
+              "medications": "Isotretinoin 20mg"
+            }
+          }
+        ]
+      },
+      "booking_status": "confirmed",
+      "result": {
+        "accepted": true,
+        "messages": [],
+        "booking_question_state": [
+          {
+            "set_id": "medical",
+            "revision": "r1",
+            "status": "under_review",
+            "completion_timing": "before_service"
+          }
+        ]
+      }
+    },
+    {
+      "at": "2026-10-26T15:00:00Z",
+      "step": "business_reviews",
+      "with": {
+        "set_id": "medical"
+      },
+      "result": {
+        "booking_question_state": [
+          {
+            "set_id": "medical",
+            "revision": "r1",
+            "status": "rejected",
+            "completion_timing": "before_service",
+            "message": "Please call the studio to discuss this treatment before your visit."
+          }
+        ]
+      }
+    },
+    {
+      "at": "2026-10-26T16:00:00Z",
+      "step": "update_booking",
+      "with": {
+        "booking_id": "bkg_bq_1",
+        "booking_question_submissions": [
+          {
+            "set_id": "medical",
+            "revision": "r1",
+            "answers": {
+              "medications": "None since September"
+            }
+          }
+        ]
+      },
+      "booking_status": "confirmed",
+      "result": {
+        "accepted": true,
+        "messages": [],
+        "booking_question_state": [
+          {
+            "set_id": "medical",
+            "revision": "r1",
+            "status": "pending",
+            "completion_timing": "before_service"
+          }
+        ]
+      }
+    }
+  ],
+  "then": {
+    "in_progress_blocked_while": [
+      "under_review",
+      "rejected"
+    ],
+    "sensitive_echoed": false,
+    "http_status": 200
+  },
+  "variants": [
+    {
+      "case": "optional set",
+      "completion_requirement": "optional",
+      "in_progress_blocked_while": [],
+      "why": "On an optional set no status blocks confirmation or in_progress."
+    }
+  ],
+  "wrong_answers": [
+    {
+      "behaviour": "echo the medication in the rejection message",
+      "violates": "11.4.10 Privacy and Safety",
+      "why": "Sensitive answers never appear in messages."
+    }
+  ]
+}

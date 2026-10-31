@@ -1,0 +1,134 @@
+{
+  "id": "bq-schema-address-flattened",
+  "section": "11.4.3",
+  "requirement": "address-flattened",
+  "kind": "wire",
+  "binding": [
+    "rest",
+    "mcp"
+  ],
+  "expect": "accept",
+  "schema": "booking_questions.json#/$defs/BookingQuestionSet",
+  "notes": "An address-shaped need flattens into sibling string questions grouped by a section. Nested objects are not part of the answer subset.",
+  "case": "service address section",
+  "instance": {
+    "id": "address",
+    "revision": "r1",
+    "purpose": "intake",
+    "completion_timing": "before_confirmation",
+    "frequency": "every_booking",
+    "items": [
+      {
+        "kind": "section",
+        "id": "service_address",
+        "title": {
+          "plain": "Where should we come?"
+        }
+      },
+      {
+        "kind": "question",
+        "id": "street",
+        "label": {
+          "plain": "Street and number"
+        },
+        "schema": {
+          "type": "string",
+          "maxLength": 200
+        },
+        "required": true
+      },
+      {
+        "kind": "question",
+        "id": "city",
+        "label": {
+          "plain": "City"
+        },
+        "schema": {
+          "type": "string",
+          "maxLength": 100
+        },
+        "required": true
+      },
+      {
+        "kind": "question",
+        "id": "postal_code",
+        "label": {
+          "plain": "Postal code"
+        },
+        "schema": {
+          "type": "string",
+          "maxLength": 20
+        },
+        "required": true,
+        "description": {
+          "plain": "US ZIP code, 5 digits."
+        }
+      },
+      {
+        "kind": "question",
+        "id": "country",
+        "label": {
+          "plain": "Country"
+        },
+        "schema": {
+          "type": "string",
+          "oneOf": [
+            {
+              "const": "US",
+              "title": "United States"
+            }
+          ]
+        },
+        "required": true
+      }
+    ]
+  },
+  "then": {
+    "conforming": true,
+    "schema_valid": true,
+    "member_name_violations": []
+  },
+  "variants": [
+    {
+      "case": "nested address object",
+      "expect": "reject",
+      "instance": {
+        "id": "address",
+        "revision": "r1",
+        "purpose": "intake",
+        "completion_timing": "before_confirmation",
+        "frequency": "every_booking",
+        "items": [
+          {
+            "kind": "question",
+            "id": "address",
+            "label": {
+              "plain": "Address"
+            },
+            "schema": {
+              "type": "object",
+              "properties": {
+                "street": {
+                  "type": "string"
+                }
+              }
+            },
+            "required": true
+          }
+        ]
+      },
+      "then": {
+        "conforming": false,
+        "schema_valid": false,
+        "member_name_violations": []
+      }
+    }
+  ],
+  "wrong_answers": [
+    {
+      "behaviour": "publish one object-typed address question",
+      "violates": "11.4.3 Answer Schema",
+      "why": "No elicitation primitive or chat turn can collect a nested object reliably."
+    }
+  ]
+}

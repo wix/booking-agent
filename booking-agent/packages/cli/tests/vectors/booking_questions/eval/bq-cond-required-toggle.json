@@ -1,0 +1,106 @@
+{
+  "id": "bq-cond-required-toggle",
+  "section": "11.4.3",
+  "requirement": "condition-required",
+  "kind": "eval",
+  "notes": "required may be a condition: optional by default and required when an earlier answer matches, or the reverse written with not.",
+  "given": {
+    "set": {
+      "id": "t",
+      "revision": "r1",
+      "purpose": "intake",
+      "completion_timing": "before_confirmation",
+      "frequency": "every_booking",
+      "items": [
+        {
+          "kind": "question",
+          "id": "color_treated",
+          "label": {
+            "plain": "Is your hair color-treated?"
+          },
+          "schema": {
+            "type": "boolean"
+          },
+          "required": true
+        },
+        {
+          "kind": "question",
+          "id": "last_color",
+          "label": {
+            "plain": "When was it last colored?"
+          },
+          "schema": {
+            "type": "string",
+            "format": "date"
+          },
+          "required": {
+            "question": "color_treated",
+            "op": "equals",
+            "value": true
+          }
+        },
+        {
+          "kind": "question",
+          "id": "natural_note",
+          "label": {
+            "plain": "Describe your natural color"
+          },
+          "schema": {
+            "type": "string",
+            "maxLength": 100
+          },
+          "required": {
+            "not": {
+              "question": "color_treated",
+              "op": "equals",
+              "value": true
+            }
+          }
+        }
+      ]
+    }
+  },
+  "cases": [
+    {
+      "case": "treated",
+      "answers": {
+        "color_treated": true
+      },
+      "then": {
+        "definition_valid": true,
+        "applicable": [
+          "color_treated",
+          "last_color",
+          "natural_note"
+        ],
+        "required_unanswered": [
+          "last_color"
+        ]
+      }
+    },
+    {
+      "case": "natural",
+      "answers": {
+        "color_treated": false
+      },
+      "then": {
+        "definition_valid": true,
+        "applicable": [
+          "color_treated",
+          "last_color",
+          "natural_note"
+        ],
+        "required_unanswered": [
+          "natural_note"
+        ]
+      }
+    }
+  ],
+  "wrong_answers": [
+    {
+      "behaviour": "hide a conditionally required question when it is optional",
+      "violates": "11.4.3 Conditions",
+      "why": "required controls whether an applicable question must be answered, not whether it is shown."
+    }
+  ]
+}

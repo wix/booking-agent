@@ -33,6 +33,7 @@ CALL_ARGS = {
     "cancel_booking": (("bk_1",), {}),
     "reschedule_booking": (("bk_1", "slot_2"), {}),
     "confirm_payment": (("bk_1",), {}),
+    "check_eligibility": (("svc_1",), {"submissions": []}),
 }
 
 

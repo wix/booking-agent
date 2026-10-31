@@ -6,13 +6,13 @@
   "$defs": {
     "ProblemDetails": {
       "type": "object",
-      "description": "RFC 9457 Problem Details for HTTP API error responses.",
+      "description": "RFC 9457 Problem Details for HTTP API error responses. A USP protocol error registered in specification Section 9.4.3 uses type https://usp-protocol.dev/errors/{slug}, and clients branch on that exact URI. A condition HTTP already names that carries no USP-specific meaning beyond its status (405 Method Not Allowed, 501 Not Implemented) uses the RFC 9457 default type about:blank with title set to the HTTP reason phrase, and clients branch on status.",
       "required": ["type", "title", "status"],
       "properties": {
         "type": {
           "type": "string",
           "format": "uri-reference",
-          "description": "URI reference identifying the problem type."
+          "description": "URI reference identifying the problem type: https://usp-protocol.dev/errors/{slug} for a code registered in specification Section 9.4.3, or about:blank for a condition with no USP-specific meaning beyond its HTTP status."
         },
         "title": {
           "type": "string",

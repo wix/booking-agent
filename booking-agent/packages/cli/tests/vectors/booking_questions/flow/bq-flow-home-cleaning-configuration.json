@@ -1,0 +1,143 @@
+{
+  "id": "bq-flow-home-cleaning-configuration",
+  "section": "11.4.3",
+  "requirement": "service-area-eligibility",
+  "kind": "flow",
+  "expect": "accept",
+  "evidence": "service-area-eligibility",
+  "notes": "Home cleaning: postal-code eligibility first, then home size and pets in a configuration set. The eligible token drives slot duration on the availability query.",
+  "given": {
+    "service": {
+      "id": "svc_clean",
+      "type": "appointment",
+      "booking_question_sets": [
+        {
+          "id": "area",
+          "revision": "r1",
+          "purpose": "eligibility",
+          "completion_timing": "preflight",
+          "frequency": "every_booking",
+          "items": [
+            {
+              "kind": "question",
+              "id": "postal_code",
+              "label": {
+                "plain": "Postal code of the home"
+              },
+              "schema": {
+                "type": "string",
+                "maxLength": 10
+              },
+              "required": true
+            }
+          ]
+        },
+        {
+          "id": "size",
+          "revision": "r1",
+          "purpose": "configuration",
+          "completion_timing": "preflight",
+          "frequency": "every_booking",
+          "items": [
+            {
+              "kind": "question",
+              "id": "sq_ft",
+              "label": {
+                "plain": "Home size in square feet"
+              },
+              "schema": {
+                "type": "integer",
+                "minimum": 100,
+                "maximum": 10000
+              },
+              "required": true
+            },
+            {
+              "kind": "question",
+              "id": "pets",
+              "label": {
+                "plain": "Number of pets"
+              },
+              "schema": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 10
+              },
+              "required": true
+            }
+          ]
+        }
+      ],
+      "pricing": {
+        "model": "variable",
+        "currency": "USD"
+      }
+    }
+  },
+  "when": [
+    {
+      "at": "2026-10-25T10:00:00Z",
+      "step": "check_eligibility",
+      "with": {
+        "service_id": "svc_clean",
+        "buyer": {
+          "first_name": "Dana",
+          "last_name": "Levi",
+          "email": "dana@example.com",
+          "phone_number": "+14155550123"
+        },
+        "booking_question_submissions": [
+          {
+            "set_id": "area",
+            "revision": "r1",
+            "answers": {
+              "postal_code": "10012"
+            }
+          },
+          {
+            "set_id": "size",
+            "revision": "r1",
+            "answers": {
+              "sq_ft": 1800,
+              "pets": 1
+            }
+          }
+        ]
+      },
+      "result": {
+        "eligibility": {
+          "decision": "eligible",
+          "assessment_token": "bqat_7Hc2kQ",
+          "expires_at": "2026-10-25T10:15:00Z"
+        }
+      }
+    },
+    {
+      "at": "2026-10-25T10:00:10Z",
+      "step": "query_availability",
+      "with": {
+        "service_id": "svc_clean",
+        "booking_question_assessment_token": "bqat_7Hc2kQ"
+      },
+      "result": {
+        "slots": [
+          {
+            "id": "slot_20261030_0900",
+            "duration": "PT3H"
+          }
+        ]
+      }
+    }
+  ],
+  "then": {
+    "duration": "PT3H",
+    "http_status": 200
+  },
+  "wrong_answers": [
+    {
+      "behaviour": "offer slots before the postal code is checked",
+      "violates": "11.4.7 Preflight",
+      "why": "Buyers outside the area pick times that will be canceled."
+    }
+  ]
+}

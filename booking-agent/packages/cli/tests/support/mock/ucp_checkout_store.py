@@ -31,10 +31,13 @@ class UcpCheckoutStore:
         profile_doc: Dict[str, Any],
         spt_network_id: Optional[str] = None,
         pay_at_service: bool = False,
+        deposit: bool = False,
     ) -> None:
         self.profile_doc = profile_doc
         #: Answer every booking checkout as a pay-at-service one (USP 11.3).
         self.pay_at_service = pay_at_service
+        #: Answer every booking checkout with a deposit-now, balance-later term.
+        self.deposit = deposit
         #: Every body POSTed to complete, in order, so tests can see what was sent.
         self.complete_bodies: list = []
         #: False answers complete like production pay-at-service: the order exists and the
@@ -43,6 +46,14 @@ class UcpCheckoutStore:
         env_nid = (os.environ.get("BOOKING_AGENT_UCP_TEST_NETWORK_ID") or "").strip()
         self.spt_network_id = (spt_network_id or env_nid or None)
         self.sessions: Dict[str, Dict[str, Any]] = {}
+        #: Idempotency-Key -> checkout id, so a repeated create returns the same checkout.
+        self.create_keys: Dict[str, str] = {}
+        #: Every create body, in order, including replays of a known key.
+        self.create_bodies: list = []
+        #: Checkout ids canceled, in order.
+        self.canceled: list = []
+        #: Set to an HTTP status to make every cancel fail with it.
+        self.cancel_error_status: Optional[int] = None
 
     def _checkout_payment_handlers(self) -> Dict[str, Any]:
         raw = self.profile_doc.get("ucp", {}).get("payment_handlers", {})
@@ -85,7 +96,31 @@ class UcpCheckoutStore:
         )
         return {ns: copy.deepcopy(caps[ns]) for ns in active if ns in caps}
 
-    def create_checkout(self, body: Dict[str, Any]) -> Dict[str, Any]:
+    def create_checkout(
+        self, body: Dict[str, Any], *, idempotency_key: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        self.create_bodies.append(body)
+        if idempotency_key and idempotency_key in self.create_keys:
+            return self.sessions[self.create_keys[idempotency_key]]
+        session = self._new_checkout(body)
+        if idempotency_key:
+            self.create_keys[idempotency_key] = session["id"]
+        return session
+
+    def cancel_checkout(self, checkout_id: str) -> tuple[int, Optional[Dict[str, Any]]]:
+        session = self.sessions.get(checkout_id)
+        if not session:
+            return 404, None
+        if self.cancel_error_status is not None:
+            return self.cancel_error_status, {"code": "cancel_failed"}
+        if session.get("status") == "completed":
+            return 409, {"code": "checkout_completed", "status": "completed"}
+        session = {**session, "status": "canceled"}
+        self.sessions[checkout_id] = session
+        self.canceled.append(checkout_id)
+        return 200, session
+
+    def _new_checkout(self, body: Dict[str, Any]) -> Dict[str, Any]:
         cid = f"cs_{uuid.uuid4().hex[:12]}"
         booking = body.get("booking") if isinstance(body.get("booking"), dict) else {}
         bid = f"bkg_{uuid.uuid4().hex[:12]}"
@@ -119,7 +154,7 @@ class UcpCheckoutStore:
             },
         }
         service_id = booking.get("service_id")
-        if service_id == "f2c6ffc0-ac-install-deposit":
+        if self.deposit or service_id == "f2c6ffc0-ac-install-deposit":
             slot = booking.get("slot") if isinstance(booking.get("slot"), dict) else {}
             start = slot.get("start") or "2026-10-14T10:00:00-04:00"
             deposit = max(1, amount // 10)

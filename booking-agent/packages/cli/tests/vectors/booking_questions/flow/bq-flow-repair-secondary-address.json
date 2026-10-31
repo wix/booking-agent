@@ -1,0 +1,120 @@
+{
+  "id": "bq-flow-repair-secondary-address",
+  "section": "11.4.3",
+  "requirement": "secondary-address-flattened",
+  "kind": "flow",
+  "expect": "accept",
+  "notes": "A repair visit collects the service address as flattened sibling questions, separate from the buyer's billing details.",
+  "given": {
+    "service": {
+      "id": "svc_repair",
+      "type": "appointment",
+      "booking_question_sets": [
+        {
+          "id": "intake",
+          "revision": "r1",
+          "purpose": "intake",
+          "completion_timing": "before_confirmation",
+          "frequency": "every_booking",
+          "items": [
+            {
+              "kind": "section",
+              "id": "service_address",
+              "title": {
+                "plain": "Where is the appliance?"
+              }
+            },
+            {
+              "kind": "question",
+              "id": "street",
+              "label": {
+                "plain": "Street and number"
+              },
+              "schema": {
+                "type": "string",
+                "maxLength": 200
+              },
+              "required": true
+            },
+            {
+              "kind": "question",
+              "id": "city",
+              "label": {
+                "plain": "City"
+              },
+              "schema": {
+                "type": "string",
+                "maxLength": 100
+              },
+              "required": true
+            },
+            {
+              "kind": "question",
+              "id": "postal_code",
+              "label": {
+                "plain": "Postal code"
+              },
+              "schema": {
+                "type": "string",
+                "maxLength": 20
+              },
+              "required": true
+            }
+          ]
+        }
+      ]
+    },
+    "hold": {
+      "id": "hold_bq_1",
+      "slot_id": "slot_20261028_1000",
+      "service_id": "svc_repair",
+      "spots": 1,
+      "expires_at": "2026-10-25T10:10:00Z",
+      "status": "active"
+    }
+  },
+  "when": [
+    {
+      "at": "2026-10-25T10:00:00Z",
+      "step": "create_booking",
+      "with": {
+        "hold_id": "hold_bq_1",
+        "buyer": {
+          "first_name": "Dana",
+          "last_name": "Levi",
+          "email": "dana@example.com",
+          "phone_number": "+14155550123"
+        },
+        "booking_question_submissions": [
+          {
+            "set_id": "intake",
+            "revision": "r1",
+            "answers": {
+              "street": "12 Elm St",
+              "city": "Brooklyn",
+              "postal_code": "11201"
+            }
+          }
+        ]
+      },
+      "result": {
+        "accepted": true,
+        "booking_id": "bkg_bq_1",
+        "booking_status": "confirmed",
+        "messages": []
+      }
+    }
+  ],
+  "then": {
+    "booking_status": "confirmed",
+    "billing_address_reused": false,
+    "http_status": 200
+  },
+  "wrong_answers": [
+    {
+      "behaviour": "use the billing address",
+      "violates": "11.4.3 Formats the schema cannot express",
+      "why": "The technician drives to the wrong place."
+    }
+  ]
+}

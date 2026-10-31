@@ -1,0 +1,133 @@
+{
+  "id": "bq-flow-yoga-health-intake-validity",
+  "section": "11.4.6",
+  "requirement": "intake-validity-and-revision",
+  "kind": "flow",
+  "expect": "accept",
+  "evidence": "intake-validity-and-revision",
+  "notes": "A yoga class with a once-per-buyer health intake valid for 12 months and a waiver signature. The buyer completed the intake 5 months ago, so it is skipped; the waiver is still outstanding and is handed off.",
+  "given": {
+    "service": {
+      "id": "svc_yoga_60",
+      "type": "group",
+      "booking_question_sets": [
+        {
+          "id": "health",
+          "revision": "r1",
+          "purpose": "intake",
+          "completion_timing": "before_confirmation",
+          "frequency": "once_per_buyer",
+          "items": [
+            {
+              "kind": "question",
+              "id": "conditions",
+              "label": {
+                "plain": "Any health conditions we should know about?"
+              },
+              "schema": {
+                "type": "string",
+                "maxLength": 500
+              },
+              "required": true,
+              "sensitive": true
+            }
+          ],
+          "validity": "P12M"
+        },
+        {
+          "id": "waiver",
+          "revision": "r1",
+          "purpose": "intake",
+          "completion_timing": "before_confirmation",
+          "frequency": "once_per_buyer",
+          "items": [
+            {
+              "kind": "external_task",
+              "id": "waiver_sig",
+              "label": {
+                "plain": "Sign the studio waiver"
+              },
+              "task_type": "signature",
+              "required": true,
+              "collection": "business_surface"
+            }
+          ]
+        }
+      ]
+    },
+    "hold": {
+      "id": "hold_bq_1",
+      "slot_id": "slot_20261028_1000",
+      "service_id": "svc_yoga_60",
+      "spots": 1,
+      "expires_at": "2026-10-25T10:10:00Z",
+      "status": "active"
+    },
+    "buyer_history": {
+      "completed_sets": [
+        {
+          "set_id": "health",
+          "revision": "r1",
+          "completed_at": "2026-05-20T10:00:00Z"
+        }
+      ]
+    }
+  },
+  "when": [
+    {
+      "at": "2026-10-25T10:00:00Z",
+      "step": "create_booking",
+      "with": {
+        "hold_id": "hold_bq_1",
+        "buyer": {
+          "first_name": "Dana",
+          "last_name": "Levi",
+          "email": "dana@example.com",
+          "phone_number": "+14155550123"
+        },
+        "booking_question_submissions": []
+      },
+      "result": {
+        "accepted": true,
+        "booking_id": "bkg_bq_2",
+        "booking_status": "requires_action",
+        "actions": [
+          {
+            "type": "waiver",
+            "status": "pending",
+            "continue_url": "https://studio.example.com/forms/sess_45"
+          }
+        ],
+        "messages": [],
+        "booking_question_state": [
+          {
+            "set_id": "health",
+            "revision": "r1",
+            "status": "completed",
+            "completion_timing": "before_confirmation",
+            "valid_until": "2027-05-20T10:00:00Z"
+          },
+          {
+            "set_id": "waiver",
+            "revision": "r1",
+            "status": "pending",
+            "completion_timing": "before_confirmation",
+            "continue_url": "https://studio.example.com/forms/sess_45"
+          }
+        ]
+      }
+    }
+  ],
+  "then": {
+    "health_asked_again": false,
+    "booking_status": "requires_action",
+    "http_status": 200
+  },
+  "wrong_answers": [
+    {
+      "behaviour": "skip the waiver because the health intake is valid",
+      "violates": "11.4.6 Validity and revisions",
+      "why": "Validity is per set."
+    }
+  ]
+}

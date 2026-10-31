@@ -1,0 +1,85 @@
+{
+  "id": "bq-schema-image-choice",
+  "section": "11.4.3",
+  "requirement": "image-option-https",
+  "kind": "wire",
+  "binding": [
+    "rest",
+    "mcp"
+  ],
+  "expect": "accept",
+  "schema": "booking_questions.json#/$defs/BookingQuestion",
+  "notes": "An option MAY carry an HTTPS image_url. The title still conveys the meaning on its own.",
+  "case": "style reference images",
+  "instance": {
+    "kind": "question",
+    "id": "style",
+    "label": {
+      "plain": "Pick a style"
+    },
+    "schema": {
+      "type": "string",
+      "oneOf": [
+        {
+          "const": "bob",
+          "title": "Classic bob",
+          "image_url": "https://studio.example.com/img/bob.jpg"
+        },
+        {
+          "const": "pixie",
+          "title": "Pixie cut",
+          "image_url": "https://studio.example.com/img/pixie.jpg"
+        }
+      ]
+    },
+    "required": true,
+    "rendering": "image_choice"
+  },
+  "then": {
+    "conforming": true,
+    "schema_valid": true,
+    "member_name_violations": []
+  },
+  "answer_cases": [
+    {
+      "value": "pixie",
+      "valid": true
+    }
+  ],
+  "variants": [
+    {
+      "case": "plain-http image",
+      "expect": "reject",
+      "instance": {
+        "kind": "question",
+        "id": "style",
+        "label": {
+          "plain": "Pick a style"
+        },
+        "schema": {
+          "type": "string",
+          "oneOf": [
+            {
+              "const": "bob",
+              "title": "Classic bob",
+              "image_url": "http://studio.example.com/img/bob.jpg"
+            }
+          ]
+        },
+        "required": true
+      },
+      "then": {
+        "conforming": false,
+        "schema_valid": false,
+        "member_name_violations": []
+      }
+    }
+  ],
+  "wrong_answers": [
+    {
+      "behaviour": "render image-only options without titles",
+      "violates": "11.4.3 Answer Schema",
+      "why": "A text-only or screen-reader surface cannot present the choice."
+    }
+  ]
+}

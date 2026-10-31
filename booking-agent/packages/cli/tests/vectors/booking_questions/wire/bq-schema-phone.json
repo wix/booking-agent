@@ -1,0 +1,87 @@
+{
+  "id": "bq-schema-phone",
+  "section": "11.4.3",
+  "requirement": "phone-e164",
+  "kind": "wire",
+  "binding": [
+    "rest",
+    "mcp"
+  ],
+  "expect": "accept",
+  "schema": "booking_questions.json#/$defs/BookingQuestion",
+  "notes": "format: phone is E.164. allowed_country_codes is a hint naming calling codes the answer must start with; it is valid only on a phone question.",
+  "case": "US and Canada numbers only",
+  "instance": {
+    "kind": "question",
+    "id": "sms_number",
+    "label": {
+      "plain": "Mobile number for reminders"
+    },
+    "schema": {
+      "type": "string",
+      "format": "phone",
+      "allowed_country_codes": [
+        "1"
+      ]
+    },
+    "required": true
+  },
+  "then": {
+    "conforming": true,
+    "schema_valid": true,
+    "member_name_violations": []
+  },
+  "answer_cases": [
+    {
+      "value": "+14155550123",
+      "valid": true
+    },
+    {
+      "value": "4155550123",
+      "valid": false,
+      "errors": [
+        "format"
+      ]
+    },
+    {
+      "value": "+447700900123",
+      "valid": false,
+      "errors": [
+        "country_code"
+      ]
+    }
+  ],
+  "variants": [
+    {
+      "case": "allowed_country_codes on a plain text question",
+      "expect": "reject",
+      "instance": {
+        "kind": "question",
+        "id": "sms_number",
+        "label": {
+          "plain": "Mobile number"
+        },
+        "schema": {
+          "type": "string",
+          "maxLength": 20,
+          "allowed_country_codes": [
+            "1"
+          ]
+        },
+        "required": true
+      },
+      "then": {
+        "conforming": false,
+        "schema_valid": false,
+        "member_name_violations": []
+      }
+    }
+  ],
+  "wrong_answers": [
+    {
+      "behaviour": "accept local formats and normalize later",
+      "violates": "11.4.3 Answer Schema",
+      "why": "Normalization needs a default region the business never declared, so two businesses would dial different numbers."
+    }
+  ]
+}

@@ -1,0 +1,194 @@
+{
+  "id": "bq-flow-intake-validity",
+  "section": "11.4.6",
+  "requirement": "intake-validity",
+  "kind": "flow",
+  "expect": "accept",
+  "notes": "A once-per-buyer intake with a 12-month validity. Completed within the window, it is skipped on the next booking; once the window elapses it is pending again and required; extended counts as valid.",
+  "given": {
+    "service": {
+      "id": "svc_cut_45",
+      "type": "appointment",
+      "booking_question_sets": [
+        {
+          "id": "health",
+          "revision": "r1",
+          "purpose": "intake",
+          "completion_timing": "before_confirmation",
+          "frequency": "once_per_buyer",
+          "items": [
+            {
+              "kind": "question",
+              "id": "conditions",
+              "label": {
+                "plain": "Any health conditions we should know about?"
+              },
+              "schema": {
+                "type": "string",
+                "maxLength": 500
+              },
+              "required": true,
+              "sensitive": true
+            }
+          ],
+          "validity": "P12M"
+        }
+      ]
+    },
+    "hold": {
+      "id": "hold_bq_1",
+      "slot_id": "slot_20261028_1000",
+      "service_id": "svc_cut_45",
+      "spots": 1,
+      "expires_at": "2026-10-25T10:10:00Z",
+      "status": "active"
+    },
+    "buyer_history": {
+      "completed_sets": [
+        {
+          "set_id": "health",
+          "revision": "r1",
+          "completed_at": "2026-03-01T10:00:00Z"
+        }
+      ]
+    }
+  },
+  "when": [
+    {
+      "at": "2026-10-25T10:00:00Z",
+      "step": "create_booking",
+      "with": {
+        "hold_id": "hold_bq_1",
+        "buyer": {
+          "first_name": "Dana",
+          "last_name": "Levi",
+          "email": "dana@example.com",
+          "phone_number": "+14155550123"
+        },
+        "booking_question_submissions": []
+      },
+      "result": {
+        "accepted": true,
+        "booking_id": "bkg_bq_1",
+        "booking_status": "confirmed",
+        "messages": [],
+        "booking_question_state": [
+          {
+            "set_id": "health",
+            "revision": "r1",
+            "status": "completed",
+            "completion_timing": "before_confirmation",
+            "valid_until": "2027-03-01T10:00:00Z"
+          }
+        ]
+      }
+    }
+  ],
+  "then": {
+    "booking_status": "confirmed",
+    "http_status": 200
+  },
+  "variants": [
+    {
+      "case": "validity elapsed",
+      "given": {
+        "service": {
+          "id": "svc_cut_45",
+          "type": "appointment",
+          "booking_question_sets": [
+            {
+              "id": "health",
+              "revision": "r1",
+              "purpose": "intake",
+              "completion_timing": "before_confirmation",
+              "frequency": "once_per_buyer",
+              "items": [
+                {
+                  "kind": "question",
+                  "id": "conditions",
+                  "label": {
+                    "plain": "Any health conditions we should know about?"
+                  },
+                  "schema": {
+                    "type": "string",
+                    "maxLength": 500
+                  },
+                  "required": true,
+                  "sensitive": true
+                }
+              ],
+              "validity": "P12M"
+            }
+          ]
+        },
+        "hold": {
+          "id": "hold_bq_1",
+          "slot_id": "slot_20261028_1000",
+          "service_id": "svc_cut_45",
+          "spots": 1,
+          "expires_at": "2026-10-25T10:10:00Z",
+          "status": "active"
+        },
+        "buyer_history": {
+          "completed_sets": [
+            {
+              "set_id": "health",
+              "revision": "r1",
+              "completed_at": "2025-09-01T10:00:00Z"
+            }
+          ]
+        }
+      },
+      "when": [
+        {
+          "at": "2026-10-25T10:00:00Z",
+          "step": "create_booking",
+          "with": {
+            "hold_id": "hold_bq_1",
+            "buyer": {
+              "first_name": "Dana",
+              "last_name": "Levi",
+              "email": "dana@example.com",
+              "phone_number": "+14155550123"
+            },
+            "booking_question_submissions": []
+          },
+          "result": {
+            "accepted": false,
+            "booking_created": false,
+            "messages": [
+              {
+                "type": "error",
+                "code": "booking_question_answer_missing",
+                "content": "This answer is required.",
+                "severity": "recoverable",
+                "path": "$.booking_question_submissions[?@.set_id=='health'].answers['conditions']"
+              }
+            ]
+          }
+        }
+      ],
+      "outcome_code": "booking_question_answer_missing"
+    },
+    {
+      "case": "status extended",
+      "why": "extended never blocks gating (Section 11.4.6).",
+      "booking_question_state": [
+        {
+          "set_id": "health",
+          "revision": "r1",
+          "status": "extended",
+          "completion_timing": "before_confirmation",
+          "valid_until": "2027-06-01T10:00:00Z"
+        }
+      ]
+    }
+  ],
+  "wrong_answers": [
+    {
+      "behaviour": "ask the intake again on every booking",
+      "violates": "11.4.6 Validity and revisions",
+      "why": "The buyer re-enters health information the business already holds."
+    }
+  ]
+}

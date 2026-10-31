@@ -1,0 +1,138 @@
+{
+  "id": "bq-flow-kids-class-recipient-age-gate",
+  "section": "11.4.4",
+  "requirement": "recipient-age-eligibility",
+  "kind": "flow",
+  "expect": "accept",
+  "evidence": "recipient-age-eligibility",
+  "notes": "A kids' art class for ages 6 to 10. A parent books for an 8-year-old: the participant set has subject recipient and is evaluated against the child. The same parent booking for themselves is ineligible.",
+  "given": {
+    "service": {
+      "id": "svc_kids_art",
+      "type": "group",
+      "booking_question_sets": [
+        {
+          "id": "participant",
+          "revision": "r1",
+          "purpose": "eligibility",
+          "completion_timing": "preflight",
+          "frequency": "every_booking",
+          "items": [
+            {
+              "kind": "question",
+              "id": "participant_name",
+              "label": {
+                "plain": "Participant name"
+              },
+              "schema": {
+                "type": "string",
+                "maxLength": 100
+              },
+              "required": true
+            },
+            {
+              "kind": "question",
+              "id": "birth_date",
+              "label": {
+                "plain": "Participant date of birth"
+              },
+              "schema": {
+                "type": "string",
+                "format": "date",
+                "not_after": "P0D"
+              },
+              "required": true
+            }
+          ],
+          "subject": "recipient"
+        }
+      ]
+    }
+  },
+  "when": [
+    {
+      "at": "2026-10-25T10:00:00Z",
+      "step": "check_eligibility",
+      "with": {
+        "service_id": "svc_kids_art",
+        "buyer": {
+          "first_name": "Dana",
+          "last_name": "Levi",
+          "email": "dana@example.com",
+          "phone_number": "+14155550123"
+        },
+        "booking_question_submissions": [
+          {
+            "set_id": "participant",
+            "revision": "r1",
+            "answers": {
+              "participant_name": "Noa Levi",
+              "birth_date": "2018-04-12"
+            }
+          }
+        ],
+        "recipient": {
+          "first_name": "Noa",
+          "last_name": "Levi",
+          "email": "dana@example.com"
+        }
+      },
+      "result": {
+        "eligibility": {
+          "decision": "eligible",
+          "assessment_token": "bqat_7Hc2kQ",
+          "expires_at": "2026-10-25T10:15:00Z"
+        }
+      }
+    },
+    {
+      "at": "2026-10-25T10:01:00Z",
+      "step": "check_eligibility",
+      "with": {
+        "service_id": "svc_kids_art",
+        "buyer": {
+          "first_name": "Dana",
+          "last_name": "Levi",
+          "email": "dana@example.com",
+          "phone_number": "+14155550123"
+        },
+        "booking_question_submissions": [
+          {
+            "set_id": "participant",
+            "revision": "r1",
+            "answers": {
+              "participant_name": "Dana Levi",
+              "birth_date": "1990-03-14"
+            }
+          }
+        ]
+      },
+      "result": {
+        "eligibility": {
+          "decision": "ineligible"
+        },
+        "messages": [
+          {
+            "type": "info",
+            "code": "eligibility_reason",
+            "content": "This class is for children aged 6 to 10."
+          }
+        ]
+      }
+    }
+  ],
+  "then": {
+    "evaluated_against": [
+      "recipient",
+      "buyer"
+    ],
+    "http_status": 200
+  },
+  "wrong_answers": [
+    {
+      "behaviour": "evaluate the parent's age",
+      "violates": "11.4.11 platform item 2",
+      "why": "The class would be refused for the child it is meant for."
+    }
+  ]
+}

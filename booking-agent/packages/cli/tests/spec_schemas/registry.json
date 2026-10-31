@@ -78,10 +78,14 @@
     "PriceRangeFilter": {
       "type": "object",
       "title": "PriceRangeFilter",
-      "description": "Filter services by price interval (minor currency units). Matching is within-currency only (no FX). Resolved match currency: price_range.currency if present, else context.currency; if neither is set, registries MUST reject with validation_error. pricing.model free is treated as amount 0. Build service interval S from fixed amount [a,a], published price_range, or [0,0] for free; exclude services with no indexable price interval when this filter is present. Compare S to filter F using match (default overlap). Example: service $50–$150 vs filter min=8000 max=10000: overlap and contains match; contained and equals do not.",
+      "description": "Filter services by price interval (minor currency units). Matching is within-currency only (no FX). Resolved match currency: price_range.currency if present, else context.currency; if neither is set, registries MUST reject with validation_error. pricing.model free is treated as amount 0. Build service interval S from fixed amount [a,a], published price_range, or [0,0] for free; exclude services with no indexable price interval when this filter is present. Compare S to filter F using match (default overlap). Example: service $50–$150 vs filter min=8000 max=10000: overlap and contains match; contained and equals do not. At least one of min or max MUST be present; a range with no bound is rejected with validation_error and does not count as a search filter.",
+      "anyOf": [
+        { "required": ["min"] },
+        { "required": ["max"] }
+      ],
       "properties": {
-        "min": { "type": "integer", "description": "Inclusive lower bound of F in minor currency units. Omitted = unbounded below." },
-        "max": { "type": "integer", "description": "Inclusive upper bound of F in minor currency units. Omitted = unbounded above." },
+        "min": { "type": ["integer", "string"], "pattern": "^-?[0-9]+$", "description": "Inclusive lower bound of F in minor currency units. Omitted = unbounded below." },
+        "max": { "type": ["integer", "string"], "pattern": "^-?[0-9]+$", "description": "Inclusive upper bound of F in minor currency units. Omitted = unbounded above." },
         "currency": {
           "type": "string",
           "description": "ISO 4217 code for min/max. REQUIRED when context.currency is absent (omitting both is ambiguous). When both are present and differ, price_range.currency is authoritative for matching."
@@ -95,7 +99,11 @@
     "DurationRangeFilter": {
       "type": "object",
       "title": "DurationRangeFilter",
-      "description": "Filter services by duration interval in minutes. Build service interval S from fixed duration [d,d] or range [min,max] (ISO 8601 converted to minutes). Services with duration.undetermined true (or no indexable duration) MUST be excluded when this filter is present; they MAY appear when no duration filter is set. Compare S to filter F using match (default overlap). Example: service 30–90 min vs filter min_minutes=60 max_minutes=60: overlap=yes, contained=no, contains=yes, equals=no.",
+      "description": "Filter services by duration interval in minutes. Build service interval S from fixed duration [d,d] or range [min,max] (ISO 8601 converted to minutes). Services with duration.undetermined true (or no indexable duration) MUST be excluded when this filter is present; they MAY appear when no duration filter is set. Compare S to filter F using match (default overlap). Example: service 30–90 min vs filter min_minutes=60 max_minutes=60: overlap=yes, contained=no, contains=yes, equals=no. At least one of min_minutes or max_minutes MUST be present; a range with no bound is rejected with validation_error and does not count as a search filter.",
+      "anyOf": [
+        { "required": ["min_minutes"] },
+        { "required": ["max_minutes"] }
+      ],
       "properties": {
         "min_minutes": {
           "type": "integer",
@@ -216,7 +224,7 @@
     "BusinessSearchRequest": {
       "type": "object",
       "title": "BusinessSearchRequest",
-      "description": "Request body for POST /registry/search_business. At least one search filter MUST be present (not only pagination and/or context). Distinct filter fields combine with AND. See specification Section 6 filter matching semantics.",
+      "description": "Request body for POST /registry/search_business. At least one search filter MUST be present (not only pagination and/or context); otherwise the registry rejects the request with a validation_error protocol error (HTTP 422 Problem Details in REST), not a messages[] entry at HTTP 200. Distinct filter fields combine with AND. See specification Section 6 filter matching semantics.",
       "properties": {
         "location": { "$ref": "#/$defs/RegistrySearchLocation" },
         "verticals": {
@@ -306,7 +314,7 @@
     "RankSignals": {
       "type": "object",
       "title": "RankSignals",
-      "description": "Per-hit availability and relevance ingredients for service search ranking. Present on every hit of a response that applies availability ranking or that answers a request carrying time preferences, including hits with no hint or a summary-only hint. Values are registry-specific and comparable only within one response from one registry. null means unknown; 0 means known empty or known non-overlap.",
+      "description": "Per-hit availability and relevance ingredients for service search ranking. Present on every hit of a response to which the registry applied availability ranking, including hits with no hint or a summary-only hint. Time preferences in the request do not by themselves require it. Values are registry-specific. coverage, density, and soonness are comparable only within one response from one registry, within one vertical, and within one bitmap entry's grid (same starts_at, start_interval, and slot_count). null means unknown; 0 means known empty or known non-overlap.",
       "required": ["relevance", "coverage", "density", "soonness", "hint_usable"],
       "properties": {
         "relevance": {
@@ -319,19 +327,19 @@
           "type": ["number", "null"],
           "minimum": 0,
           "maximum": 1,
-          "description": "How much of the requested time has a hinted opening when desired_service_time_ranges is present. 0 means the requested time was represented in the structured snapshot and no opening overlapped it. null means not computed: no time preference, no usable structured hint, or requested time outside what the service published."
+          "description": "How much of the requested time has a hinted opening when desired_service_time_ranges is present. 0 means the requested time was represented in the structured snapshot and no opening overlapped it. null means not computed: no time preference, no usable structured hint, or requested time outside what the service published. Comparable only within one vertical and within one entry's grid."
         },
         "density": {
           "type": ["number", "null"],
           "minimum": 0,
           "maximum": 1,
-          "description": "Fraction of represented candidate starts that are open, ignoring when openings fall. 0 means sampled and known empty. null means unknown because there is no usable structured hint."
+          "description": "Fraction of represented candidate starts that are open, ignoring when openings fall. 0 means sampled and known empty. null means unknown because there is no usable structured hint. A fraction of that entry's own slot_count, so comparable only within one vertical and within one entry's grid."
         },
         "soonness": {
           "type": ["number", "null"],
           "minimum": 0,
           "maximum": 1,
-          "description": "How soon the earliest acceptable opening is relative to the request anchor and the registry's documented horizon. 0 means no acceptable opening inside the horizon. null means unknown because there is no usable structured hint. Populated even when prefer_sooner_availability_slots is false."
+          "description": "How soon the earliest acceptable opening is relative to the request anchor and the registry's documented horizon. 0 means no acceptable opening inside the horizon. null means unknown because there is no usable structured hint. Populated even when prefer_sooner_availability_slots is false. Comparable only within one vertical and within one entry's grid."
         },
         "hint_usable": {
           "type": "boolean",
@@ -343,7 +351,7 @@
     "ServiceSearchRequest": {
       "type": "object",
       "title": "ServiceSearchRequest",
-      "description": "Request body for POST /registry/search_services. At least one search filter MUST be present (not only pagination and/or context). Distinct filter fields combine with AND. See specification Section 6 filter matching semantics.",
+      "description": "Request body for POST /registry/search_services. At least one search filter MUST be present (not only pagination and/or context); otherwise the registry rejects the request with a validation_error protocol error (HTTP 422 Problem Details in REST), not a messages[] entry at HTTP 200. Distinct filter fields combine with AND. See specification Section 6 filter matching semantics.",
       "properties": {
         "location": { "$ref": "#/$defs/RegistrySearchLocation" },
         "verticals": {
@@ -438,9 +446,13 @@
           "$ref": "catalog.json#/$defs/AvailabilityHint",
           "description": "Approximate availability summary from the business catalog, when present at index time. Non-authoritative; platforms MUST NOT treat as a substitute for live availability queries (Section 3.6)."
         },
+        "booking_questions": {
+          "$ref": "booking_questions.json#/$defs/BookingQuestionsSummary",
+          "description": "OPTIONAL. Booking questions extension summary projected from the indexed catalog service, for compatibility assessment only. No search filter is defined over it (Section 11.4)."
+        },
         "rank_signals": {
           "$ref": "#/$defs/RankSignals",
-          "description": "Availability and relevance ranking ingredients. Required on every hit of a response that applies availability ranking or that answers a request carrying desired_service_time_ranges or prefer_sooner_availability_slots; omitted only when the registry applied no availability ranking at all."
+          "description": "Availability and relevance ranking ingredients. Required on every hit of a response to which the registry applied availability ranking. Availability ranking is optional: a registry MAY ignore desired_service_time_ranges and prefer_sooner_availability_slots, and then omits rank_signals. Omitted means no availability ranking was applied."
         }
       }
     }

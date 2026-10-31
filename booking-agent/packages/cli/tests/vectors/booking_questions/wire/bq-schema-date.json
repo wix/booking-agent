@@ -1,0 +1,58 @@
+{
+  "id": "bq-schema-date",
+  "section": "11.4.3",
+  "requirement": "date-full-date",
+  "kind": "wire",
+  "binding": [
+    "rest",
+    "mcp"
+  ],
+  "expect": "accept",
+  "schema": "booking_questions.json#/$defs/BookingQuestion",
+  "notes": "format: date is an RFC 3339 full-date. Day-first and invalid calendar dates are rejected.",
+  "case": "preferred date",
+  "instance": {
+    "kind": "question",
+    "id": "pref_date",
+    "label": {
+      "plain": "Preferred start date"
+    },
+    "schema": {
+      "type": "string",
+      "format": "date"
+    },
+    "required": true
+  },
+  "then": {
+    "conforming": true,
+    "schema_valid": true,
+    "member_name_violations": []
+  },
+  "answer_cases": [
+    {
+      "value": "2026-10-25",
+      "valid": true
+    },
+    {
+      "value": "25/10/2026",
+      "valid": false,
+      "errors": [
+        "format"
+      ]
+    },
+    {
+      "value": "2026-02-30",
+      "valid": false,
+      "errors": [
+        "format"
+      ]
+    }
+  ],
+  "wrong_answers": [
+    {
+      "behaviour": "accept locale date strings",
+      "violates": "11.4.3 Answer Schema",
+      "why": "10/11/2026 means different days in different locales."
+    }
+  ]
+}

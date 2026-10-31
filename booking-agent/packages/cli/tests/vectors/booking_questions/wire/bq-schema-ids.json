@@ -1,0 +1,119 @@
+{
+  "id": "bq-schema-ids",
+  "section": "11.4.3",
+  "requirement": "item-ids-unique-per-set",
+  "kind": "wire",
+  "binding": [
+    "rest",
+    "mcp"
+  ],
+  "expect": "accept",
+  "schema": "booking_questions.json#/$defs/BookingQuestionSets",
+  "notes": "Item ids are unique within a set. The same id in two different sets is fine because submissions name the set.",
+  "case": "notes in two sets",
+  "instance": [
+    {
+      "id": "intake",
+      "revision": "r1",
+      "purpose": "intake",
+      "completion_timing": "before_confirmation",
+      "frequency": "every_booking",
+      "items": [
+        {
+          "kind": "question",
+          "id": "notes",
+          "label": {
+            "plain": "Notes"
+          },
+          "schema": {
+            "type": "string",
+            "maxLength": 500
+          },
+          "required": false
+        }
+      ]
+    },
+    {
+      "id": "health",
+      "revision": "r1",
+      "purpose": "intake",
+      "completion_timing": "before_service",
+      "frequency": "every_booking",
+      "items": [
+        {
+          "kind": "question",
+          "id": "notes",
+          "label": {
+            "plain": "Health notes"
+          },
+          "schema": {
+            "type": "string",
+            "maxLength": 500
+          },
+          "required": false
+        }
+      ]
+    }
+  ],
+  "then": {
+    "conforming": true,
+    "schema_valid": true,
+    "member_name_violations": []
+  },
+  "variants": [
+    {
+      "case": "duplicate id inside one set",
+      "expect": "reject",
+      "instance": [
+        {
+          "id": "intake",
+          "revision": "r1",
+          "purpose": "intake",
+          "completion_timing": "before_confirmation",
+          "frequency": "every_booking",
+          "items": [
+            {
+              "kind": "question",
+              "id": "notes",
+              "label": {
+                "plain": "Notes"
+              },
+              "schema": {
+                "type": "string",
+                "maxLength": 500
+              },
+              "required": false
+            },
+            {
+              "kind": "question",
+              "id": "notes",
+              "label": {
+                "plain": "More notes"
+              },
+              "schema": {
+                "type": "string",
+                "maxLength": 500
+              },
+              "required": false
+            }
+          ]
+        }
+      ],
+      "then": {
+        "conforming": false,
+        "schema_valid": true,
+        "member_name_violations": [],
+        "semantic_errors": [
+          "duplicate_item_id:notes"
+        ]
+      }
+    }
+  ],
+  "wrong_answers": [
+    {
+      "behaviour": "key answers by question id across sets",
+      "violates": "11.4.5 Request Submission",
+      "why": "Answers to two different notes questions would overwrite each other."
+    }
+  ]
+}

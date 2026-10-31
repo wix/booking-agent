@@ -1,0 +1,67 @@
+{
+  "id": "bq-flow-ucp-external-task-escalation",
+  "section": "11.4.8",
+  "requirement": "ucp-external-task-escalation",
+  "kind": "flow",
+  "expect": "accept",
+  "notes": "A signature task cannot be processed by the platform. The checkout is requires_escalation with continue_url.",
+  "given": {
+    "service": {
+      "id": "svc_cut_45",
+      "type": "appointment",
+      "booking_question_sets": [
+        {
+          "id": "waiver",
+          "revision": "r1",
+          "purpose": "intake",
+          "completion_timing": "before_confirmation",
+          "frequency": "every_booking",
+          "items": [
+            {
+              "kind": "external_task",
+              "id": "waiver_sig",
+              "label": {
+                "plain": "Sign the treatment waiver"
+              },
+              "task_type": "signature",
+              "required": true,
+              "collection": "business_surface"
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "when": [
+    {
+      "at": "2026-10-25T10:00:00Z",
+      "step": "create_checkout",
+      "with": {
+        "booking": {
+          "service_id": "svc_cut_45",
+          "slot": {
+            "id": "slot_20261028_1000"
+          },
+          "booking_question_submissions": []
+        }
+      },
+      "result": {
+        "checkout_status": "requires_escalation",
+        "continue_url": "https://studio.example.com/checkout/sess_51",
+        "messages": []
+      }
+    }
+  ],
+  "then": {
+    "checkout_status": "requires_escalation",
+    "continue_url_present": true,
+    "http_status": 200
+  },
+  "wrong_answers": [
+    {
+      "behaviour": "return incomplete and wait",
+      "violates": "11.4.8 Paid UCP-Native",
+      "why": "The platform has nothing it can do in band, so it would loop."
+    }
+  ]
+}

@@ -1,0 +1,14 @@
+{
+  "id": "bq-fx-hold-active",
+  "kind": "fixture",
+  "schema": "availability.json#/$defs/Hold",
+  "parameters": {},
+  "body": {
+    "id": "hold_bq_1",
+    "slot_id": "slot_20261028_1000",
+    "service_id": "svc_cut_45",
+    "spots": 1,
+    "expires_at": "2026-10-25T10:10:00Z",
+    "status": "active"
+  }
+}

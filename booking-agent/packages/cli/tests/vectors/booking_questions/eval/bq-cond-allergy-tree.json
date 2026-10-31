@@ -1,0 +1,167 @@
+{
+  "id": "bq-cond-allergy-tree",
+  "section": "11.4.3",
+  "requirement": "condition-allergy-tree",
+  "kind": "eval",
+  "notes": "none hides every follow-up, peanuts reveals a severity question, and severe reveals the auto-injector question.",
+  "given": {
+    "set": {
+      "id": "allergy",
+      "revision": "r1",
+      "purpose": "intake",
+      "completion_timing": "before_confirmation",
+      "frequency": "every_booking",
+      "items": [
+        {
+          "kind": "question",
+          "id": "allergies",
+          "label": {
+            "plain": "Any allergies?"
+          },
+          "schema": {
+            "type": "array",
+            "items": {
+              "anyOf": [
+                {
+                  "const": "none",
+                  "title": "None",
+                  "exclusive": true
+                },
+                {
+                  "const": "peanuts",
+                  "title": "Peanuts"
+                },
+                {
+                  "const": "shellfish",
+                  "title": "Shellfish"
+                }
+              ]
+            },
+            "uniqueItems": true,
+            "minItems": 1
+          },
+          "required": true
+        },
+        {
+          "kind": "question",
+          "id": "severity",
+          "label": {
+            "plain": "How severe is the peanut allergy?"
+          },
+          "schema": {
+            "type": "string",
+            "oneOf": [
+              {
+                "const": "mild",
+                "title": "Mild"
+              },
+              {
+                "const": "severe",
+                "title": "Severe"
+              }
+            ]
+          },
+          "required": true,
+          "when": {
+            "question": "allergies",
+            "op": "contains",
+            "value": "peanuts"
+          }
+        },
+        {
+          "kind": "question",
+          "id": "epipen",
+          "label": {
+            "plain": "Do you carry an epinephrine auto-injector?"
+          },
+          "schema": {
+            "type": "boolean"
+          },
+          "required": true,
+          "when": {
+            "question": "severity",
+            "op": "equals",
+            "value": "severe"
+          }
+        }
+      ]
+    }
+  },
+  "cases": [
+    {
+      "case": "none",
+      "answers": {
+        "allergies": [
+          "none"
+        ]
+      },
+      "then": {
+        "definition_valid": true,
+        "applicable": [
+          "allergies"
+        ],
+        "required_unanswered": []
+      }
+    },
+    {
+      "case": "peanuts",
+      "answers": {
+        "allergies": [
+          "peanuts"
+        ]
+      },
+      "then": {
+        "definition_valid": true,
+        "applicable": [
+          "allergies",
+          "severity"
+        ],
+        "required_unanswered": [
+          "severity"
+        ]
+      }
+    },
+    {
+      "case": "peanuts, severe",
+      "answers": {
+        "allergies": [
+          "peanuts"
+        ],
+        "severity": "severe"
+      },
+      "then": {
+        "definition_valid": true,
+        "applicable": [
+          "allergies",
+          "severity",
+          "epipen"
+        ],
+        "required_unanswered": [
+          "epipen"
+        ]
+      }
+    },
+    {
+      "case": "shellfish only",
+      "answers": {
+        "allergies": [
+          "shellfish"
+        ]
+      },
+      "then": {
+        "definition_valid": true,
+        "applicable": [
+          "allergies"
+        ],
+        "required_unanswered": []
+      }
+    }
+  ],
+  "wrong_answers": [
+    {
+      "behaviour": "ask every follow-up up front",
+      "violates": "11.4.3 Conditions",
+      "why": "Buyers without allergies are asked about severity, and some answer it anyway, creating contradictory records."
+    }
+  ]
+}

@@ -1,0 +1,107 @@
+{
+  "id": "bq-flow-ucp-trusted-ui-finalization",
+  "section": "11.4.8",
+  "requirement": "ucp-trusted-ui-finalization",
+  "kind": "flow",
+  "expect": "accept",
+  "notes": "Without AP2 Mandates, Complete Checkout is a manual buyer action in a trusted UI, however the preceding Action was processed.",
+  "given": {
+    "service": {
+      "id": "svc_cut_45",
+      "type": "appointment",
+      "booking_question_sets": [
+        {
+          "id": "intake",
+          "revision": "r1",
+          "purpose": "intake",
+          "completion_timing": "before_confirmation",
+          "frequency": "every_booking",
+          "items": [
+            {
+              "kind": "question",
+              "id": "hair_notes",
+              "label": {
+                "plain": "Anything the stylist should know?"
+              },
+              "schema": {
+                "type": "string",
+                "maxLength": 500
+              },
+              "required": true
+            },
+            {
+              "kind": "question",
+              "id": "no_show_fee",
+              "label": {
+                "plain": "I agree to the no-show fee of $30."
+              },
+              "schema": {
+                "type": "boolean",
+                "const": true
+              },
+              "required": true,
+              "rendering": "checkbox",
+              "collection": "platform_surface"
+            }
+          ]
+        }
+      ]
+    },
+    "negotiated": [
+      "dev.usp-protocol.services.paid_bookings",
+      "dev.usp-protocol.services.booking_questions"
+    ]
+  },
+  "when": [
+    {
+      "at": "2026-10-25T10:00:40Z",
+      "step": "update_checkout",
+      "with": {
+        "booking": {
+          "service_id": "svc_cut_45",
+          "slot": {
+            "id": "slot_20261028_1000"
+          },
+          "booking_question_submissions": [
+            {
+              "set_id": "intake",
+              "revision": "r1",
+              "answers": {
+                "hair_notes": "Fine hair",
+                "no_show_fee": true
+              },
+              "action_id": "act_bq_1"
+            }
+          ]
+        }
+      },
+      "result": {
+        "checkout_status": "ready_for_complete",
+        "messages": []
+      }
+    },
+    {
+      "at": "2026-10-25T10:01:30Z",
+      "step": "complete_checkout",
+      "with": {
+        "payment_token": "tok_test_001"
+      },
+      "actor": "buyer_in_trusted_ui",
+      "result": {
+        "checkout_status": "completed"
+      }
+    }
+  ],
+  "then": {
+    "completed_by": "buyer_in_trusted_ui",
+    "agent_completed": false,
+    "http_status": 200
+  },
+  "wrong_answers": [
+    {
+      "behaviour": "let the agent call Complete Checkout after the Action resolved",
+      "violates": "7.5.1 item 6",
+      "why": "Finalization is manual through a trusted UI unless AP2 Mandates is active."
+    }
+  ]
+}

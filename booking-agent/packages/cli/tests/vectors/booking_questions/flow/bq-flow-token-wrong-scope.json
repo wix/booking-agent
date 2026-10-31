@@ -1,0 +1,123 @@
+{
+  "id": "bq-flow-token-wrong-scope",
+  "section": "11.4.4",
+  "requirement": "assessment-token-scope",
+  "kind": "flow",
+  "expect": "reject",
+  "outcome_code": "booking_eligibility_expired",
+  "notes": "A token is scoped to service, buyer, platform, and set revisions. Reusing it on another service, for another buyer, or from another platform is booking_eligibility_expired.",
+  "given": {
+    "service": {
+      "id": "svc_color_90",
+      "type": "appointment",
+      "booking_question_sets": [
+        {
+          "id": "eligibility",
+          "revision": "r1",
+          "purpose": "eligibility",
+          "completion_timing": "preflight",
+          "frequency": "every_booking",
+          "items": [
+            {
+              "kind": "question",
+              "id": "prior_reaction",
+              "label": {
+                "plain": "Have you ever reacted to hair dye?"
+              },
+              "schema": {
+                "type": "boolean"
+              },
+              "required": true
+            }
+          ]
+        }
+      ]
+    },
+    "token": {
+      "value": "bqat_7Hc2kQ",
+      "service_id": "svc_color_90",
+      "buyer": "dana@example.com",
+      "platform": "platform_a"
+    }
+  },
+  "when": [
+    {
+      "at": "2026-10-25T10:02:00Z",
+      "step": "hold_slot",
+      "with": {
+        "service_id": "svc_cut_45",
+        "booking_question_assessment_token": "bqat_7Hc2kQ"
+      },
+      "actor": "platform_a",
+      "result": {
+        "accepted": false,
+        "messages": [
+          {
+            "type": "error",
+            "code": "booking_eligibility_expired",
+            "content": "The eligibility check expired. Please check again.",
+            "severity": "recoverable"
+          }
+        ]
+      }
+    },
+    {
+      "at": "2026-10-25T10:02:10Z",
+      "step": "create_booking",
+      "with": {
+        "service_id": "svc_color_90",
+        "buyer": {
+          "first_name": "Dana",
+          "last_name": "Levi",
+          "email": "sam@example.com",
+          "phone_number": "+14155550123"
+        },
+        "booking_question_assessment_token": "bqat_7Hc2kQ"
+      },
+      "actor": "platform_a",
+      "derive": false,
+      "result": {
+        "accepted": false,
+        "messages": [
+          {
+            "type": "error",
+            "code": "booking_eligibility_expired",
+            "content": "The eligibility check expired. Please check again.",
+            "severity": "recoverable"
+          }
+        ]
+      }
+    },
+    {
+      "at": "2026-10-25T10:02:20Z",
+      "step": "hold_slot",
+      "with": {
+        "service_id": "svc_color_90",
+        "booking_question_assessment_token": "bqat_7Hc2kQ"
+      },
+      "actor": "platform_b",
+      "result": {
+        "accepted": false,
+        "messages": [
+          {
+            "type": "error",
+            "code": "booking_eligibility_expired",
+            "content": "The eligibility check expired. Please check again.",
+            "severity": "recoverable"
+          }
+        ]
+      }
+    }
+  ],
+  "then": {
+    "http_status": 200,
+    "token_reusable_within_scope": true
+  },
+  "wrong_answers": [
+    {
+      "behaviour": "accept any unexpired token",
+      "violates": "11.4.4 The assessment token",
+      "why": "One buyer's eligibility unlocks bookings for another buyer or service."
+    }
+  ]
+}

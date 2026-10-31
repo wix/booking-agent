@@ -1,0 +1,29 @@
+{
+  "id": "bq-fx-q-text-required",
+  "kind": "fixture",
+  "schema": "booking_questions.json#/$defs/BookingQuestion",
+  "parameters": {
+    "id": {
+      "default": "notes"
+    },
+    "label": {
+      "default": {
+        "plain": "Notes"
+      }
+    }
+  },
+  "body": {
+    "kind": "question",
+    "id": {
+      "$param": "id"
+    },
+    "label": {
+      "$param": "label"
+    },
+    "schema": {
+      "type": "string",
+      "maxLength": 500
+    },
+    "required": true
+  }
+}

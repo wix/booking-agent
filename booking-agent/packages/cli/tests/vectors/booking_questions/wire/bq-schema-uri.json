@@ -1,0 +1,56 @@
+{
+  "id": "bq-schema-uri",
+  "section": "11.4.3",
+  "requirement": "uri-format-not-scheme-policy",
+  "kind": "wire",
+  "binding": [
+    "rest",
+    "mcp"
+  ],
+  "expect": "accept",
+  "schema": "booking_questions.json#/$defs/BookingQuestion",
+  "notes": "format: uri checks the generic URI shape only. javascript:alert(1) is a syntactically valid URI, so blocking it is business policy, pinned separately by bq-flow-uri-scheme-policy.",
+  "case": "portfolio link",
+  "instance": {
+    "kind": "question",
+    "id": "portfolio",
+    "label": {
+      "plain": "Link to your portfolio"
+    },
+    "schema": {
+      "type": "string",
+      "format": "uri"
+    },
+    "required": false
+  },
+  "then": {
+    "conforming": true,
+    "schema_valid": true,
+    "member_name_violations": []
+  },
+  "answer_cases": [
+    {
+      "value": "https://example.com/portfolio",
+      "valid": true
+    },
+    {
+      "value": "javascript:alert(1)",
+      "valid": true,
+      "why": "Schema-valid; the business MAY still reject the scheme."
+    },
+    {
+      "value": "not a uri",
+      "valid": false,
+      "errors": [
+        "format"
+      ]
+    }
+  ],
+  "wrong_answers": [
+    {
+      "behaviour": "treat format: uri as a safe-link guarantee",
+      "violates": "11.4.3 Formats the schema cannot express",
+      "why": "A platform that renders the answer as a link without its own scheme check is exposed to script URIs."
+    }
+  ]
+}

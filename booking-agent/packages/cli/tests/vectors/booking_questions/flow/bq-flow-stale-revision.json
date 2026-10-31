@@ -1,0 +1,180 @@
+{
+  "id": "bq-flow-stale-revision",
+  "section": "11.4.5",
+  "requirement": "booking-questions-changed",
+  "kind": "flow",
+  "expect": "accept",
+  "notes": "The form moved to revision r2 after the platform collected answers against r1. The business evaluates the stale revision before answer validation and returns booking_questions_changed at the set path. The platform refetches, asks only the new question, and resubmits.",
+  "given": {
+    "service": {
+      "id": "svc_cut_45",
+      "type": "appointment",
+      "booking_question_sets": [
+        {
+          "id": "intake",
+          "revision": "r2",
+          "purpose": "intake",
+          "completion_timing": "before_confirmation",
+          "frequency": "every_booking",
+          "items": [
+            {
+              "kind": "question",
+              "id": "hair_notes",
+              "label": {
+                "plain": "Anything the stylist should know?"
+              },
+              "schema": {
+                "type": "string",
+                "maxLength": 500
+              },
+              "required": true
+            },
+            {
+              "kind": "question",
+              "id": "hair_length",
+              "label": {
+                "plain": "Hair length"
+              },
+              "schema": {
+                "type": "string",
+                "oneOf": [
+                  {
+                    "const": "short",
+                    "title": "Short"
+                  },
+                  {
+                    "const": "medium",
+                    "title": "Medium"
+                  },
+                  {
+                    "const": "long",
+                    "title": "Long"
+                  }
+                ]
+              },
+              "required": true
+            },
+            {
+              "kind": "question",
+              "id": "scalp_sensitive",
+              "label": {
+                "plain": "Is your scalp sensitive to heat?"
+              },
+              "schema": {
+                "type": "boolean"
+              },
+              "required": true
+            }
+          ]
+        }
+      ]
+    },
+    "hold": {
+      "id": "hold_bq_1",
+      "slot_id": "slot_20261028_1000",
+      "service_id": "svc_cut_45",
+      "spots": 1,
+      "expires_at": "2026-10-25T10:10:00Z",
+      "status": "active"
+    }
+  },
+  "when": [
+    {
+      "at": "2026-10-25T10:00:00Z",
+      "step": "create_booking",
+      "with": {
+        "hold_id": "hold_bq_1",
+        "buyer": {
+          "first_name": "Dana",
+          "last_name": "Levi",
+          "email": "dana@example.com",
+          "phone_number": "+14155550123"
+        },
+        "booking_question_submissions": [
+          {
+            "set_id": "intake",
+            "revision": "r1",
+            "answers": {
+              "hair_notes": "Fine hair, sensitive scalp",
+              "hair_length": "medium"
+            }
+          }
+        ]
+      },
+      "result": {
+        "accepted": false,
+        "booking_created": false,
+        "messages": [
+          {
+            "type": "error",
+            "code": "booking_questions_changed",
+            "content": "The form changed. Please review the updated questions.",
+            "severity": "recoverable",
+            "path": "$.booking_question_submissions[?@.set_id=='intake']"
+          }
+        ]
+      }
+    },
+    {
+      "at": "2026-10-25T10:00:20Z",
+      "step": "refetch_service",
+      "result": {
+        "set_revisions": [
+          {
+            "set_id": "intake",
+            "revision": "r2"
+          }
+        ]
+      }
+    },
+    {
+      "at": "2026-10-25T10:01:00Z",
+      "step": "create_booking",
+      "with": {
+        "hold_id": "hold_bq_1",
+        "buyer": {
+          "first_name": "Dana",
+          "last_name": "Levi",
+          "email": "dana@example.com",
+          "phone_number": "+14155550123"
+        },
+        "booking_question_submissions": [
+          {
+            "set_id": "intake",
+            "revision": "r2",
+            "answers": {
+              "hair_notes": "Fine hair, sensitive scalp",
+              "hair_length": "medium",
+              "scalp_sensitive": false
+            }
+          }
+        ]
+      },
+      "result": {
+        "accepted": true,
+        "booking_id": "bkg_bq_1",
+        "booking_status": "confirmed",
+        "messages": []
+      }
+    }
+  ],
+  "then": {
+    "booking_status": "confirmed",
+    "questions_reasked": [
+      "scalp_sensitive"
+    ],
+    "http_status": 200
+  },
+  "wrong_answers": [
+    {
+      "behaviour": "validate r1 answers against r2 and report scalp_sensitive missing",
+      "violates": "11.4.5 Request Submission",
+      "why": "The buyer would be told about one question when the form may have changed in ways the platform has not seen."
+    },
+    {
+      "behaviour": "silently accept r1 answers",
+      "violates": "11.4.11 business item 1",
+      "why": "The business records answers to a form it no longer publishes."
+    }
+  ]
+}

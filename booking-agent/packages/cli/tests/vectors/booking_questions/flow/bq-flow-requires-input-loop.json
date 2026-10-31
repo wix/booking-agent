@@ -1,0 +1,111 @@
+{
+  "id": "bq-flow-requires-input-loop",
+  "section": "11.4.4",
+  "requirement": "preflight-requires-input",
+  "kind": "flow",
+  "expect": "accept",
+  "notes": "requires_input names the live sets still needed. The platform asks only those and retries until eligible.",
+  "given": {
+    "service": {
+      "id": "svc_color_90",
+      "type": "appointment",
+      "booking_question_sets": [
+        {
+          "id": "eligibility",
+          "revision": "r1",
+          "purpose": "eligibility",
+          "completion_timing": "preflight",
+          "frequency": "every_booking",
+          "items": [
+            {
+              "kind": "question",
+              "id": "prior_reaction",
+              "label": {
+                "plain": "Have you ever reacted to hair dye?"
+              },
+              "schema": {
+                "type": "boolean"
+              },
+              "required": true
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "when": [
+    {
+      "at": "2026-10-25T10:00:00Z",
+      "step": "check_eligibility",
+      "with": {
+        "service_id": "svc_cut_45",
+        "buyer": {
+          "first_name": "Dana",
+          "last_name": "Levi",
+          "email": "dana@example.com",
+          "phone_number": "+14155550123"
+        }
+      },
+      "result": {
+        "eligibility": {
+          "decision": "requires_input",
+          "required_sets": [
+            {
+              "set_id": "eligibility",
+              "revision": "r1"
+            }
+          ]
+        },
+        "messages": [
+          {
+            "type": "error",
+            "code": "booking_question_answer_missing",
+            "content": "This answer is required.",
+            "severity": "recoverable",
+            "path": "$.booking_question_submissions[?@.set_id=='eligibility'].answers['prior_reaction']"
+          }
+        ]
+      }
+    },
+    {
+      "at": "2026-10-25T10:00:40Z",
+      "step": "check_eligibility",
+      "with": {
+        "service_id": "svc_cut_45",
+        "buyer": {
+          "first_name": "Dana",
+          "last_name": "Levi",
+          "email": "dana@example.com",
+          "phone_number": "+14155550123"
+        },
+        "booking_question_submissions": [
+          {
+            "set_id": "eligibility",
+            "revision": "r1",
+            "answers": {
+              "prior_reaction": false
+            }
+          }
+        ]
+      },
+      "result": {
+        "eligibility": {
+          "decision": "eligible",
+          "assessment_token": "bqat_7Hc2kQ",
+          "expires_at": "2026-10-25T10:15:00Z"
+        }
+      }
+    }
+  ],
+  "then": {
+    "final_decision": "eligible",
+    "http_status": 200
+  },
+  "wrong_answers": [
+    {
+      "behaviour": "treat requires_input as ineligible",
+      "violates": "11.4.4 Decisions",
+      "why": "A recoverable state ends the booking attempt."
+    }
+  ]
+}
