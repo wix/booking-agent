@@ -144,6 +144,19 @@ def test_a_lapsed_checkout_with_new_terms_asks_again_before_any_charge(runner, c
     assert summary["data"]["checkout"]["merchant_quote"]["total_minor_units"] == 250
 
 
+@pytest.mark.parametrize("stamp", ["2020-01-01T00:00:00Z", "2020-01-01T00:00:00z",
+                                   "2020-01-01T00:00:00+00:00", "2020-01-01T00:00:00"])
+def test_a_utc_expiry_in_any_spelling_counts_as_lapsed(stamp):
+    from datetime import timezone
+
+    from booking_agent_cli.payment_helpers import checkout_expired, parse_expires_at
+
+    assert parse_expires_at(stamp).tzinfo is not None
+    assert parse_expires_at(stamp).astimezone(timezone.utc).year == 2020
+    assert checkout_expired(stamp)
+    assert not checkout_expired("2999-01-01T00:00:00Z")
+
+
 def test_the_snapshot_digest_covers_the_business_links():
     from booking_agent_cli.payment_helpers import approval_snapshot, snapshot_digest
     from booking_agent_cli.session import Session

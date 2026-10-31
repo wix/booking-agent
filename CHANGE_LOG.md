@@ -1,5 +1,11 @@
 # Change Log
 
+## 31/10/26 at 17:44:44 by [Ran Yahalom](mailto:ranya@wix.com)
+
+- Fixed checkout and approval expiry times ending in `Z` being unreadable on Python 3.10, where `datetime.fromisoformat` rejects that suffix. The CLI treated such a checkout as never expiring, so on 3.10 a lapsed checkout was not recreated before booking. Part of 0.12.0
+
+---
+
 ## 31/10/26 at 17:37:24 by [Ran Yahalom](mailto:ranya@wix.com)
 
 - Moved checkout creation into `flow buyer resolve` for paid UCP bookings, so the summary the user approves shows the business's own total, deposit, payment terms and policies, and every consent question is asked once. Before, the checkout was created only after the yes, and policies, deposit terms or a changed total meant a second question after the user had already agreed. `flow book` now takes the prepared checkout (recreating it with the same idempotency key if it lapsed, and asking again only when the business's terms changed)

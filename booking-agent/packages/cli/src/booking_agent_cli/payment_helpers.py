@@ -46,7 +46,8 @@ def parse_expires_at(iso: Optional[str]) -> Optional[datetime]:
     if not iso:
         return None
     try:
-        expires = datetime.fromisoformat(iso)
+        # Python 3.10's fromisoformat rejects a trailing "Z".
+        expires = datetime.fromisoformat(iso[:-1] + "+00:00" if iso.endswith(("Z", "z")) else iso)
         if expires.tzinfo is None:
             expires = expires.replace(tzinfo=timezone.utc)
         return expires
