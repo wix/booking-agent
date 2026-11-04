@@ -9,6 +9,8 @@ Superagent. That is the only step for the skill.
 2. Open **Suggested**.
 3. Find **booking-agent** and add it.
 
+![booking-agent on the Suggested tab of Superagent's Skills screen](superagent-suggested-skills.png)
+
 It is already on that list, marked Base44. The card describes booking a location-based
 service from a business, such as a haircut, lesson, repair, class, or appointment, and
 connecting a Link wallet. Adding it puts the skill in your workspace, and Superagent

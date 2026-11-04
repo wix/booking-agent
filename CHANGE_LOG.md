@@ -1,5 +1,11 @@
 # Change Log
 
+## 04/11/26 at 09:32:53 by [Ran Yahalom](mailto:ranya@wix.com)
+
+- Added the Superagent Suggested skills screenshot to the install guide, next to the Plugins -> Skills steps, so readers can match the booking-agent card they are adding
+
+---
+
 ## 04/11/26 at 09:23:27 by [Ran Yahalom](mailto:ranya@wix.com)
 
 - Opened the Base44 Superagent install guide with Plugins -> Skills, because the Booking Agent already ships there as a suggested skill and adding that copy is the skill install
