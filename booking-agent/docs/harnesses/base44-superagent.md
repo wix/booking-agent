@@ -1,8 +1,25 @@
 # Install on Base44 Superagent
 
+## Add the skill
+
+The Booking Agent ships with Base44 Superagent as a suggested skill. Add it from
+Superagent. That is the only step for the skill.
+
+1. Open **Plugins**, then **Skills**.
+2. Open **Suggested**.
+3. Find **booking-agent** and add it.
+
+It is already on that list, marked Base44. The card describes booking a location-based
+service from a business, such as a haircut, lesson, repair, class, or appointment, and
+connecting a Link wallet. Adding it puts the skill in your workspace, and Superagent
+loads that copy.
+
+## What still runs in the sandbox
+
 Base44 Superagent runs the Booking Agent in its sandbox. Only the saved-agent folder,
-`/app/.agents`, survives a sandbox reset, so the booking, the Link sign-in, the skill,
-and a verified copy of the CLI all live there.
+`/app/.agents`, survives a sandbox reset, so the booking, the Link sign-in, and a
+verified copy of the CLI all live there. The skill stays the one you added from
+Plugins -> Skills.
 
 <!-- harness-pins:start -->
 | Item | Value |
@@ -20,12 +37,19 @@ replay=base44-superagent
 ```
 <!-- harness-pins:end -->
 
-## Fastest install: paste this into Superagent
+The skill row above is the copy bundled in the approved CLI. Superagent runs the
+suggested skill you added from Plugins -> Skills.
+
+## Sandbox setup: paste this into Superagent
+
+The skill is already added. Paste this so Superagent installs the approved CLI and
+keeps bookings in the saved folder:
 
 ```text
-Install the Booking Agent in your sandbox by following
+The Booking Agent skill is already added from Plugins -> Skills, on the Suggested
+tab. Use that skill. Set up the sandbox by following
 https://github.com/wix/booking-agent/blob/master/booking-agent/docs/harnesses/base44-superagent.md
-exactly. Use the pinned versions in that guide, not the latest release, and keep
+from "What the install runs". Use the pinned CLI in that guide, and keep
 everything it saves under /app/.agents. Stop after the checks at the end and do not
 start a booking.
 ```
@@ -54,19 +78,9 @@ start a booking.
    uv tool install --force "$root/verified-wheels/booking_agent_cli-$cli-py3-none-any.whl"
    ```
 
-4. Write the skill bundled in that CLI into the skills folder under `/app/.agents`. If
-   Superagent loads skills from a different folder inside `/app/.agents`, use that one;
-   the file must stay inside the saved folder:
-
-   ```bash
-   mkdir -p "$root/skills/booking-agent"
-   booking-agent skill print \
-     | python3 -c 'import json,sys; sys.stdout.write(json.load(sys.stdin)["data"]["skill_text"])' \
-     > "$root/skills/booking-agent/SKILL.md"
-   ```
-
-5. Keep the booking and the Link sign-in in `/app/.agents`, and set this harness's
-   replay so updates follow Base44 Superagent's own rollout:
+4. Keep the booking and the Link sign-in in `/app/.agents`, and set this harness's
+   replay so updates follow Base44 Superagent's own rollout. Leave the skill added
+   from Plugins -> Skills in place:
 
    ```bash
    booking-agent runtime prepare --persistent-root "$root"
@@ -74,7 +88,7 @@ start a booking.
      || printf '\nBOOKING_AGENT_REPLAY=%s\n' "$replay" >> ~/.booking-agent/.env
    ```
 
-6. Check the result:
+5. Check the result:
 
    ```bash
    booking-agent skill version      # data shows the approved cli_version and skill_version
@@ -88,10 +102,11 @@ start a booking.
 
 ## After a sandbox reset
 
-A reset removes installed programs and the links into `/app/.agents`. In a fresh
-conversation, set `cli` as in step 2, reinstall from the verified copy, and relink the
-saved folder. `booking-agent flow status` then finds the saved booking and the Link
-sign-in, so there is no new search and no second sign-in:
+A reset removes installed programs and the links into `/app/.agents`. The skill you
+added from Plugins -> Skills stays in the workspace. In a fresh conversation, set
+`cli` as in step 2, reinstall from the verified copy, and relink the saved folder.
+`booking-agent flow status` then finds the saved booking and the Link sign-in, so
+there is no new search and no second sign-in:
 
 ```bash
 uv tool install --force "/app/.agents/verified-wheels/booking_agent_cli-$cli-py3-none-any.whl"

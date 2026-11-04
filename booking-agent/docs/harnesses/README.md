@@ -2,9 +2,11 @@
 
 A verified harness has passed a hosted booking replay of its own: a real booking that
 survived the restart that harness actually performs, with that harness's calendar
-behavior. Each guide below installs the Booking Agent CLI and skill pair approved for
-the harness and sets up updates so the harness is offered a newer release only after
-that release passes the same replay.
+behavior. Each guide below installs the Booking Agent CLI approved for the harness
+and sets up updates so the harness is offered a newer release only after that
+release passes the same replay. On Base44 Superagent the skill ships as a suggested
+skill: add it from Plugins -> Skills, then follow that guide for the CLI. Grok Bot
+and Muse install their skill from the guide.
 
 <!-- verified-harnesses:start -->
 | Harness | Install guide | Approved CLI | Approved skill | Hosted replay |

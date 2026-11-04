@@ -1,5 +1,12 @@
 # Change Log
 
+## 04/11/26 at 09:23:27 by [Ran Yahalom](mailto:ranya@wix.com)
+
+- Opened the Base44 Superagent install guide with Plugins -> Skills, because the Booking Agent already ships there as a suggested skill and adding that copy is the skill install
+- Pointed the README and the harness index at that screen, and stopped the Superagent guide from writing a second SKILL.md into the sandbox
+
+---
+
 ## 31/10/26 at 17:44:44 by [Ran Yahalom](mailto:ranya@wix.com)
 
 - Fixed checkout and approval expiry times ending in `Z` being unreadable on Python 3.10, where `datetime.fromisoformat` rejects that suffix. The CLI treated such a checkout as never expiring, so on 3.10 a lapsed checkout was not recreated before booking. Part of 0.12.0

@@ -18,7 +18,7 @@ The `main` branch of this repository is the GitHub Pages branch for the hosted p
 
 ### On a verified agent harness
 
-These harnesses passed a hosted booking replay of their own. Follow the harness's guide: it installs the Booking Agent CLI and skill pair approved for that harness, keeps the booking across that harness's restart, and sets the harness's update rollout. The fastest route is to paste the prompt at the top of the guide into the harness.
+These harnesses passed a hosted booking replay of their own. Follow the harness's guide: it installs the Booking Agent CLI approved for that harness, keeps the booking across that harness's restart, and sets the harness's update rollout. On Base44 Superagent, add the suggested **booking-agent** skill from **Plugins -> Skills** first; that guide opens with those steps. On Grok Bot and Muse, paste the prompt at the top of the guide into the harness.
 
 <!-- verified-harnesses:start -->
 | Harness | Install guide | Approved CLI | Approved skill | Hosted replay |
