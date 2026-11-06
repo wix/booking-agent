@@ -7,7 +7,7 @@ allowlist in ``FAULT_REPORT_SCHEMA``. Such a report goes to the support ingest w
 a consent prompt; everything else stays on the consented support-report path.
 
 Reports are queued in ``fault-queue.jsonl`` and sent after the command's stdout is
-written, within a one-second budget, silently. ``BOOKING_AGENT_FAULT_REPORTS=0``
+written, within a five-second budget, silently. ``BOOKING_AGENT_FAULT_REPORTS=0``
 turns this off.
 """
 from __future__ import annotations
@@ -31,8 +31,9 @@ QUEUE_NAME = "fault-queue.jsonl"
 SENT_NAME = "fault-sent.json"
 MAX_QUEUE = 50
 MAX_VIOLATIONS = 20
+MAX_ATTEMPTS = 2
 DEDUPE_SECONDS = 24 * 3600
-SEND_BUDGET_S = 1.0
+SEND_BUDGET_S = 5.0
 _MIN_ATTEMPT_S = 0.05
 
 _visible_error = False
@@ -142,7 +143,23 @@ def _home() -> Path:
     return settings.booking_agent_home()
 
 
-def _read_queue(path: Path) -> List[Dict[str, Any]]:
+def _fresh(item: Dict[str, Any], now: float) -> bool:
+    from datetime import datetime
+
+    raw = item.get("created_at")
+    if not isinstance(raw, str):
+        return False
+    try:
+        created = datetime.fromisoformat(
+            raw[:-1] + "+00:00" if raw.endswith("Z") else raw
+        ).timestamp()
+    except ValueError:
+        return False
+    return now - created < DEDUPE_SECONDS
+
+
+def _read_queue(path: Path, now: Optional[float] = None) -> List[Dict[str, Any]]:
+    now = time.time() if now is None else now
     try:
         lines = path.read_text(encoding="utf-8").splitlines()
     except OSError:
@@ -153,7 +170,11 @@ def _read_queue(path: Path) -> List[Dict[str, Any]]:
             item = json.loads(line)
         except ValueError:
             continue
-        if isinstance(item, dict) and isinstance(item.get("fingerprint"), str):
+        if (
+            isinstance(item, dict)
+            and isinstance(item.get("fingerprint"), str)
+            and _fresh(item, now)
+        ):
             out.append(item)
     return out
 
@@ -191,7 +212,7 @@ def enqueue(reports: List[Dict[str, Any]], *, now: Optional[float] = None) -> No
         return
     now = time.time() if now is None else now
     home = _home()
-    queue = _read_queue(home / QUEUE_NAME)
+    queue = _read_queue(home / QUEUE_NAME, now)
     sent = _read_sent(home / SENT_NAME, now)
     known = {item["fingerprint"] for item in queue} | set(sent)
     for report in reports:
@@ -211,11 +232,13 @@ def send_queued(
     """Send queued reports until the budget runs out; keep what was not accepted."""
     from .support_report import DEFAULT_SUPPORT_INGEST_URL, _post_report
 
-    home = _home()
-    queue = _read_queue(home / QUEUE_NAME)
-    if not queue:
-        return
     now = time.time() if now is None else now
+    home = _home()
+    queue_path = home / QUEUE_NAME
+    queue = _read_queue(queue_path, now)
+    if not queue:
+        queue_path.unlink(missing_ok=True)
+        return
     sent = _read_sent(home / SENT_NAME, now)
     deadline = time.monotonic() + budget_s
     remaining: List[Dict[str, Any]] = []
@@ -224,7 +247,9 @@ def send_queued(
         if left < _MIN_ATTEMPT_S:
             remaining.extend(queue[index:])
             break
-        body = json.dumps(report, sort_keys=True).encode("utf-8")
+        attempts = int(report.get("attempts") or 0) + 1
+        payload = {k: v for k, v in report.items() if k != "attempts"}
+        body = json.dumps(payload, sort_keys=True).encode("utf-8")
         try:
             failure = _post_report(DEFAULT_SUPPORT_INGEST_URL, body, transport=transport, timeout=left)
         except Exception:
@@ -234,9 +259,13 @@ def send_queued(
         elif failure == "schema":
             continue
         else:
-            remaining.extend(queue[index:])
+            if attempts < MAX_ATTEMPTS:
+                remaining.append({**payload, "attempts": attempts})
+            else:
+                sent[report["fingerprint"]] = now
+            remaining.extend(queue[index + 1:])
             break
-    _write_queue(home / QUEUE_NAME, remaining)
+    _write_queue(queue_path, remaining)
     _write(home / SENT_NAME, json.dumps(sent, sort_keys=True))
 
 

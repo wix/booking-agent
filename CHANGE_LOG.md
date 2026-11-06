@@ -1,5 +1,12 @@
 # Change Log
 
+## 06/11/26 at 10:47:20 by [Ran Yahalom](mailto:ranya@wix.com)
+
+- Fixed automatic fault reports being resent on every command after the support ingest processed the POST slowly: the one-second send budget was shorter than Google Apps Script's response time, so the client timed out before receiving the redirect and echo reply, left the report at the head of `fault-queue.jsonl`, and re-sent it on every later command while blocking newer reports behind it. Raised the send budget to five seconds, retired reports after two failed attempts (recording their fingerprint for the day so they are not re-queued), and expired queued reports older than a day
+- Fixed `--help` / `-h` on `booking-agent flow` subcommands triggering `_resume_check` (which failed with `resume_check_required` and queued a false `agent_contract_violation` fault report in a new runtime), marking `flow status --help` as having read the saved booking, or writing `--help` invocations into the session activity log. Released as 0.12.1 (skill 0.59.1), held back (deferred) alongside 0.12.0
+
+---
+
 ## 04/11/26 at 09:32:53 by [Ran Yahalom](mailto:ranya@wix.com)
 
 - Added the Superagent Suggested skills screenshot to the install guide, next to the Plugins -> Skills steps, so readers can match the booking-agent card they are adding

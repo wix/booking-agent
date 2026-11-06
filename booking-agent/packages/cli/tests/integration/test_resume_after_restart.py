@@ -170,6 +170,32 @@ def test_a_note_question_does_not_need_status_first(runner, isolated_session, mo
     assert _stdout_json(r)["awaiting_user"] == sr.AWAITING_SUPPORT_REPORT_CONSENT
 
 
+def test_help_on_a_flow_subcommand_does_not_trip_resume_check_or_record_a_fault(
+    runner, isolated_session, monkeypatch,
+):
+    from booking_agent_cli import fault_reports
+    from booking_agent_cli.session import load_session
+
+    _at_summary(runner, monkeypatch)
+    before_log = list(load_session().activity_log)
+    _fresh_runtime(monkeypatch)
+    fault_reports.collect()
+
+    r = _invoke(runner, "flow", "calendar", "record-event", "--help")
+
+    assert r.exit_code == 0, r.stdout
+    assert "Usage:" in r.stdout
+    assert fault_reports.collect() == []
+    assert load_session().activity_log == before_log
+
+    # Help on `flow status` must not count as having read the saved booking.
+    r_status_help = _invoke(runner, "flow", "status", "--help")
+    assert r_status_help.exit_code == 0
+    r_change = _invoke(runner, "flow", "availability", "--service-id", _SERVICE_ID, "--change-time")
+    assert r_change.exit_code == 1
+    assert _stdout_json(r_change)["data"]["error"]["code"] == "resume_check_required"
+
+
 def _booked_text(session) -> str:
     from booking_agent_cli.booking_summary import booked_message
 
