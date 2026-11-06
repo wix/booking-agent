@@ -200,6 +200,28 @@ from ..session import (
 app = typer.Typer(help="Stateful USP booking flow with hard human gates.")
 
 
+def _help_requested(ctx: typer.Context) -> bool:
+    """True when `--help` or `-h` was passed, so group callbacks stay read-only."""
+    import inspect
+
+    help_flags = set(ctx.help_option_names or ("--help",)) | {"--help", "-h"}
+    sources = [sys.argv[1:]]
+    frame = inspect.currentframe()
+    while frame is not None:
+        if frame.f_code.co_name == "invoke":
+            args = frame.f_locals.get("args")
+            if isinstance(args, list):
+                sources.append(args)
+        frame = frame.f_back
+    for tokens in sources:
+        for tok in tokens:
+            if tok == "--":
+                break
+            if tok in help_flags:
+                return True
+    return False
+
+
 @app.callback()
 def _flow_setup(ctx: typer.Context) -> None:
     """Load config for every command process.
@@ -214,6 +236,8 @@ def _flow_setup(ctx: typer.Context) -> None:
 
     clear_last_http_failure()
     config_loader.load()
+    if _help_requested(ctx):
+        return
     sub = ctx.invoked_subcommand
     _resume_check(sub)
     if sub not in (None, "init", "sessions"):
@@ -7465,7 +7489,9 @@ app.add_typer(pay_app, name="pay")
 
 
 @pay_app.callback()
-def _pay_requires_verified_installation() -> None:
+def _pay_requires_verified_installation(ctx: typer.Context) -> None:
+    if _help_requested(ctx):
+        return
     _require_verified_installation(load_store(), "PAYMENT_PENDING")
     _require_verified_skill(load_store(), "PAYMENT_PENDING")
 

@@ -193,6 +193,49 @@ def test_a_report_the_ingest_could_not_take_waits_for_the_next_command(home):
     assert len(queued) == 1 and len(posted) == 1
     fault_reports.finish_command(transport=transport)
     assert len(posted) == 2
+    assert validate_bundle(posted[1], FAULT_REPORT_SCHEMA) == []
+    assert not (home / fault_reports.QUEUE_NAME).exists()
+
+
+def test_a_report_that_keeps_failing_is_retired_and_unblocks_later_reports(home):
+    transport, posted = _ingest([
+        {"accepted": False, "reason": "rate_limited"},
+        {"accepted": False, "reason": "rate_limited"},
+        {"accepted": True},
+    ])
+    faults.record_silent_fault("profile_resolve", _profile_failure(), business_id="biz-1")
+    faults.record_silent_fault("catalog_enrich", _profile_failure(), service_id="svc-2")
+
+    fault_reports.finish_command(transport=transport)
+    assert len(posted) == 1
+
+    # Second failed attempt retires the first report and records its fingerprint for the day.
+    fault_reports.finish_command(transport=transport)
+    assert len(posted) == 2
+    assert posted[0]["fingerprint"] == posted[1]["fingerprint"]
+    assert posted[0]["fingerprint"] in json.loads((home / fault_reports.SENT_NAME).read_text())
+
+    # The next command sends the second report that was waiting behind it, and a repeat of the
+    # first fault is not re-queued within the deduplication window.
+    faults.record_silent_fault("profile_resolve", _profile_failure(), business_id="biz-1")
+    fault_reports.finish_command(transport=transport)
+    assert len(posted) == 3
+    assert posted[2]["step"] == "catalog_enrich"
+    assert not (home / fault_reports.QUEUE_NAME).exists()
+
+
+def test_stale_queued_reports_older_than_a_day_are_dropped(home):
+    stale = fault_reports.project(
+        {"fault_class": "degraded_result", "step": "cli", "message_template": "stale"},
+        now="2026-10-21T06:18:54.673969+00:00",
+    )
+    assert stale is not None
+    (home / fault_reports.QUEUE_NAME).write_text(json.dumps(stale) + "\n", encoding="utf-8")
+    transport, posted = _ingest([{"accepted": True}])
+
+    fault_reports.finish_command(transport=transport)
+
+    assert posted == []
     assert not (home / fault_reports.QUEUE_NAME).exists()
 
 
