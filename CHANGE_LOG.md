@@ -1,5 +1,11 @@
 # Change Log
 
+## 13/11/26 at 14:38:04 by [Ran Yahalom](mailto:ranya@wix.com)
+
+- Recomputed every vendored booking-question flow vector, including the composed phone, text, and acknowledgement cases, with the client's own applicability and answer rules, so a change to those rules fails the vector it disagrees with instead of leaving the flow catalog as unread fixtures
+
+---
+
 ## 13/11/26 at 13:09:36 by [Ran Yahalom](mailto:ranya@wix.com)
 
 - Marked the instrument the CLI pays with as `selected: true` on `complete_checkout`, as the public UCP example does. A live business refused the approved Link payment with "No payment instrument selected", so the checkout stayed incomplete until the instrument was marked
