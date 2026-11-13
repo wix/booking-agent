@@ -1,5 +1,13 @@
 # Change Log
 
+## 13/11/26 at 10:39:18 by [Ran Yahalom](mailto:ranya@wix.com)
+
+- Declared `dev.usp-protocol.services.booking_questions` at 2026-08-20 in both profile blocks, and offered catalog, availability, and bookings at 2026-08-20 as well as 2026-08-14, so a business that publishes booking questions negotiates the extension. Exact version overlap left the extension inactive when the platform listed only the 2026-08-14 parents
+- Kept a capability's `extends` list when a UCP profile is read as a USP profile, so activation follows the parents the business declared rather than every negotiated surface
+- Released as 0.13.0 (skill 0.59.2), held back (deferred) until a live booking against a business that publishes questions is recorded
+
+---
+
 ## 06/11/26 at 10:47:20 by [Ran Yahalom](mailto:ranya@wix.com)
 
 - Fixed automatic fault reports being resent on every command after the support ingest processed the POST slowly: the one-second send budget was shorter than Google Apps Script's response time, so the client timed out before receiving the redirect and echo reply, left the report at the head of `fault-queue.jsonl`, and re-sent it on every later command while blocking newer reports behind it. Raised the send budget to five seconds, retired reports after two failed attempts (recording their fingerprint for the day so they are not re-queued), and expired queued reports older than a day

@@ -6,6 +6,22 @@ from typing import Any, Dict
 # Canonical publish URL: https://profile.booking-agent.dev/platform-profile.json
 DEFAULT_PLATFORM_PROFILE_URL = "https://profile.booking-agent.dev/platform-profile.json"
 
+# The booking-questions schema requires these parents at 2026-08-20.
+# 2026-08-14 stays listed too, so a business on that version still overlaps.
+_USP_PARENTS_2026_08_20 = (
+    "dev.usp-protocol.services.catalog",
+    "dev.usp-protocol.services.availability",
+    "dev.usp-protocol.services.bookings",
+    "dev.usp-protocol.services.paid_bookings",
+)
+
+
+def _capability(version: str, spec: str, schema: str, extends: Any = None) -> Dict[str, Any]:
+    entry: Dict[str, Any] = {"version": version, "spec": spec, "schema": schema}
+    if extends is not None:
+        entry["extends"] = extends
+    return entry
+
 
 def platform_profile_url() -> str:
     """Public identity URL sent in both USP and UCP Agent headers.
@@ -31,25 +47,48 @@ def platform_profile_doc() -> Dict[str, Any]:
             "version": "2026-08-14",
             "capabilities": {
                 "dev.usp-protocol.services.catalog": [
-                    {
-                        "version": "2026-08-14",
-                        "spec": "https://usp-protocol.dev/specification#3-service-catalog",
-                        "schema": "https://usp-protocol.dev/schemas/services/catalog.json",
-                    }
+                    _capability(
+                        "2026-08-14",
+                        "https://usp-protocol.dev/specification#3-service-catalog",
+                        "https://usp-protocol.dev/schemas/services/catalog.json",
+                    ),
+                    _capability(
+                        "2026-08-20",
+                        "https://usp-protocol.dev/specification#3-service-catalog",
+                        "https://usp-protocol.dev/schemas/services/catalog.json",
+                    ),
                 ],
                 "dev.usp-protocol.services.availability": [
-                    {
-                        "version": "2026-08-14",
-                        "spec": "https://usp-protocol.dev/specification#4-availability",
-                        "schema": "https://usp-protocol.dev/schemas/services/availability.json",
-                    }
+                    _capability(
+                        "2026-08-14",
+                        "https://usp-protocol.dev/specification#4-availability",
+                        "https://usp-protocol.dev/schemas/services/availability.json",
+                    ),
+                    _capability(
+                        "2026-08-20",
+                        "https://usp-protocol.dev/specification#4-availability",
+                        "https://usp-protocol.dev/schemas/services/availability.json",
+                    ),
                 ],
                 "dev.usp-protocol.services.bookings": [
-                    {
-                        "version": "2026-08-14",
-                        "spec": "https://usp-protocol.dev/specification#5-booking-lifecycle",
-                        "schema": "https://usp-protocol.dev/schemas/services/booking.json",
-                    }
+                    _capability(
+                        "2026-08-14",
+                        "https://usp-protocol.dev/specification#5-booking-lifecycle",
+                        "https://usp-protocol.dev/schemas/services/booking.json",
+                    ),
+                    _capability(
+                        "2026-08-20",
+                        "https://usp-protocol.dev/specification#5-booking-lifecycle",
+                        "https://usp-protocol.dev/schemas/services/booking.json",
+                    ),
+                ],
+                "dev.usp-protocol.services.booking_questions": [
+                    _capability(
+                        "2026-08-20",
+                        "https://usp-protocol.dev/specification#booking-questions-extension",
+                        "https://usp-protocol.dev/schemas/services/booking_questions.json",
+                        list(_USP_PARENTS_2026_08_20),
+                    ),
                 ],
             },
             "services": {
@@ -87,6 +126,14 @@ def platform_profile_doc() -> Dict[str, Any]:
                         "schema": "https://usp-protocol.dev/schemas/services/paid_bookings.json",
                         "extends": "dev.ucp.shopping.checkout",
                     }
+                ],
+                "dev.usp-protocol.services.booking_questions": [
+                    _capability(
+                        "2026-08-20",
+                        "https://usp-protocol.dev/specification#booking-questions-extension",
+                        "https://usp-protocol.dev/schemas/services/booking_questions.json",
+                        list(_USP_PARENTS_2026_08_20),
+                    ),
                 ],
                 "dev.usp-protocol.services.pay_at_service": [
                     {

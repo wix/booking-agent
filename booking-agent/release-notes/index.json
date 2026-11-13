@@ -616,6 +616,26 @@
       "skill_version": "0.59.1",
       "update_status": "deferred",
       "user_summary": "Background fault reports no longer resend when the support service responds slowly, and help checks do not interrupt a saved booking."
+    },
+    {
+      "change_type": "feature",
+      "cli_version": "0.13.0",
+      "details_url": "https://github.com/wix/booking-agent/releases/tag/v0.13.0",
+      "ecosystem_ready": false,
+      "readiness_evidence": [
+        "Held back until a live booking on a business that publishes questions shows the question loop, a missing required answer rejected with nothing booked, and a paid checkout that stays incomplete until the answers are sent.",
+        "Businesses that do not declare the extension are unchanged: no question submission is sent to them, and catalog, availability, and bookings stay offered at 2026-08-14 as well as 2026-08-20.",
+        "The extra 2026-08-20 parent versions are what let the extension negotiate. Overlap is exact, so a profile that only listed 2026-08-14 would declare the extension and then leave it inactive against a business on 2026-08-20.",
+        "Every install advertises the same profile URL, including older builds that cannot ask the questions. A business that declares the extension treats those builds as negotiated. Question publishing is limited to the test site and the company network, so other businesses are unaffected until that rollout widens."
+      ],
+      "relevant_capabilities": [
+        "booking",
+        "payment"
+      ],
+      "schema_version": 1,
+      "skill_version": "0.59.2",
+      "update_status": "deferred",
+      "user_summary": "A business can ask its booking questions before the appointment is booked."
     }
   ],
   "schema_version": 1

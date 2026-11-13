@@ -23,15 +23,30 @@ def _usp(*caps: str, bq: bool = True) -> dict:
     return block
 
 
-def test_tripwire_hosted_platform_profile_does_not_declare_booking_questions():
-    """Gate 1. Track C removes this test in the pull request that enables the extension."""
+def test_hosted_platform_profile_declares_booking_questions():
     doc = platform_profile_doc()
-    assert CAP_BOOKING_QUESTIONS not in (doc.get("usp") or {}).get("capabilities", {})
-    assert CAP_BOOKING_QUESTIONS not in (doc.get("ucp") or {}).get("capabilities", {})
+    entry = {
+        "version": V,
+        "spec": "https://usp-protocol.dev/specification#booking-questions-extension",
+        "schema": "https://usp-protocol.dev/schemas/services/booking_questions.json",
+        "extends": ALL_PARENTS,
+    }
+    for block in ("usp", "ucp"):
+        assert doc[block]["capabilities"][CAP_BOOKING_QUESTIONS] == [entry]
+    for cap in ALL_PARENTS[:3]:
+        versions = [item["version"] for item in doc["usp"]["capabilities"][cap]]
+        assert versions == ["2026-08-14", V]
 
 
-def test_standalone_inactive_with_the_real_platform_profile():
+def test_standalone_active_with_the_real_platform_profile():
     business = _usp(*ALL_PARENTS[:3])
+    assert bqn.standalone_active_surfaces(business, platform_profile_doc()) == {
+        "catalog", "availability", "bookings",
+    }
+
+
+def test_older_business_without_the_extension_stays_inactive():
+    business = {"capabilities": {cap: [{"version": "2026-08-14"}] for cap in ALL_PARENTS[:3]}}
     assert bqn.standalone_active_surfaces(business, platform_profile_doc()) == frozenset()
 
 
