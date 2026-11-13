@@ -1,5 +1,12 @@
 # Change Log
 
+## 13/11/26 at 13:09:36 by [Ran Yahalom](mailto:ranya@wix.com)
+
+- Marked the instrument the CLI pays with as `selected: true` on `complete_checkout`, as the public UCP example does. A live business refused the approved Link payment with "No payment instrument selected", so the checkout stayed incomplete until the instrument was marked
+- Included in 0.13.0 (held back, deferred), with the payment path covered by the Hosted replay line in its pull request
+
+---
+
 ## 13/11/26 at 13:04:17 by [Ran Yahalom](mailto:ranya@wix.com)
 
 - Sent each booking-question answer as one entry `{value, collected_via?}` keyed by question id, the shape the public `2026-08-20` schema defines. The CLI still sent a bare value with a submission-level `collected_via` map, so a live business rejected every create-checkout request with `validation_error` and the booking could not be prepared

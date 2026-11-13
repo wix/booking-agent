@@ -294,6 +294,9 @@ def build_payment_instrument_for_complete_checkout(
         _handler_entry_for_id(checkout, handler_id) or {},
     ):
         inst["type"] = "link"
+    # The business rejects a completion whose only instrument is not marked selected
+    # (UCP complete_checkout; the public spec example sends selected: true).
+    inst["selected"] = True
     return inst
 
 
