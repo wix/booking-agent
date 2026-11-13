@@ -96,8 +96,12 @@
             "set_id": "intake",
             "revision": "r1",
             "answers": {
-              "pet_name": "Biscuit",
-              "breed": "mixed"
+              "pet_name": {
+                "value": "Biscuit"
+              },
+              "breed": {
+                "value": "mixed"
+              }
             }
           }
         ]

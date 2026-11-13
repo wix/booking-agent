@@ -130,10 +130,11 @@ def test_before_confirmation_questions_are_asked_then_sent_on_create(
     [create] = _calls("create_booking")
     assert create["booking_question_submissions"] == [{
         "set_id": "intake", "revision": "r1",
-        "answers": {"hair_length": "long", "color_allergy": True,
-                    "allergy_detail": "Itching after a dark dye"},
-        "collected_via": {"hair_length": "conversation", "color_allergy": "conversation",
-                          "allergy_detail": "conversation"},
+        "answers": {
+            "hair_length": {"value": "long", "collected_via": "conversation"},
+            "color_allergy": {"value": True, "collected_via": "conversation"},
+            "allergy_detail": {"value": "Itching after a dark dye", "collected_via": "conversation"},
+        },
     }]
     assert must_load().booking.id
 
@@ -168,7 +169,9 @@ def test_preflight_gates_availability_and_threads_the_token(
                            "--question-id", "prior_reaction", "--no"))
     assert eligible["next_command"] == f"booking-agent flow availability --service-id {_SERVICE_ID}"
     [check] = _calls("check_eligibility")
-    assert check["submissions"][0]["answers"] == {"prior_reaction": False}
+    assert check["submissions"][0]["answers"] == {
+        "prior_reaction": {"value": False, "collected_via": "conversation"},
+    }
 
     _ok(_invoke(runner, "flow", "availability", "--service-id", _SERVICE_ID))
     assert _calls("query_availability")[0] == {"booking_question_assessment_token": "bqat_mock"}
@@ -285,8 +288,9 @@ def test_buyer_input_action_needs_the_users_explicit_yes(
     assert done["next_command"] == "booking-agent flow book poll --wait"
     [update] = _calls("update_booking")
     assert update["booking_question_submissions"] == [{
-        "set_id": "intake", "revision": "r1", "answers": {"no_show_fee": True},
-        "action_id": "act_bq_1", "collected_via": {"no_show_fee": "platform_surface"},
+        "set_id": "intake", "revision": "r1",
+        "answers": {"no_show_fee": {"value": True, "collected_via": "platform_surface"}},
+        "action_id": "act_bq_1",
     }]
 
 
@@ -392,7 +396,8 @@ def test_recipient_preflight_is_about_that_person_and_goes_on_the_check(
     [check] = _calls("check_eligibility")
     assert check["recipient"] == {"first_name": "Noa", "last_name": "Levi"}
     assert check["submissions"][0]["answers"] == {
-        "participant_name": "Noa Levi", "birth_date": "2018-04-12",
+        "participant_name": {"value": "Noa Levi", "collected_via": "conversation"},
+        "birth_date": {"value": "2018-04-12", "collected_via": "conversation"},
     }
 
 

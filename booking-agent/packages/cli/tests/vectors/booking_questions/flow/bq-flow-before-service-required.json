@@ -98,7 +98,9 @@
             "set_id": "prep",
             "revision": "r1",
             "answers": {
-              "skin_type": "dry"
+              "skin_type": {
+                "value": "dry"
+              }
             }
           }
         ]

@@ -1,0 +1,152 @@
+{
+  "id": "bq-schema-submission-answers",
+  "section": "11.4.5",
+  "requirement": "one-answer-entry-per-question",
+  "kind": "wire",
+  "binding": [
+    "rest",
+    "mcp"
+  ],
+  "expect": "accept",
+  "schema": "booking_questions.json#/$defs/BookingQuestionSubmissions",
+  "notes": "Each question id maps to one answer entry carrying the typed value and the optional collected_via provenance claim. A bare value, a separate collected_via map, an entry without value, or an unknown provenance is not a submission.",
+  "case": "entries with provenance",
+  "instance": [
+    {
+      "set_id": "intake",
+      "revision": "r1",
+      "answers": {
+        "hair_length": {
+          "value": "long",
+          "collected_via": "conversation"
+        },
+        "no_show_fee": {
+          "value": true,
+          "collected_via": "platform_surface"
+        }
+      },
+      "action_id": "act_bq_1"
+    }
+  ],
+  "then": {
+    "conforming": true,
+    "schema_valid": true,
+    "member_name_violations": []
+  },
+  "variants": [
+    {
+      "case": "provenance omitted",
+      "expect": "accept",
+      "instance": [
+        {
+          "set_id": "intake",
+          "revision": "r1",
+          "answers": {
+            "hair_length": {
+              "value": "long"
+            }
+          }
+        }
+      ],
+      "then": {
+        "conforming": true,
+        "schema_valid": true,
+        "member_name_violations": []
+      }
+    },
+    {
+      "case": "bare value instead of an entry",
+      "expect": "reject",
+      "instance": [
+        {
+          "set_id": "intake",
+          "revision": "r1",
+          "answers": {
+            "hair_length": "long"
+          }
+        }
+      ],
+      "then": {
+        "conforming": false,
+        "schema_valid": false,
+        "member_name_violations": []
+      }
+    },
+    {
+      "case": "separate collected_via map",
+      "expect": "reject",
+      "instance": [
+        {
+          "set_id": "intake",
+          "revision": "r1",
+          "answers": {
+            "hair_length": {
+              "value": "long"
+            }
+          },
+          "collected_via": {
+            "hair_length": "conversation"
+          }
+        }
+      ],
+      "then": {
+        "conforming": false,
+        "schema_valid": false,
+        "member_name_violations": []
+      }
+    },
+    {
+      "case": "entry without value",
+      "expect": "reject",
+      "instance": [
+        {
+          "set_id": "intake",
+          "revision": "r1",
+          "answers": {
+            "hair_length": {
+              "collected_via": "conversation"
+            }
+          }
+        }
+      ],
+      "then": {
+        "conforming": false,
+        "schema_valid": false,
+        "member_name_violations": []
+      }
+    },
+    {
+      "case": "unknown provenance",
+      "expect": "reject",
+      "instance": [
+        {
+          "set_id": "intake",
+          "revision": "r1",
+          "answers": {
+            "hair_length": {
+              "value": "long",
+              "collected_via": "email"
+            }
+          }
+        }
+      ],
+      "then": {
+        "conforming": false,
+        "schema_valid": false,
+        "member_name_violations": []
+      }
+    }
+  ],
+  "wrong_answers": [
+    {
+      "behaviour": "send bare values plus a parallel collected_via map",
+      "violates": "11.4.5 Request Submission",
+      "why": "The business rejects the request as a validation_error. Question-level outcome codes apply only after the submission matches the schema."
+    },
+    {
+      "behaviour": "treat an entry without collected_via as invalid",
+      "violates": "11.4.5 Request Submission",
+      "why": "Provenance is optional; rejecting its absence fails a submission the buyer completed correctly."
+    }
+  ]
+}

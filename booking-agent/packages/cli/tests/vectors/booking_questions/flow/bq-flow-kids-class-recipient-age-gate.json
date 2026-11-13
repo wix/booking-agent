@@ -66,8 +66,12 @@
             "set_id": "participant",
             "revision": "r1",
             "answers": {
-              "participant_name": "Noa Levi",
-              "birth_date": "2018-04-12"
+              "participant_name": {
+                "value": "Noa Levi"
+              },
+              "birth_date": {
+                "value": "2018-04-12"
+              }
             }
           }
         ],
@@ -101,8 +105,12 @@
             "set_id": "participant",
             "revision": "r1",
             "answers": {
-              "participant_name": "Dana Levi",
-              "birth_date": "1990-03-14"
+              "participant_name": {
+                "value": "Dana Levi"
+              },
+              "birth_date": {
+                "value": "1990-03-14"
+              }
             }
           }
         ]

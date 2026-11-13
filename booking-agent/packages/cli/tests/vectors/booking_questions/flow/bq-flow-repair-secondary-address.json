@@ -90,9 +90,15 @@
             "set_id": "intake",
             "revision": "r1",
             "answers": {
-              "street": "12 Elm St",
-              "city": "Brooklyn",
-              "postal_code": "11201"
+              "street": {
+                "value": "12 Elm St"
+              },
+              "city": {
+                "value": "Brooklyn"
+              },
+              "postal_code": {
+                "value": "11201"
+              }
             }
           }
         ]

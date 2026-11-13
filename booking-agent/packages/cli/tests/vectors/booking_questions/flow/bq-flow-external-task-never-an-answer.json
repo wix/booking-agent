@@ -83,8 +83,12 @@
             "set_id": "intake",
             "revision": "r1",
             "answers": {
-              "hair_length": "long",
-              "waiver_sig": "data:image/png;base64,iVBORw0KGgo"
+              "hair_length": {
+                "value": "long"
+              },
+              "waiver_sig": {
+                "value": "data:image/png;base64,iVBORw0KGgo"
+              }
             }
           }
         ]

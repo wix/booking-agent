@@ -1,5 +1,29 @@
 # Change Log
 
+## 13/11/26 at 13:09:36 by [Ran Yahalom](mailto:ranya@wix.com)
+
+- Marked the instrument the CLI pays with as `selected: true` on `complete_checkout`, as the public UCP example does. A live business refused the approved Link payment with "No payment instrument selected", so the checkout stayed incomplete until the instrument was marked
+- Included in 0.13.0 (held back, deferred), with the payment path covered by the Hosted replay line in its pull request
+
+---
+
+## 13/11/26 at 13:04:17 by [Ran Yahalom](mailto:ranya@wix.com)
+
+- Sent each booking-question answer as one entry `{value, collected_via?}` keyed by question id, the shape the public `2026-08-20` schema defines. The CLI still sent a bare value with a submission-level `collected_via` map, so a live business rejected every create-checkout request with `validation_error` and the booking could not be prepared
+- Re-vendored the booking-question schema and vectors from the public spec at the commit that states the one-entry shape, and added the `bq-schema-submission-answers` wire vector, so the CLI's submission model is checked against the shape the spec now requires
+- Parsed booking-question submissions in the vector suite with the CLI model, so a shape regression in submissions fails the unit tests instead of passing silently
+- Included in 0.13.0 (held back, deferred), so the first release that asks booking questions already sends the shape businesses validate
+
+---
+
+## 13/11/26 at 10:39:18 by [Ran Yahalom](mailto:ranya@wix.com)
+
+- Declared `dev.usp-protocol.services.booking_questions` at 2026-08-20 in both profile blocks, and offered catalog, availability, and bookings at 2026-08-20 as well as 2026-08-14, so a business that publishes booking questions negotiates the extension. Exact version overlap left the extension inactive when the platform listed only the 2026-08-14 parents
+- Kept a capability's `extends` list when a UCP profile is read as a USP profile, so activation follows the parents the business declared rather than every negotiated surface
+- Released as 0.13.0 (skill 0.59.2), held back (deferred) until a live booking against a business that publishes questions is recorded
+
+---
+
 ## 06/11/26 at 10:47:20 by [Ran Yahalom](mailto:ranya@wix.com)
 
 - Fixed automatic fault reports being resent on every command after the support ingest processed the POST slowly: the one-second send budget was shorter than Google Apps Script's response time, so the client timed out before receiving the redirect and echo reply, left the report at the head of `fault-queue.jsonl`, and re-sent it on every later command while blocking newer reports behind it. Raised the send budget to five seconds, retired reports after two failed attempts (recording their fingerprint for the day so they are not re-queued), and expired queued reports older than a day

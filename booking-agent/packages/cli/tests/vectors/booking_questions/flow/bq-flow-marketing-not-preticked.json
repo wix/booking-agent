@@ -70,7 +70,9 @@
             "set_id": "intake",
             "revision": "r1",
             "answers": {
-              "sms_offers": false
+              "sms_offers": {
+                "value": false
+              }
             }
           }
         ]

@@ -91,15 +91,21 @@
             "set_id": "area",
             "revision": "r1",
             "answers": {
-              "postal_code": "10012"
+              "postal_code": {
+                "value": "10012"
+              }
             }
           },
           {
             "set_id": "size",
             "revision": "r1",
             "answers": {
-              "sq_ft": 1800,
-              "pets": 1
+              "sq_ft": {
+                "value": 1800
+              },
+              "pets": {
+                "value": 1
+              }
             }
           }
         ]

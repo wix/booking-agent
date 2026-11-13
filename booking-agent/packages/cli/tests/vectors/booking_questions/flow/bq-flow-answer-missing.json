@@ -85,7 +85,9 @@
             "set_id": "intake",
             "revision": "r1",
             "answers": {
-              "hair_length": "medium"
+              "hair_length": {
+                "value": "medium"
+              }
             }
           }
         ]

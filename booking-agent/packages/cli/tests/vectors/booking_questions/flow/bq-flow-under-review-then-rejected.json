@@ -50,7 +50,9 @@
             "set_id": "medical",
             "revision": "r1",
             "answers": {
-              "medications": "Isotretinoin 20mg"
+              "medications": {
+                "value": "Isotretinoin 20mg"
+              }
             }
           }
         ]
@@ -97,7 +99,9 @@
             "set_id": "medical",
             "revision": "r1",
             "answers": {
-              "medications": "None since September"
+              "medications": {
+                "value": "None since September"
+              }
             }
           }
         ]

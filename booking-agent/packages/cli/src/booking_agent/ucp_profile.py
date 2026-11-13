@@ -244,7 +244,9 @@ def usp_business_profile_from_ucp_native(ctx: UcpNativeContext) -> "USPBusinessP
         if not key.startswith(f"{SVC_SERVICES}."):
             continue
         usp_caps[key] = [
-            USPCapabilityEntry(version=e.version, spec=e.spec, schema_url=e.schema_url)
+            USPCapabilityEntry(
+                version=e.version, spec=e.spec, schema_url=e.schema_url, extends=e.extends,
+            )
             for e in entries
         ]
     usp_bindings: List[USPTransportBinding] = []

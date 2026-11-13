@@ -61,6 +61,8 @@ def test_wire_vector_parses_and_validates_answers(vector):
             MODEL_FOR[name].model_validate(instance)
         elif name == "BookingQuestionSets":
             TypeAdapter(list[models.BookingQuestionSet]).validate_python(instance)
+        elif name == "BookingQuestionSubmissions":
+            TypeAdapter(list[models.BookingQuestionSubmission]).validate_python(instance)
         assert not bq.semantic_errors_for(name, instance)
     for answer in vector.get("answer_cases", []):
         if answer.get("absent"):

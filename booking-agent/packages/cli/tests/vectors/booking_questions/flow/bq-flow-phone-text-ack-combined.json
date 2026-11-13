@@ -56,7 +56,9 @@
                   "set_id": "intake",
                   "revision": "r1",
                   "answers": {
-                    "hair_notes": "Fine hair, sensitive scalp"
+                    "hair_notes": {
+                      "value": "Fine hair, sensitive scalp"
+                    }
                   }
                 }
               ]
@@ -139,10 +141,10 @@
                 "$use": "bq-fx-step-submit-action",
                 "with": {
                   "answers": {
-                    "no_show_fee": true
-                  },
-                  "collected_via": {
-                    "no_show_fee": "platform_surface"
+                    "no_show_fee": {
+                      "value": true,
+                      "collected_via": "platform_surface"
+                    }
                   }
                 }
               }
@@ -162,7 +164,9 @@
             {
               "op": "add",
               "path": "/when/steps/0/with/submissions/0/answers/no_show_fee",
-              "value": true
+              "value": {
+                "value": true
+              }
             }
           ],
           "effects": [

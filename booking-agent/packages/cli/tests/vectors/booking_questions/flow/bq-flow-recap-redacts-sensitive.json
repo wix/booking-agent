@@ -101,8 +101,12 @@
             "set_id": "intake",
             "revision": "r1",
             "answers": {
-              "hair_length": "medium",
-              "conditions": "Mild asthma"
+              "hair_length": {
+                "value": "medium"
+              },
+              "conditions": {
+                "value": "Mild asthma"
+              }
             }
           }
         ]

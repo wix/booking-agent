@@ -1,7 +1,7 @@
 {
   "id": "bq-schema-long-text",
   "section": "11.4.3",
-  "requirement": "text-answer-limit-5000",
+  "requirement": "text-answer-limit-20000",
   "kind": "wire",
   "binding": [
     "rest",
@@ -9,8 +9,8 @@
   ],
   "expect": "accept",
   "schema": "booking_questions.json#/$defs/BookingQuestion",
-  "notes": "Long text is still a bounded string. 5000 characters is the schema maximum for maxLength; a business that needs more keeps the question on business-surface handoff.",
-  "case": "multi-line textarea at the 5000 maximum",
+  "notes": "Long text is still a bounded string. 20000 characters is the maximum for maxLength, and it is also the cap when maxLength is omitted. A business that needs more keeps the question on business-surface handoff.",
+  "case": "multi-line textarea at the 20000 maximum",
   "instance": {
     "kind": "question",
     "id": "history",
@@ -19,7 +19,7 @@
     },
     "schema": {
       "type": "string",
-      "maxLength": 5000
+      "maxLength": 20000
     },
     "required": true,
     "rendering": "textarea"
@@ -37,7 +37,7 @@
   ],
   "variants": [
     {
-      "case": "maxLength 5001",
+      "case": "maxLength 20001",
       "expect": "reject",
       "instance": {
         "kind": "question",
@@ -47,7 +47,7 @@
         },
         "schema": {
           "type": "string",
-          "maxLength": 5001
+          "maxLength": 20001
         },
         "required": true,
         "rendering": "textarea"

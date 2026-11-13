@@ -74,10 +74,12 @@
             "set_id": "intake",
             "revision": "r1",
             "answers": {
-              "allergies": [
-                "none",
-                "peanuts"
-              ]
+              "allergies": {
+                "value": [
+                  "none",
+                  "peanuts"
+                ]
+              }
             }
           }
         ]

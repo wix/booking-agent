@@ -63,7 +63,9 @@
             "set_id": "intake",
             "revision": "r1",
             "answers": {
-              "member_no": "12345678"
+              "member_no": {
+                "value": "12345678"
+              }
             }
           }
         ]

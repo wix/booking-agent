@@ -53,7 +53,9 @@
             "set_id": "participant",
             "revision": "r1",
             "answers": {
-              "birth_date": "2014-05-02"
+              "birth_date": {
+                "value": "2014-05-02"
+              }
             }
           }
         ],
@@ -85,7 +87,9 @@
             "set_id": "participant",
             "revision": "r1",
             "answers": {
-              "birth_date": "1990-03-14"
+              "birth_date": {
+                "value": "1990-03-14"
+              }
             }
           }
         ]

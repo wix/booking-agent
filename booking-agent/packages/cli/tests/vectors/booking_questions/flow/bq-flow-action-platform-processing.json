@@ -73,7 +73,9 @@
             "set_id": "intake",
             "revision": "r1",
             "answers": {
-              "hair_notes": "Fine hair"
+              "hair_notes": {
+                "value": "Fine hair"
+              }
             }
           }
         ]
@@ -128,12 +130,12 @@
             "set_id": "intake",
             "revision": "r1",
             "answers": {
-              "no_show_fee": true
+              "no_show_fee": {
+                "value": true,
+                "collected_via": "platform_surface"
+              }
             },
-            "action_id": "act_bq_1",
-            "collected_via": {
-              "no_show_fee": "platform_surface"
-            }
+            "action_id": "act_bq_1"
           }
         ]
       },

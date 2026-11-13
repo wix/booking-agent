@@ -75,8 +75,12 @@
               "set_id": "intake",
               "revision": "r1",
               "answers": {
-                "hair_length": "medium",
-                "scalp": "Psoriasis flare"
+                "hair_length": {
+                  "value": "medium"
+                },
+                "scalp": {
+                  "value": "Psoriasis flare"
+                }
               }
             }
           ]

@@ -72,7 +72,9 @@
             "set_id": "intake",
             "revision": "r1",
             "answers": {
-              "requests": "Window seat if possible"
+              "requests": {
+                "value": "Window seat if possible"
+              }
             }
           }
         ]

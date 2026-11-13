@@ -84,8 +84,12 @@
             "set_id": "intake",
             "revision": "r1",
             "answers": {
-              "hair_notes": "Fine hair",
-              "hair_length": "xl"
+              "hair_notes": {
+                "value": "Fine hair"
+              },
+              "hair_length": {
+                "value": "xl"
+              }
             }
           }
         ]
@@ -120,8 +124,12 @@
             "set_id": "intake",
             "revision": "r1",
             "answers": {
-              "hair_notes": "Fine hair",
-              "hair_length": "long"
+              "hair_notes": {
+                "value": "Fine hair"
+              },
+              "hair_length": {
+                "value": "long"
+              }
             }
           }
         ]

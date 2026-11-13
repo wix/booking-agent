@@ -3,4 +3,4 @@
 Ships in the booking-agent-cli wheel and never imports ``booking_agent_cli``.
 """
 
-__version__ = "0.12.1"
+__version__ = "0.13.0"

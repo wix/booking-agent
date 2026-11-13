@@ -198,12 +198,27 @@ def test_parse_usp_capable_ucp_accepts_capability_extends_list():
             ],
         }
     ]
+    doc["ucp"]["capabilities"]["dev.usp-protocol.services.booking_questions"] = [
+        {
+            "version": "2026-08-20",
+            "extends": [
+                "dev.usp-protocol.services.catalog",
+                "dev.usp-protocol.services.bookings",
+            ],
+        }
+    ]
 
     ctx = parse_ucp_native_context_from_document(
         doc,
         require_paid_bookings=False,
     )
 
+    profile = usp_business_profile_from_ucp_native(ctx)
+    carried = profile.capabilities["dev.usp-protocol.services.booking_questions"][0]
+    assert carried.extends == [
+        "dev.usp-protocol.services.catalog",
+        "dev.usp-protocol.services.bookings",
+    ]
     entry = ctx.profile.capabilities["dev.ucp.shopping.fulfillment"][0]
     assert entry.extends == [
         "dev.ucp.shopping.checkout",

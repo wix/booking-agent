@@ -95,8 +95,12 @@
             "set_id": "intake",
             "revision": "r1",
             "answers": {
-              "hair_notes": "Fine hair, sensitive scalp",
-              "hair_length": "medium"
+              "hair_notes": {
+                "value": "Fine hair, sensitive scalp"
+              },
+              "hair_length": {
+                "value": "medium"
+              }
             }
           }
         ]
@@ -143,9 +147,15 @@
             "set_id": "intake",
             "revision": "r2",
             "answers": {
-              "hair_notes": "Fine hair, sensitive scalp",
-              "hair_length": "medium",
-              "scalp_sensitive": false
+              "hair_notes": {
+                "value": "Fine hair, sensitive scalp"
+              },
+              "hair_length": {
+                "value": "medium"
+              },
+              "scalp_sensitive": {
+                "value": false
+              }
             }
           }
         ]

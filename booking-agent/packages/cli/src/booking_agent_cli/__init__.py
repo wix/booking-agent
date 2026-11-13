@@ -1,3 +1,3 @@
 """booking_agent_cli: typer-based stateful CLI for USP booking flows."""
 
-__version__ = "0.12.1"
+__version__ = "0.13.0"

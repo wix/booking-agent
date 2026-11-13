@@ -88,6 +88,13 @@ def test_published_capabilities_match_client_surface():
         ucp_client_capabilities.add("dev.ucp.common.payment.terms")
     if callable(build_paid_bookings_create_body):
         ucp_client_capabilities.add("dev.usp-protocol.services.paid_bookings")
+    create_booking = getattr(USPBusinessRestClient, "create_booking", None)
+    if (
+        callable(create_booking)
+        and "booking_question_submissions" in inspect.signature(create_booking).parameters
+    ):
+        usp_client_capabilities.add("dev.usp-protocol.services.booking_questions")
+        ucp_client_capabilities.add("dev.usp-protocol.services.booking_questions")
     # pay_at_service is declared only because the client can complete a checkout
     # with no payment instrument (USP 11.3.5 S4/S5).
     if "without_instrument" in inspect.signature(complete_ucp_checkout_async).parameters:

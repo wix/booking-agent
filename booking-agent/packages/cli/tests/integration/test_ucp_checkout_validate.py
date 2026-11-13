@@ -357,6 +357,7 @@ def test_build_instrument_handler_id_uses_instance_id():
     assert inst["credential"]["type"] == "stripe_payment_token"
     assert inst.get("type") == "link"
     assert inst.get("id") == "instr_abc"
+    assert inst["selected"] is True
 
 
 # ---------------------------------------------------------------------------

@@ -85,8 +85,12 @@
             "set_id": "intake",
             "revision": "r1",
             "answers": {
-              "pressure": "firm",
-              "injuries": "Torn ACL left knee"
+              "pressure": {
+                "value": "firm"
+              },
+              "injuries": {
+                "value": "Torn ACL left knee"
+              }
             }
           }
         ]

@@ -122,7 +122,9 @@
             "set_id": "intake",
             "revision": "r1",
             "answers": {
-              "adult_ack": true
+              "adult_ack": {
+                "value": true
+              }
             },
             "action_id": "act_bq_7"
           }

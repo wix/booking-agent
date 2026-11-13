@@ -38,7 +38,7 @@
     },
     "BookingQuestionLabel": {
       "title": "BookingQuestionLabel",
-      "description": "Buyer-facing label. Reuses the catalog Description object; plain is quoted verbatim by platforms and capped at 300 characters.",
+      "description": "Buyer-facing label. Reuses the catalog Description object; plain is quoted verbatim by platforms, may be empty, and is capped at 350 characters.",
       "allOf": [
         {
           "$ref": "catalog.json#/$defs/Description"
@@ -47,8 +47,7 @@
           "properties": {
             "plain": {
               "type": "string",
-              "minLength": 1,
-              "maxLength": 300
+              "maxLength": 350
             }
           }
         }
@@ -56,7 +55,7 @@
     },
     "BookingQuestionText": {
       "title": "BookingQuestionText",
-      "description": "Buyer-facing help or description text. Reuses the catalog Description object; plain is capped at 2000 characters.",
+      "description": "Buyer-facing help or description text. Reuses the catalog Description object. plain may be empty and has no maximum length.",
       "allOf": [
         {
           "$ref": "catalog.json#/$defs/Description"
@@ -64,9 +63,7 @@
         {
           "properties": {
             "plain": {
-              "type": "string",
-              "minLength": 1,
-              "maxLength": 2000
+              "type": "string"
             }
           }
         }
@@ -359,7 +356,7 @@
     "BookingQuestionOption": {
       "type": "object",
       "title": "BookingQuestionOption",
-      "description": "One choice option. const is the stable option identifier the platform submits; title is the plain-text label the platform quotes verbatim. title stays a JSON Schema string so the answer schema remains a valid MCP elicitation primitive.",
+      "description": "One choice option. const is the value the platform submits, any string of at most 20000 characters; title is the plain-text label the platform quotes verbatim. title may be empty and is at most 400 characters. title stays a JSON Schema string so the answer schema remains a valid MCP elicitation primitive.",
       "additionalProperties": false,
       "required": [
         "const",
@@ -368,12 +365,12 @@
       "properties": {
         "const": {
           "type": "string",
-          "pattern": "^[A-Za-z0-9_.-]{1,64}$"
+          "maxLength": 20000,
+          "description": "Value the platform submits. Any string of at most 20000 characters. Unique within the question."
         },
         "title": {
           "type": "string",
-          "minLength": 1,
-          "maxLength": 300
+          "maxLength": 400
         },
         "image_url": {
           "type": "string",
@@ -398,8 +395,7 @@
             "properties": {
               "title": {
                 "type": "string",
-                "minLength": 1,
-                "maxLength": 300
+                "maxLength": 400
               }
             }
           }
@@ -409,7 +405,7 @@
     "BookingQuestionStringSchema": {
       "type": "object",
       "title": "BookingQuestionStringSchema",
-      "description": "Free-text or formatted string answer. pattern is forbidden: a business that needs a specific text format describes it in the question description and restates it in any booking_question_answer_invalid message. A string without a format MUST declare maxLength.",
+      "description": "Free-text or formatted string answer. pattern is forbidden: a business that needs a specific text format describes it in the question description and restates it in any booking_question_answer_invalid message. A string without a format may omit maxLength. An omitted maxLength still caps the answer at 20000 characters, and a declared maxLength is at most 20000.",
       "additionalProperties": false,
       "required": [
         "type"
@@ -421,12 +417,12 @@
         "minLength": {
           "type": "integer",
           "minimum": 0,
-          "maximum": 5000
+          "maximum": 20000
         },
         "maxLength": {
           "type": "integer",
           "minimum": 1,
-          "maximum": 5000
+          "maximum": 20000
         },
         "format": {
           "type": "string",
@@ -458,20 +454,6 @@
         }
       },
       "allOf": [
-        {
-          "if": {
-            "not": {
-              "required": [
-                "format"
-              ]
-            }
-          },
-          "then": {
-            "required": [
-              "maxLength"
-            ]
-          }
-        },
         {
           "if": {
             "not": {
@@ -584,7 +566,7 @@
         "oneOf": {
           "type": "array",
           "minItems": 1,
-          "maxItems": 50,
+          "maxItems": 400,
           "items": {
             "$ref": "#/$defs/BookingQuestionOption"
           }
@@ -594,7 +576,7 @@
     "BookingQuestionMultipleChoiceSchema": {
       "type": "object",
       "title": "BookingQuestionMultipleChoiceSchema",
-      "description": "Multiple choice using items.anyOf of {const, title} options, so every option keeps its title. uniqueItems MUST be true. A bare array of option identifiers is not a conforming shape.",
+      "description": "Multiple choice using items.anyOf of {const, title} options, so every option keeps its title. uniqueItems MUST be true. A bare array of option values is not a conforming shape.",
       "additionalProperties": false,
       "required": [
         "type",
@@ -615,7 +597,7 @@
             "anyOf": {
               "type": "array",
               "minItems": 1,
-              "maxItems": 50,
+              "maxItems": 400,
               "items": {
                 "$ref": "#/$defs/BookingQuestionOption"
               }
@@ -658,7 +640,7 @@
     },
     "BookingQuestionAnswerValue": {
       "title": "BookingQuestionAnswerValue",
-      "description": "A typed answer value: string, number, boolean, or array of option identifiers. Never an object.",
+      "description": "A typed answer value: string, number, boolean, or array of option values. Never an object.",
       "oneOf": [
         {
           "type": "string"
@@ -1141,7 +1123,7 @@
         "items": {
           "type": "array",
           "minItems": 1,
-          "maxItems": 50,
+          "maxItems": 500,
           "items": {
             "$ref": "#/$defs/BookingQuestionItem"
           }
@@ -1238,10 +1220,32 @@
         ]
       }
     },
+    "BookingQuestionAnswer": {
+      "type": "object",
+      "title": "BookingQuestionAnswer",
+      "description": "One question's answer in a submission: the typed value and where the platform collected it.",
+      "additionalProperties": false,
+      "required": [
+        "value"
+      ],
+      "properties": {
+        "value": {
+          "$ref": "#/$defs/BookingQuestionAnswerValue"
+        },
+        "collected_via": {
+          "type": "string",
+          "enum": [
+            "conversation",
+            "platform_surface"
+          ],
+          "description": "Where the platform collected the value. A provenance claim only, never independently sufficient evidence that the buyer saw or accepted anything."
+        }
+      }
+    },
     "BookingQuestionSubmission": {
       "type": "object",
       "title": "BookingQuestionSubmission",
-      "description": "Answers for one set and revision. collected_via is a platform provenance claim only and is never independently sufficient evidence that the buyer saw or accepted anything.",
+      "description": "Answers for one set and revision, at most one entry per question id. Each entry carries the typed value and the platform's optional collected_via provenance claim, which is never independently sufficient evidence that the buyer saw or accepted anything.",
       "additionalProperties": false,
       "required": [
         "set_id",
@@ -1263,22 +1267,9 @@
             "pattern": "^[A-Za-z0-9_.-]{1,64}$"
           },
           "additionalProperties": {
-            "$ref": "#/$defs/BookingQuestionAnswerValue"
+            "$ref": "#/$defs/BookingQuestionAnswer"
           },
-          "description": "Map of question id to typed value. External tasks never appear here."
-        },
-        "collected_via": {
-          "type": "object",
-          "propertyNames": {
-            "pattern": "^[A-Za-z0-9_.-]{1,64}$"
-          },
-          "additionalProperties": {
-            "type": "string",
-            "enum": [
-              "conversation",
-              "platform_surface"
-            ]
-          }
+          "description": "Map of question id to that question's answer entry. External tasks never appear here."
         },
         "action_id": {
           "type": "string",
@@ -1393,7 +1384,7 @@
           "additionalProperties": {
             "$ref": "#/$defs/BookingQuestionAnswerValue"
           },
-          "description": "Non-sensitive accepted answer echo."
+          "description": "Non-sensitive accepted answer echo: map of question id to the accepted typed value, without the submission's answer entry wrapper."
         }
       },
       "allOf": [

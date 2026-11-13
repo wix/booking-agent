@@ -73,7 +73,9 @@
             "set_id": "intake",
             "revision": "r1",
             "answers": {
-              "hair_notes": "Fine hair"
+              "hair_notes": {
+                "value": "Fine hair"
+              }
             }
           }
         ]

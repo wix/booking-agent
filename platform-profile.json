@@ -31,6 +31,19 @@
           "version": "2026-08-25"
         }
       ],
+      "dev.usp-protocol.services.booking_questions": [
+        {
+          "extends": [
+            "dev.usp-protocol.services.catalog",
+            "dev.usp-protocol.services.availability",
+            "dev.usp-protocol.services.bookings",
+            "dev.usp-protocol.services.paid_bookings"
+          ],
+          "schema": "https://usp-protocol.dev/schemas/services/booking_questions.json",
+          "spec": "https://usp-protocol.dev/specification#booking-questions-extension",
+          "version": "2026-08-20"
+        }
+      ],
       "dev.usp-protocol.services.paid_bookings": [
         {
           "extends": "dev.ucp.shopping.checkout",
@@ -77,6 +90,24 @@
           "schema": "https://usp-protocol.dev/schemas/services/availability.json",
           "spec": "https://usp-protocol.dev/specification#4-availability",
           "version": "2026-08-14"
+        },
+        {
+          "schema": "https://usp-protocol.dev/schemas/services/availability.json",
+          "spec": "https://usp-protocol.dev/specification#4-availability",
+          "version": "2026-08-20"
+        }
+      ],
+      "dev.usp-protocol.services.booking_questions": [
+        {
+          "extends": [
+            "dev.usp-protocol.services.catalog",
+            "dev.usp-protocol.services.availability",
+            "dev.usp-protocol.services.bookings",
+            "dev.usp-protocol.services.paid_bookings"
+          ],
+          "schema": "https://usp-protocol.dev/schemas/services/booking_questions.json",
+          "spec": "https://usp-protocol.dev/specification#booking-questions-extension",
+          "version": "2026-08-20"
         }
       ],
       "dev.usp-protocol.services.bookings": [
@@ -84,6 +115,11 @@
           "schema": "https://usp-protocol.dev/schemas/services/booking.json",
           "spec": "https://usp-protocol.dev/specification#5-booking-lifecycle",
           "version": "2026-08-14"
+        },
+        {
+          "schema": "https://usp-protocol.dev/schemas/services/booking.json",
+          "spec": "https://usp-protocol.dev/specification#5-booking-lifecycle",
+          "version": "2026-08-20"
         }
       ],
       "dev.usp-protocol.services.catalog": [
@@ -91,6 +127,11 @@
           "schema": "https://usp-protocol.dev/schemas/services/catalog.json",
           "spec": "https://usp-protocol.dev/specification#3-service-catalog",
           "version": "2026-08-14"
+        },
+        {
+          "schema": "https://usp-protocol.dev/schemas/services/catalog.json",
+          "spec": "https://usp-protocol.dev/specification#3-service-catalog",
+          "version": "2026-08-20"
         }
       ]
     },
