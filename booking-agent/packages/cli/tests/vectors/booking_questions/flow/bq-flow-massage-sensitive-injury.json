@@ -85,8 +85,12 @@
             "set_id": "intake",
             "revision": "r1",
             "answers": {
-              "pressure": "medium",
-              "injuries": "Herniated disc L4"
+              "pressure": {
+                "value": "medium"
+              },
+              "injuries": {
+                "value": "Herniated disc L4"
+              }
             }
           }
         ]

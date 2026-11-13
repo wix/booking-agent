@@ -83,7 +83,9 @@
             "set_id": "eligibility",
             "revision": "r1",
             "answers": {
-              "prior_reaction": false
+              "prior_reaction": {
+                "value": false
+              }
             }
           }
         ]

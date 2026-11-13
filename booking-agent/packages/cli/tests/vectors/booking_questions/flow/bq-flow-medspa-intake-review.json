@@ -71,7 +71,9 @@
             "set_id": "medical",
             "revision": "r1",
             "answers": {
-              "concerns": "Sun spots on cheeks"
+              "concerns": {
+                "value": "Sun spots on cheeks"
+              }
             }
           }
         ]

@@ -13,9 +13,6 @@
     },
     "answers": {
       "required": true
-    },
-    "collected_via": {
-      "optional": true
     }
   },
   "body": {
@@ -36,9 +33,6 @@
           },
           "answers": {
             "$param": "answers"
-          },
-          "collected_via": {
-            "$param": "collected_via"
           }
         }
       ]

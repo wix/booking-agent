@@ -107,12 +107,14 @@
             "set_id": "intake",
             "revision": "r1",
             "answers": {
-              "hair_notes": "Fine hair, sensitive scalp",
-              "hair_length": "medium"
-            },
-            "collected_via": {
-              "hair_notes": "conversation",
-              "hair_length": "conversation"
+              "hair_notes": {
+                "value": "Fine hair, sensitive scalp",
+                "collected_via": "conversation"
+              },
+              "hair_length": {
+                "value": "medium",
+                "collected_via": "conversation"
+              }
             }
           }
         ]

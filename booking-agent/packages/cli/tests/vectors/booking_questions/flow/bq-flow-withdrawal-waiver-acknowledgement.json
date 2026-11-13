@@ -106,8 +106,12 @@
             "set_id": "intake",
             "revision": "r1",
             "answers": {
-              "withdrawal_waiver": true,
-              "no_show_fee": true
+              "withdrawal_waiver": {
+                "value": true
+              },
+              "no_show_fee": {
+                "value": true
+              }
             },
             "action_id": "act_bq_8"
           }

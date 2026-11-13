@@ -69,8 +69,12 @@
             "set_id": "size",
             "revision": "r1",
             "answers": {
-              "sq_ft": 2400,
-              "pets": 2
+              "sq_ft": {
+                "value": 2400
+              },
+              "pets": {
+                "value": 2
+              }
             }
           }
         ]

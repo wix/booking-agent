@@ -74,7 +74,9 @@
             "set_id": "intake",
             "revision": "r1",
             "answers": {
-              "contact_email": "A <a@b.c>"
+              "contact_email": {
+                "value": "A <a@b.c>"
+              }
             }
           }
         ]

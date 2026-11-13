@@ -58,7 +58,9 @@
             "set_id": "size",
             "revision": "r1",
             "answers": {
-              "sq_ft": 2400
+              "sq_ft": {
+                "value": 2400
+              }
             }
           }
         ]

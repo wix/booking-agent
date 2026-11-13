@@ -75,8 +75,12 @@
               "set_id": "intake",
               "revision": "r1",
               "answers": {
-                "hair_notes": "Fine hair, sensitive scalp",
-                "hair_length": "xl"
+                "hair_notes": {
+                  "value": "Fine hair, sensitive scalp"
+                },
+                "hair_length": {
+                  "value": "xl"
+                }
               }
             }
           ]

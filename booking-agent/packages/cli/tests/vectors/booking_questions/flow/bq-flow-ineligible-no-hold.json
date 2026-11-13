@@ -51,7 +51,9 @@
             "set_id": "eligibility",
             "revision": "r1",
             "answers": {
-              "prior_reaction": true
+              "prior_reaction": {
+                "value": true
+              }
             }
           }
         ]

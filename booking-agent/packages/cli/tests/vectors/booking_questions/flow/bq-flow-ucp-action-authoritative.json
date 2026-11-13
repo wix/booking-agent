@@ -63,7 +63,9 @@
               "set_id": "intake",
               "revision": "r1",
               "answers": {
-                "hair_notes": "Fine hair"
+                "hair_notes": {
+                  "value": "Fine hair"
+                }
               }
             }
           ]
@@ -109,8 +111,12 @@
               "set_id": "intake",
               "revision": "r1",
               "answers": {
-                "hair_notes": "Fine hair",
-                "no_show_fee": true
+                "hair_notes": {
+                  "value": "Fine hair"
+                },
+                "no_show_fee": {
+                  "value": true
+                }
               }
             }
           ]
@@ -157,8 +163,12 @@
               "set_id": "intake",
               "revision": "r1",
               "answers": {
-                "hair_notes": "Fine hair",
-                "no_show_fee": true
+                "hair_notes": {
+                  "value": "Fine hair"
+                },
+                "no_show_fee": {
+                  "value": true
+                }
               },
               "action_id": "act_bq_1"
             }

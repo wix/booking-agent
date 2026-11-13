@@ -432,15 +432,21 @@ def submissions(session: Any, *, timings: Iterable[str] = ("preflight", "before_
         kept = {q: v for q, v in given.items() if q in applicable}
         if not kept:
             continue
-        via = {
-            q: v for q, v in ((state(session).get("collected_via") or {}).get(set_id) or {}).items()
-            if q in kept
-        }
-        entry: Dict[str, Any] = {"set_id": set_id, "revision": qset["revision"], "answers": kept}
-        if via:
-            entry["collected_via"] = via
-        out.append(entry)
+        via = (state(session).get("collected_via") or {}).get(set_id) or {}
+        out.append({
+            "set_id": set_id,
+            "revision": qset["revision"],
+            "answers": {q: _answer_entry(v, via.get(q)) for q, v in kept.items()},
+        })
     return out
+
+
+def _answer_entry(value: Any, collected_via: Optional[str]) -> Dict[str, Any]:
+    """One question's entry: the typed value plus its optional provenance claim."""
+    entry: Dict[str, Any] = {"value": value}
+    if collected_via:
+        entry["collected_via"] = collected_via
+    return entry
 
 
 def submissions_digest(session: Any) -> Optional[str]:
@@ -791,18 +797,18 @@ def action_submissions(session: Any) -> List[Dict[str, Any]]:
     for item in entry.get("items") or []:
         sub = by_set.setdefault(item["set_id"], {
             "set_id": item["set_id"], "revision": item["revision"], "answers": {},
-            "action_id": entry["id"], "collected_via": {},
+            "action_id": entry["id"],
         })
-        sub["answers"][item["question_id"]] = True
-        sub["collected_via"][item["question_id"]] = "platform_surface"
+        sub["answers"][item["question_id"]] = _answer_entry(True, "platform_surface")
     return list(by_set.values())
 
 
 def record_action_answers(session: Any) -> None:
     st = state(session)
     for sub in action_submissions(session):
-        st.setdefault("answers", {}).setdefault(sub["set_id"], {}).update(sub["answers"])
-        st.setdefault("collected_via", {}).setdefault(sub["set_id"], {}).update(sub["collected_via"])
+        for qid, answer in sub["answers"].items():
+            st.setdefault("answers", {}).setdefault(sub["set_id"], {})[qid] = answer["value"]
+            st.setdefault("collected_via", {}).setdefault(sub["set_id"], {})[qid] = answer["collected_via"]
 
 
 # ---------------------------------------------------------------------------

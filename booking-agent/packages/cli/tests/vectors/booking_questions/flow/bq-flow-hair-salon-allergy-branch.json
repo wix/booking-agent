@@ -101,8 +101,12 @@
             "set_id": "intake",
             "revision": "r1",
             "answers": {
-              "hair_length": "long",
-              "color_allergy": true
+              "hair_length": {
+                "value": "long"
+              },
+              "color_allergy": {
+                "value": true
+              }
             }
           }
         ]
@@ -137,9 +141,15 @@
             "set_id": "intake",
             "revision": "r1",
             "answers": {
-              "hair_length": "long",
-              "color_allergy": true,
-              "allergy_detail": "Itching after a dark dye"
+              "hair_length": {
+                "value": "long"
+              },
+              "color_allergy": {
+                "value": true
+              },
+              "allergy_detail": {
+                "value": "Itching after a dark dye"
+              }
             }
           }
         ]

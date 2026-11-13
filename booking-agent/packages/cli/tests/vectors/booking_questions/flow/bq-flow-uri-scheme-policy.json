@@ -59,7 +59,9 @@
             "set_id": "intake",
             "revision": "r1",
             "answers": {
-              "portfolio": "javascript:alert(1)"
+              "portfolio": {
+                "value": "javascript:alert(1)"
+              }
             }
           }
         ]
@@ -95,7 +97,9 @@
             "set_id": "intake",
             "revision": "r1",
             "answers": {
-              "portfolio": "https://example.com/work"
+              "portfolio": {
+                "value": "https://example.com/work"
+              }
             }
           }
         ]

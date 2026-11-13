@@ -96,7 +96,9 @@
             "set_id": "prep",
             "revision": "r1",
             "answers": {
-              "allergies_detail": "None"
+              "allergies_detail": {
+                "value": "None"
+              }
             }
           }
         ]

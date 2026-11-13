@@ -85,8 +85,12 @@
             "set_id": "intake",
             "revision": "r1",
             "answers": {
-              "lead_source": "podcast",
-              "newsletter": true
+              "lead_source": {
+                "value": "podcast"
+              },
+              "newsletter": {
+                "value": true
+              }
             }
           }
         ]

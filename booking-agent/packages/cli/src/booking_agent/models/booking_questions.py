@@ -230,11 +230,17 @@ class BookingQuestionSet(_Model):
 RequiredBuyerField = Literal["first_name", "last_name", "email", "phone_number"]
 
 
+class BookingQuestionAnswerEntry(_Model):
+    """One question's answer in a submission: the typed value and its provenance claim."""
+
+    value: AnswerValue
+    collected_via: Optional[Literal["conversation", "platform_surface"]] = None
+
+
 class BookingQuestionSubmission(_Model):
     set_id: str
     revision: str
-    answers: Dict[str, AnswerValue]
-    collected_via: Optional[Dict[str, Literal["conversation", "platform_surface"]]] = None
+    answers: Dict[str, BookingQuestionAnswerEntry]
     action_id: Optional[str] = None
 
 

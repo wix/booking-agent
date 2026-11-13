@@ -51,7 +51,9 @@
             "set_id": "area",
             "revision": "r1",
             "answers": {
-              "postal_code": "94105"
+              "postal_code": {
+                "value": "94105"
+              }
             }
           }
         ]
@@ -85,7 +87,9 @@
             "set_id": "area",
             "revision": "r1",
             "answers": {
-              "postal_code": "10012"
+              "postal_code": {
+                "value": "10012"
+              }
             }
           }
         ]

@@ -1,5 +1,14 @@
 # Change Log
 
+## 13/11/26 at 13:04:17 by [Ran Yahalom](mailto:ranya@wix.com)
+
+- Sent each booking-question answer as one entry `{value, collected_via?}` keyed by question id, the shape the public `2026-08-20` schema defines. The CLI still sent a bare value with a submission-level `collected_via` map, so a live business rejected every create-checkout request with `validation_error` and the booking could not be prepared
+- Re-vendored the booking-question schema and vectors from the public spec at the commit that states the one-entry shape, and added the `bq-schema-submission-answers` wire vector, so the CLI's submission model is checked against the shape the spec now requires
+- Parsed booking-question submissions in the vector suite with the CLI model, so a shape regression in submissions fails the unit tests instead of passing silently
+- Included in 0.13.0 (held back, deferred), so the first release that asks booking questions already sends the shape businesses validate
+
+---
+
 ## 13/11/26 at 10:39:18 by [Ran Yahalom](mailto:ranya@wix.com)
 
 - Declared `dev.usp-protocol.services.booking_questions` at 2026-08-20 in both profile blocks, and offered catalog, availability, and bookings at 2026-08-20 as well as 2026-08-14, so a business that publishes booking questions negotiates the extension. Exact version overlap left the extension inactive when the platform listed only the 2026-08-14 parents
